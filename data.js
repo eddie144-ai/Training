@@ -573,7 +573,7 @@ const FAST_STAGES = [
   [12, 'Past 12 hours', 'Most people are running low on stored carbohydrate and burning more fat.'],
   [18, '18 hours', 'Your normal daily fast. Everything past here is a bonus.'],
   [24, 'One full day', 'Hunger often comes in waves and passes. Keep sipping water and electrolytes.'],
-  [36, '36 hours', 'Take it easy: light walking only, no heavy training.'],
+  [36, '36 hours', 'Autophagy (cellular clean-up) is thought to be well under way by now, though exact timing in people is hard to measure. Take it easy: light walking only, no heavy training.'],
   [48, 'Two days', 'Break this fast gently (see below).'],
   [72, 'Three days', 'Please don\'t go past 72 hours without your GP\'s say-so.'],
 ];

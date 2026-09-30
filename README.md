@@ -70,7 +70,8 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
     - **Rules:** your operating rules.
   - **Goal packs:** a goal pack arrives as a link. Opening it imports the goals and rules into
     this browser only; nothing personal lives in this code.
-  - The gratitude journal, weekly review and self-authoring.
+  - The gratitude journal, a dream diary (vividness and lucid dreams), the weekly review and
+    self-authoring.
   - **Channel:** your YouTube channel link, and videos moving from idea to filming, editing and
     published, with thumbnails.
     - Weekly progress-video talking points built from your logs: weight trend, chains, steps,
@@ -88,6 +89,7 @@ Chains are strict: a missed day resets them to 0.
 | Training plan followed | You trained on a planned training day, or rested on a rest or fast day. With no plan, it counts while you're within 7 days of your last session. |
 | Steps | Counted in weeks: 15,000 steps on 5 days, or 75,000 in the week. The first part-week is pro-rated. |
 | Tomorrow planned | Tomorrow's plan is saved. |
+| Your own "No ___" chains | You confirm each clean day. Set a "clean since" date and the days before count toward the streak, but earn no XP. Add them in Hero → Chains. |
 
 ## XP
 XP is recalculated from your logs every time, so edits can never leave it wrong. You gain a new

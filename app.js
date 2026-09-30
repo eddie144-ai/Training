@@ -17,6 +17,13 @@ const CHAINS = [
   { id: 'plan', name: 'Tomorrow planned', stat: 'MND', pts: 3, desc: 'Tomorrow\'s plan saved today.' },
 ];
 
+// Your own "No ___" chains, checked in by hand like coffee. `since` carries in days clean before the app.
+const customChainDefs = () => (S.customChains || []).filter((c) => c.active !== false)
+  .map((c) => ({ id: c.id, name: c.name, stat: 'MND', pts: 5, custom: true, since: c.since || null, created: c.created || null, desc: 'Tap when the day is done, or if you slip.' }));
+// Coffee first, then your own clean-streak chains, then the rest.
+const allChains = () => [CHAINS[0], ...customChainDefs(), ...CHAINS.slice(1)];
+const chainDef = (id) => allChains().find((c) => c.id === id);
+
 const QUESTS = {
   steps:    { name: '15,000 Steps',      stat: 'END', note: 'Enter your Garmin total. A sweat-suit walk is a bonus.' },
   training: { name: 'Training Session',  stat: 'STR', note: 'Log it in Train, or tap to mark done.' },
@@ -38,7 +45,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -123,6 +130,8 @@ function freshState() {
     measurements: [],
     garmin: {},
     channel: { name: '', url: '' },
+    customChains: [],
+    dreams: {},
     videos: [],
     fluids: [],
     compounds: [],
@@ -337,6 +346,7 @@ function trainingRecovered(date) {
 function chainAuto(date, id) {
   const t = today();
   const past = date < t;
+  if (chainDef(id)?.custom) return past ? 'miss' : 'pending';
   switch (id) {
     case 'coffee': return past ? 'miss' : 'pending';
     case 'diet': {
@@ -387,7 +397,15 @@ function stepsWeek(ws) {
 }
 
 function chainStatus(date, id) {
-  if (date < chainStart() || date > today()) return 'off';
+  if (date > today()) return 'off';
+  const def = chainDef(id);
+  if (def?.custom) {
+    // Days clean before the app started count toward the streak (but earn no XP).
+    if (def.since && date < def.since) return 'off';
+    // Days before the chain was added (or before the app's chains began) are carried in from `since`.
+    const carryEnd = def.created && def.created > chainStart() ? def.created : chainStart();
+    if (date < carryEnd) return def.since ? 'done' : 'off';
+  } else if (date < chainStart()) return 'off';
   const o = S.days[date]?.chains?.[id];
   if (o === true) return 'done';
   if (o === false) return 'miss';
@@ -400,7 +418,8 @@ function chainStreak(id) {
   if (chainMemo[id]) return chainMemo[id];
   const t = today();
   let cur = 0, best = 0, days = 0;
-  if (CHAINS.find((c) => c.id === id)?.weekly) {
+  const def = chainDef(id);
+  if (def?.weekly) {
     if (t < chainStart()) return (chainMemo[id] = { cur, best, days, today: 'off', unit: 'wk' });
     let week = null;
     for (let ws = weekStart(chainStart()); ws <= t; ws = addDays(ws, 7)) {
@@ -410,7 +429,8 @@ function chainStreak(id) {
     }
     return (chainMemo[id] = { cur, best, days, today: week.status, week, unit: 'wk' });
   }
-  for (let d = chainStart(); d <= t; d = addDays(d, 1)) {
+  const from = def?.custom && def.since ? def.since : chainStart();
+  for (let d = from; d <= t; d = addDays(d, 1)) {
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
   }
@@ -579,13 +599,17 @@ function computeXP() {
     }
   }
   for (let d = chainStart(); d <= today(); d = addDays(d, 1)) {
-    for (const c of CHAINS) if (chainStatus(d, c.id) === 'done') add(d, c.pts, `Chain: ${c.name}`, c.stat);
+    for (const c of allChains()) {
+      if (c.custom && c.created && d < c.created) continue; // carried-in days: streak only, no XP
+      if (chainStatus(d, c.id) === 'done') add(d, c.pts, `Chain: ${c.name}`, c.stat);
+    }
   }
   if (today() >= chainStart()) for (let ws = weekStart(chainStart()); ws <= today(); ws = addDays(ws, 7)) {
     if (stepsWeek(ws).status === 'done') add(ws, PTS.stepsWeek, 'Weekly step target', 'END');
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
+  Object.entries(S.dreams).forEach(([d, x]) => { if (x.text) add(d, PTS.dream, 'Dream diary', 'MND'); });
   S.videos.filter((v) => v.status === 'published').forEach((v) => add(v.date || '', PTS.video, `Video: ${v.title}`, 'MND'));
   Object.entries(S.garmin).forEach(([d, g]) => { if (Object.keys(g).length >= 3) add(d, PTS.garmin, 'Garmin day logged', 'VIT'); });
   const prs = prSessions();
@@ -800,6 +824,10 @@ function applyPack(p) {
   for (const b of p.baselines || []) {
     S.baselines[exKey(b.name)] = { name: b.name, date: b.date, note: b.note || '', sets: b.sets.map(([kg, reps]) => ({ kg: kg ?? null, reps: reps ?? null })) };
   }
+  for (const c of p.chains || []) {
+    const cur = S.customChains.find((x) => x.id === c.id);
+    if (cur) Object.assign(cur, { name: c.name, since: c.since ?? cur.since }); else S.customChains.push({ active: true, ...c, since: c.since || null, created: today() });
+  }
   S.pack = { name: p.name || 'Goal pack', at: new Date().toISOString() };
 }
 
@@ -914,6 +942,14 @@ function chainRow(c) {
       <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
   }
   const note = s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? 'On track: finish inside the window' : c.desc;
+  if (c.custom) {
+    const since = c.since ? daysBetween(c.since, today()) + (s === 'done' ? 1 : 0) : null;
+    return `<div class="chain ${s}">
+      <div class="row between"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.since ? `Clean since ${fmtDate(c.since)}` : 'Set the date you stopped in Hero → Chains'} · best ${st.best}</span></span>${flame}</div>
+      ${milestoneNote(st.cur)}
+      <div class="grid2"><button class="${s === 'done' ? 'primary' : ''}" data-act="clean" data-chain="${esc(c.id)}" data-v="1" aria-pressed="${s === 'done'}">✓ Clean today</button>
+      <button class="${s === 'miss' ? 'danger' : ''}" data-act="clean" data-chain="${esc(c.id)}" data-v="0" aria-pressed="${s === 'miss'}">I slipped</button></div></div>`;
+  }
   if (c.id === 'coffee') {
     return `<div class="chain ${s}">
       <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Tap when the day is done, or if you slip.' : esc(note)} · best ${st.best}</span></span>${flame}</div>
@@ -922,6 +958,14 @@ function chainRow(c) {
   }
   return `<button class="chain linkish ${s}" data-act="${action}">
     <span class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}${c.name}</b><br><span class="muted small">${esc(note)} · best ${st.best}</span></span>${flame}</span></button>`;
+}
+
+const CLEAN_MILESTONES = [7, 14, 30, 60, 90, 100, 180, 365, 500, 1000];
+function milestoneNote(n) {
+  const next = CLEAN_MILESTONES.find((m) => m > n);
+  const hit = CLEAN_MILESTONES.includes(n);
+  if (hit) return `<p class="small good-text">★ ${n} days. Milestone reached.</p>`;
+  return next ? `<p class="muted small">${next - n} day${next - n === 1 ? '' : 's'} to ${next}</p>` : '';
 }
 
 function coffeeSupport() {
@@ -1012,10 +1056,11 @@ function viewToday(P) {
   ${fastingCard()}
   <section class="card">
     <h2>Chains <span class="right">${started ? 'miss a day and it resets' : `start ${fmtDate(chainStart())}`}</span></h2>
-    ${started ? CHAINS.map(chainRow).join('') : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
+    ${started ? allChains().map(chainRow).join('') : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
       <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
   </section>
   ${started ? coffeeSupport() : ''}
+  ${new Date().getHours() < 11 && !S.dreams[d] ? `<section class="card slim"><p class="small">🌙 Remember a dream? <button class="linkish inline" data-act="go-dream">Log it before it fades</button></p></section>` : ''}
   ${todayGoalsCard(d)}
   ${todaysPlanCard(d)}
   ${planTomorrowPrompt(d)}
@@ -1746,7 +1791,7 @@ function viewHeroCharacter(P) {
   <section class="card">
     <h2>How XP works</h2>
     <div class="list small">
-      <div>Chains, per day kept: ${CHAINS.map((c) => `${c.name} +${c.pts}`).join(' · ')}</div>
+      <div>Chains, per day kept: ${allChains().map((c) => `${c.name} +${c.pts}`).join(' · ')}</div>
       <div>Daily quests +${QUEST_BASE} · sweat-suit bonus +${PTS.sweat} · weekly step target +${PTS.stepsWeek}</div>
       <div>Daily goal +${PTS.goal1} each · all daily goals done +${PTS.goalAll} · weekly goal reached +${PTS.goalWeek}</div>
       <div>Training session +${PTS.session} · personal record +${PTS.pr}</div>
@@ -1892,6 +1937,27 @@ function weekSummary(ws) {
   return { days: days.length, sessions, coffee: kept('coffee'), diet: kept('diet'), sleep: sl.length ? round1(sum(sl, (s) => s.hours) / sl.length) : null, change: avgW !== null && prevW !== null ? round1(avgW - prevW) : null };
 }
 
+function dreamCard(d) {
+  const dr = S.dreams[d] || {};
+  const past = Object.keys(S.dreams).filter((x) => x !== d && !S.dreams[x].none).sort().reverse().slice(0, 5);
+  const logged = Object.values(S.dreams).filter((x) => !x.none).length;
+  return `<section class="card" id="dream-diary">
+    <h2>Dream diary · last night <span class="right">${logged} logged</span></h2>
+    <p class="muted small">Write it within a few minutes of waking, before your phone pulls you away. Dreams are often more vivid in the weeks after quitting cannabis, as REM sleep rebounds.</p>
+    <form id="dream-form" class="grid1" autocomplete="off">
+      <input type="hidden" name="date" value="${d}">
+      <textarea name="text" rows="4" maxlength="3000" placeholder="People, places, feelings, anything odd…">${esc(dr.text || '')}</textarea>
+      <div class="grid2">
+        <label class="field">Vividness<select name="vivid"><option value="">—</option>${[1, 2, 3, 4, 5].map((n) => `<option ${dr.vivid === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="field check-field"><span>Lucid (knew I was dreaming)</span><input name="lucid" type="checkbox" ${dr.lucid ? 'checked' : ''}></label>
+      </div>
+      <label class="field check-field"><span>No dream remembered</span><input name="none" type="checkbox" ${dr.none ? 'checked' : ''}></label>
+      <button type="submit">${dr.at ? 'Update' : `Save dream · +${PTS.dream} XP`}</button>
+    </form>
+    ${past.length ? `<details class="small"><summary>Recent dreams</summary><div class="list">${past.map((x) => `<div><b>${fmtDate(x)}</b>${S.dreams[x].vivid ? ` · vivid ${S.dreams[x].vivid}/5` : ''}${S.dreams[x].lucid ? ' · lucid' : ''}<br><span class="muted">${esc(S.dreams[x].text)}</span></div>`).join('')}</div></details>` : ''}
+  </section>`;
+}
+
 function viewHeroJournal() {
   const d = today();
   const j = S.journal[d] || {};
@@ -1907,6 +1973,7 @@ function viewHeroJournal() {
       <button class="primary" type="submit">${j.at ? 'Update entry' : `Save entry · +${QUEST_BASE} XP`}</button>
     </form>
   </section>
+  ${dreamCard(d)}
   <section class="card">
     <h2>Weekly review · week of ${fmtDate(ws)}</h2>
     <div class="stats">
@@ -2055,7 +2122,7 @@ function viewHeroCalendar() {
     const off = ds < cs || ds > t;
     let mark = '&nbsp;', cls = '';
     if (!off) {
-      if (sel === 'all') { const n = CHAINS.filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === CHAINS.length ? 'streak' : ''; }
+      if (sel === 'all') { const n = allChains().filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === allChains().length ? 'streak' : ''; }
       else { const s = chainStatus(ds, sel); mark = STATUS_ICON[s] || '·'; cls = s === 'done' ? 'streak' : s === 'miss' ? 'missday' : ''; }
     }
     cells.push(`<button class="${ds === d ? 'sel' : ''} ${off ? 'off' : ''} ${cls}" data-act="cal-date" data-date="${ds}" aria-label="${fmtDate(ds)}">${i}<span class="dots">${mark}</span></button>`);
@@ -2063,19 +2130,32 @@ function viewHeroCalendar() {
   const before = d < cs || d > t;
   const o = S.days[d]?.chains || {};
   return `
-  <div class="chiprow">${[['all', 'All chains'], ...CHAINS.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="pchip" data-act="cal-chain" data-v="${k}" aria-pressed="${sel === k}">${esc(l)}</button>`).join('')}</div>
+  <div class="chiprow">${[['all', 'All chains'], ...allChains().map((c) => [c.id, c.name])].map(([k, l]) => `<button class="pchip" data-act="cal-chain" data-v="${k}" aria-pressed="${sel === k}">${esc(l)}</button>`).join('')}</div>
+  <section class="card">
+    <h2>Your clean streaks</h2>
+    <p class="muted small">"No ___" chains you check in each day, like coffee. Set the date you stopped and the days before the app count towards the streak.</p>
+    ${(S.customChains || []).length ? `<div class="list">${S.customChains.map((c) => `<form class="cc-form grid2" data-id="${esc(c.id)}" autocomplete="off">
+      <label class="field">Chain<input name="name" maxlength="40" value="${esc(c.name)}"></label>
+      <label class="field">Clean since<input name="since" type="date" max="${t}" value="${esc(c.since || '')}"></label>
+      <button type="submit">Save</button><button type="button" class="ghost danger" data-act="cc-del" data-id="${esc(c.id)}">Delete</button></form>`).join('')}</div>` : ''}
+    <form id="cc-new" class="grid2" autocomplete="off">
+      <label class="field">New chain<input name="name" required maxlength="40" placeholder="e.g. No energy drinks"></label>
+      <label class="field">Clean since<input name="since" type="date" max="${t}"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Add chain</button>
+    </form>
+  </section>
   <section class="card">
     <h2>Streaks</h2>
-    <div class="list">${CHAINS.map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
+    <div class="list">${allChains().map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
   </section>
   <section class="card">
     <h2>${MON[first.getMonth()]} ${first.getFullYear()}</h2>
     <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((x) => `<span class="dow">${x}</span>`).join('')}${cells.join('')}</div>
-    <p class="muted small">${sel === 'all' ? `Numbers = chains kept that day. Green = all ${CHAINS.length}.` : '✓ kept · ✕ broken.'} Chains started ${fmtDate(cs)}.</p>
+    <p class="muted small">${sel === 'all' ? `Numbers = chains kept that day. Green = all ${allChains().length}.` : '✓ kept · ✕ broken.'} Chains started ${fmtDate(cs)}.</p>
   </section>
   <section class="card">
     ${dateNav('cal-nav', d)}
-    ${before ? `<p class="muted">${d > t ? 'This day hasn\'t happened yet.' : `Chains start on ${fmtDate(cs)}.`}</p>` : `<div class="list">${CHAINS.map((c) => {
+    ${before ? `<p class="muted">${d > t ? 'This day hasn\'t happened yet.' : `Chains start on ${fmtDate(cs)}.`}</p>` : `<div class="list">${allChains().map((c) => {
       const s = chainStatus(d, c.id);
       const cur = o[c.id] === true ? 'yes' : o[c.id] === false ? 'no' : 'auto';
       return `<div><div class="row between"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}${c.name}</b><span class="muted small">${s === 'pending' ? 'in progress' : s === 'done' ? 'kept' : 'broken'}</span></div>
@@ -2206,7 +2286,7 @@ function openFastStart() {
 
 function confirmPack(p) {
   const n = (x) => (x || []).length;
-  const parts = [n(p.daily) && `${n(p.daily)} daily`, n(p.weekly) && `${n(p.weekly)} weekly`, n(p.longterm) && `${n(p.longterm)} long-term goals`, n(p.principles) && `${n(p.principles)} operating rules`, n(p.baselines) && `${n(p.baselines)} starting weights`].filter(Boolean);
+  const parts = [n(p.daily) && `${n(p.daily)} daily`, n(p.weekly) && `${n(p.weekly)} weekly`, n(p.longterm) && `${n(p.longterm)} long-term goals`, n(p.principles) && `${n(p.principles)} operating rules`, n(p.baselines) && `${n(p.baselines)} starting weights`, n(p.chains) && `${n(p.chains)} clean-streak chains`].filter(Boolean);
   ask(`Import "${p.name || 'goal pack'}"?\n${parts.join(' · ')}.\nNothing you've already logged is changed.`, 'Import', () => {
     applyPack(p);
     if (n(p.daily) || n(p.weekly) || n(p.longterm)) { ui.tab = 'hero'; ui.sub.hero = 'goals'; ui.goalView = 'today'; } else if (n(p.baselines)) ui.tab = 'train';
@@ -2479,8 +2559,23 @@ document.addEventListener('click', (e) => {
       confirmPack(p);
       return;
     }
+    case 'go-dream': ui.tab = 'hero'; ui.sub.hero = 'journal'; rememberUi(); render(); document.getElementById('dream-diary')?.scrollIntoView(); return;
     case 'go-train': ui.tab = 'train'; rememberUi(); render({ scrollTop: true }); return;
     case 'go-plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(today(), 1); rememberUi(); render({ scrollTop: true }); return;
+    case 'clean': {
+      const c = (dayRec(today()).chains ||= {});
+      const id = el.dataset.chain, v = el.dataset.v === '1';
+      if (c[id] === v) delete c[id]; else c[id] = v;
+      const name = chainDef(id)?.name || 'Chain';
+      if (c[id] === true) toast(`${name} · day ${chainStreak(id).cur + 1} kept`);
+      if (c[id] === false) toast(`${name} reset. A slip is data, not a verdict: day 1 is tomorrow`);
+      break;
+    }
+    case 'cc-del': {
+      const cc = S.customChains.find((x) => x.id === el.dataset.id);
+      ask(`Delete the "${cc.name}" chain? Its history goes too.`, 'Delete', () => { S.customChains = S.customChains.filter((x) => x.id !== cc.id); });
+      return;
+    }
     case 'coffee': {
       const c = (dayRec(today()).chains ||= {});
       const v = el.dataset.v === '1';
@@ -2871,6 +2966,14 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.target;
   const data = Object.fromEntries(new FormData(f));
+  if (f.classList.contains('cc-form')) {
+    const cc = S.customChains.find((x) => x.id === f.dataset.id);
+    cc.name = (data.name || '').trim() || cc.name;
+    cc.since = data.since || null;
+    toast('Chain saved');
+    commit();
+    return;
+  }
   switch (f.id || (f.classList.contains('milestone-form') && 'milestone-form')) {
     case 'oneoff-form':
     case 'meal-edit-form': {
@@ -2917,6 +3020,21 @@ document.addEventListener('submit', (e) => {
       const ml = Math.round(num(data.ml) || 0);
       if (ml <= 0 || ml > 3000) return toast('Enter an amount in ml');
       addFluid(ml, ui.fuelDate || today());
+      break;
+    }
+    case 'cc-new': {
+      const name = (data.name || '').trim();
+      if (!name) return toast('Name the chain');
+      S.customChains.push({ id: `cc-${uid()}`, name, since: data.since || null, created: today(), active: true });
+      toast(`${name} added`);
+      break;
+    }
+    case 'dream-form': {
+      const d = data.date || today();
+      const text = (data.text || '').trim();
+      if (!text && !data.none) return toast('Write what you remember, or tick "No dream remembered"');
+      S.dreams[d] = { text, vivid: num(data.vivid), lucid: !!data.lucid, none: !!data.none, at: S.dreams[d]?.at || new Date().toISOString() };
+      toast('Dream saved');
       break;
     }
     case 'channel-form': {
