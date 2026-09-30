@@ -926,6 +926,10 @@ function fastingCard() {
   </section>`;
 }
 
+// "Day N" for abstinence chains: today counts as a day unless you've slipped today.
+const dayNumber = (st) => (st.today === 'miss' ? 0 : st.cur + (st.today === 'pending' ? 1 : 0));
+const dayBadge = (st) => { const n = dayNumber(st); return `<span class="daybadge ${n ? '' : 'zero'}" aria-label="Day ${n}"><small>Day</small>${n}</span>`; };
+
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
@@ -945,14 +949,14 @@ function chainRow(c) {
   if (c.custom) {
     const since = c.since ? daysBetween(c.since, today()) + (s === 'done' ? 1 : 0) : null;
     return `<div class="chain ${s}">
-      <div class="row between"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.since ? `Clean since ${fmtDate(c.since)}` : 'Set the date you stopped in Hero → Chains'} · best ${st.best}</span></span>${flame}</div>
-      ${milestoneNote(st.cur)}
+      <div class="row between"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.since ? `Clean since ${fmtDate(c.since)}` : 'Set the date you stopped in Hero → Chains'} · best ${st.best}</span></span>${dayBadge(st)}</div>
+      ${milestoneNote(dayNumber(st))}
       <div class="grid2"><button class="${s === 'done' ? 'primary' : ''}" data-act="clean" data-chain="${esc(c.id)}" data-v="1" aria-pressed="${s === 'done'}">✓ Clean today</button>
       <button class="${s === 'miss' ? 'danger' : ''}" data-act="clean" data-chain="${esc(c.id)}" data-v="0" aria-pressed="${s === 'miss'}">I slipped</button></div></div>`;
   }
   if (c.id === 'coffee') {
     return `<div class="chain ${s}">
-      <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Tap when the day is done, or if you slip.' : esc(note)} · best ${st.best}</span></span>${flame}</div>
+      <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Tap when the day is done, or if you slip.' : esc(note)} · best ${st.best}</span></span>${dayBadge(st)}</div>
       <div class="grid2"><button class="${s === 'done' ? 'primary' : ''}" data-act="coffee" data-v="1" aria-pressed="${s === 'done'}">✓ Coffee-free today</button>
       <button class="${s === 'miss' ? 'danger' : ''}" data-act="coffee" data-v="0" aria-pressed="${s === 'miss'}">I had coffee</button></div></div>`;
   }
@@ -962,9 +966,10 @@ function chainRow(c) {
 
 const CLEAN_MILESTONES = [7, 14, 30, 60, 90, 100, 180, 365, 500, 1000];
 function milestoneNote(n) {
+  if (!n) return '<p class="muted small">Day 1 starts tomorrow.</p>';
   const next = CLEAN_MILESTONES.find((m) => m > n);
   const hit = CLEAN_MILESTONES.includes(n);
-  if (hit) return `<p class="small good-text">★ ${n} days. Milestone reached.</p>`;
+  if (hit) return `<p class="small good-text">★ Day ${n}. Milestone reached.</p>`;
   return next ? `<p class="muted small">${next - n} day${next - n === 1 ? '' : 's'} to ${next}</p>` : '';
 }
 
