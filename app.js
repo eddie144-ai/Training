@@ -111,7 +111,7 @@ function freshState() {
     v: 3,
     settings: {
       proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000,
-      startWeight: 90, target: 77, heightCm: null, cycleStart: '2026-10-01', cycleFixed: true, highContrast: false,
+      startWeight: 96.8, startFixed: true, target: 77, heightCm: null, cycleStart: '2026-10-01', cycleFixed: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
     },
@@ -200,6 +200,11 @@ function normalise(s) {
   out.fluids = (out.fluids || []).map((f) => (f.type === 'coffee' ? { ...f, type: 'tea' } : f));
   delete out.refeeds;
   // One-time move of the old placeholder cycle start (5 Oct) to the real restart date, 1 Oct.
+  // One-time move of the old 90 kg placeholder to the real start weigh-in, 96.8 kg on 1 Oct 2026.
+  if (!s.settings?.startFixed) {
+    if (out.settings.startWeight === 90) out.settings.startWeight = 96.8;
+    out.settings.startFixed = true;
+  }
   if (!s.settings?.cycleFixed) {
     if (out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-01';
     out.settings.cycleFixed = true;
@@ -242,7 +247,7 @@ function load() {
       return n;
     }
     const n = normalise(parsed);
-    if (!parsed.settings?.cycleFixed) localStorage.setItem(STORE_KEY, JSON.stringify(n));
+    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed) localStorage.setItem(STORE_KEY, JSON.stringify(n));
     return n;
   } catch {
     storageOk = false;
