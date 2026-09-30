@@ -49,6 +49,14 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
     ingredients, numbered steps and batch tips. The **Add to…** menu logs a recipe today or
     plans it for tomorrow.
   - **Fluids** and **Stack:** the pre-workout stack has been removed.
+- **Body → Garmin:** enter any day's Venu Sq data. Fields: steps, resting heart rate, Body
+  Battery (on waking, high and low), stress, respiration, Pulse Ox, sleep and sleep score,
+  intensity minutes, active calories, distance and max heart rate.
+  - Shows 7-day averages against the week before, with 14-day sparklines.
+  - Gives a recovery read, from waking Body Battery and resting heart rate against your own
+    baseline, and shows it in Train too.
+  - Plain-language notes on the trends.
+  - Steps and sleep fill in the steps chain and the sleep log automatically.
 - **Body:** weight, measurements, sleep and settings. Settings include the eating-window
   presets (16:8, 18:6, 20:4, OMAD), the chain start date, backup and restore, the old data,
   and **Reset all data** (with an option to keep exercise weights).

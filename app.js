@@ -38,7 +38,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -121,6 +121,7 @@ function freshState() {
     sleep: [],
     weights: [],
     measurements: [],
+    garmin: {},
     fluids: [],
     compounds: [],
     goals: seedGoals(),
@@ -571,6 +572,7 @@ function computeXP() {
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
+  Object.entries(S.garmin).forEach(([d, g]) => { if (Object.keys(g).length >= 3) add(d, PTS.garmin, 'Garmin day logged', 'VIT'); });
   const prs = prSessions();
   for (const w of S.workouts) {
     add(w.date, PTS.session, `Session: ${w.dayName}`, 'STR');
@@ -789,13 +791,13 @@ const TABS = [['today', 'Today'], ['plan', 'Plan'], ['train', 'Train'], ['fuel',
 const SUBTABS = {
   plan: [['tomorrow', 'Tomorrow'], ['week', 'Week'], ['shop', 'Shopping']],
   fuel: [['log', 'Log'], ['recipes', 'Recipes'], ['fluids', 'Fluids'], ['stack', 'Stack']],
-  body: [['weight', 'Weight'], ['measure', 'Measure'], ['sleep', 'Sleep'], ['settings', 'Settings']],
+  body: [['weight', 'Weight'], ['garmin', 'Garmin'], ['measure', 'Tape'], ['sleep', 'Sleep'], ['settings', 'Setup']],
   hero: [['character', 'Character'], ['goals', 'Goals'], ['journal', 'Journal'], ['calendar', 'Chains']],
 };
 const ui = {
   tab: 'today', sub: { plan: 'tomorrow', fuel: 'log', body: 'weight', hero: 'character' },
   fuelDate: null, calDate: null, calChain: 'all', planDate: null, weekStart: null, dayId: null, editProgram: false, drafts: {},
-  goalView: 'today', goalDate: null, goalWeek: null,
+  garminDate: null, goalView: 'today', goalDate: null, goalWeek: null,
   recipeFilter: 'All', recipeQuery: '', openRecipe: null, ingChecks: {}, fluidType: 'water',
   sleepHours: 7.5, sleepQuality: null, openSession: null, openTech: null,
 };
@@ -1235,6 +1237,7 @@ function viewTrain() {
   ${af && fastHours(af) >= 24 ? `<section class="card slim"><p class="small warn-text">⚠ You are ${Math.floor(fastHours(af))} hours into a fast. HIT needs fuel: train after you break it, in your eating window.</p></section>` : ''}
   <section class="card">
     <div class="row between wrap"><h3>${esc(prog.name)}</h3>${rec ? chip(rec.text, rec.cls) : chip(`Cycle week ${Math.max(1, cycleWeek())}`)}</div>
+    ${garminReadiness() ? `<p>${chip(garminReadiness().text, garminReadiness().cls)}</p>` : ''}
     ${prog.about ? `<p class="muted small">${esc(prog.about)}</p>` : ''}
     ${prog.source ? `<p class="muted small">Source: ${esc(prog.source)}</p>` : ''}
     ${dayButtons}
@@ -1531,6 +1534,118 @@ function viewBodySleep() {
   </section>`;
 }
 
+// ===========================================================================
+// GARMIN
+// ===========================================================================
+// Everything the Venu Sq records, entered from Garmin Connect's daily summary.
+// better: which direction is an improvement (for the trend arrows).
+const GARMIN_FIELDS = [
+  ['steps', 'Steps', '', 'up', 'Syncs with your steps chain'],
+  ['rhr', 'Resting heart rate', 'bpm', 'down', 'Heart icon → resting value'],
+  ['bbWake', 'Body Battery on waking', '', 'up', 'Person with lightning bolt'],
+  ['bbHigh', 'Body Battery high', '', 'up', ''],
+  ['bbLow', 'Body Battery low', '', 'up', ''],
+  ['stress', 'Average stress', '0–100', 'down', 'Figure icon; under 25 is rest'],
+  ['resp', 'Average respiration', 'brpm', null, 'Wind icon, breaths per minute'],
+  ['spo2', 'Pulse Ox average', '%', 'up', 'Overnight average if tracked'],
+  ['sleepH', 'Sleep', 'h', 'up', 'Also fills your sleep log'],
+  ['sleepScore', 'Sleep score', '0–100', 'up', 'If Garmin Connect shows one'],
+  ['intensity', 'Intensity minutes', 'min', 'up', 'Today; the weekly total is the sum'],
+  ['activeKcal', 'Active calories', 'kcal', null, ''],
+  ['distance', 'Distance', 'km', 'up', ''],
+  ['maxHr', 'Max heart rate', 'bpm', null, ''],
+];
+const gOn = (date) => S.garmin[date] || null;
+const gVal = (date, k) => (k === 'steps' ? (stepsOn(date) || null) : gOn(date)?.[k] ?? null);
+function gAvg(k, end, days) {
+  const xs = [];
+  for (let i = 0; i < days; i++) { const v = gVal(addDays(end, -i), k); if (v != null) xs.push(v); }
+  return xs.length ? sum(xs, (x) => x) / xs.length : null;
+}
+
+// A recovery read for training, from waking Body Battery and resting heart rate against your own 7-day baseline.
+function garminReadiness(date = today()) {
+  const g = gOn(date);
+  if (!g) return null;
+  const bb = g.bbWake ?? g.bbHigh;
+  const base = gAvg('rhr', addDays(date, -1), 7);
+  const rhrUp = g.rhr != null && base != null ? g.rhr - base : null;
+  if ((bb != null && bb < 30) || (rhrUp != null && rhrUp >= 7)) return { cls: 'bad', text: `Garmin: low recovery${bb != null ? ` · BB ${bb}` : ''}${rhrUp != null && rhrUp >= 7 ? ` · RHR +${Math.round(rhrUp)}` : ''}` };
+  if ((bb != null && bb < 50) || (rhrUp != null && rhrUp >= 4)) return { cls: 'warn', text: `Garmin: so-so recovery${bb != null ? ` · BB ${bb}` : ''}` };
+  if (bb != null || rhrUp != null) return { cls: 'good', text: `Garmin: recovered${bb != null ? ` · BB ${bb}` : ''}` };
+  return null;
+}
+
+function spark(k, end) {
+  const pts = Array.from({ length: 14 }, (_, i) => gVal(addDays(end, i - 13), k));
+  const xs = pts.filter((v) => v != null);
+  if (xs.length < 2) return '';
+  const lo = Math.min(...xs), hi = Math.max(...xs), span = hi - lo || 1;
+  const coords = pts.map((v, i) => (v == null ? null : `${(i * 140) / 13},${34 - ((v - lo) / span) * 30}`)).filter(Boolean).join(' ');
+  return `<svg class="spark" viewBox="0 0 140 36" preserveAspectRatio="none" aria-hidden="true"><polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function garminInsights(d) {
+  const out = [];
+  const r = garminReadiness(d);
+  if (r?.cls === 'bad') out.push('Recovery looks low today. On a HIT day, consider moving the session a day: Mentzer\'s rule is to recover first.');
+  const st = gAvg('stress', d, 7), stPrev = gAvg('stress', addDays(d, -7), 7);
+  if (st != null && stPrev != null && st - stPrev >= 8) out.push(`Average stress is up ${Math.round(st - stPrev)} on last week. Check sleep, caffeine slips and fasting length.`);
+  const sl = gAvg('sleepH', d, 7);
+  if (sl != null && sl < 7) out.push(`Sleep is averaging ${round1(sl)} h: below 7 h, fat loss and strength both suffer.`);
+  const rhr = gAvg('rhr', d, 7), rhrPrev = gAvg('rhr', addDays(d, -28), 7);
+  if (rhr != null && rhrPrev != null && rhrPrev - rhr >= 2) out.push(`Resting heart rate is down ${Math.round(rhrPrev - rhr)} bpm on a month ago: fitness is moving the right way.`);
+  const sp = gOn(d)?.spo2;
+  if (sp != null && sp < 92) out.push('Pulse Ox under 92% is worth a re-check. Wrist readings can be off; if it stays low, mention it to your GP.');
+  return out;
+}
+
+function viewBodyGarmin() {
+  const t = today();
+  const d = ui.garminDate || t;
+  const g = gOn(d) || {};
+  const hist = Object.keys(S.garmin).sort().reverse().slice(0, 14);
+  const tips = garminInsights(t);
+  const shown = GARMIN_FIELDS.filter(([k]) => gAvg(k, t, 7) != null);
+  return `
+  ${readinessCard(t)}
+  ${shown.length ? `<section class="card"><h2>Last 7 days <span class="right">vs the 7 before</span></h2>
+    <div class="gtiles">${shown.map(([k, label, unit, better]) => {
+      const a = gAvg(k, t, 7), b = gAvg(k, addDays(t, -7), 7);
+      const diff = a != null && b != null ? a - b : null;
+      const good = diff == null || !better || Math.abs(diff) < 0.5 ? '' : (diff > 0) === (better === 'up') ? 'good-text' : 'warn-text';
+      const fmt = (v) => (k === 'steps' || k === 'activeKcal' ? Math.round(v).toLocaleString('en-GB') : fmtNum(round1(v)));
+      return `<div class="gtile"><span class="muted small">${esc(label)}</span><b>${fmt(a)}<small> ${esc(unit === '0–100' ? '' : unit)}</small></b>
+        ${diff != null && Math.abs(diff) >= 0.5 ? `<span class="small ${good}">${diff > 0 ? '▲' : '▼'} ${fmt(Math.abs(diff))}</span>` : '<span class="small muted">—</span>'}${spark(k, t)}</div>`;
+    }).join('')}</div></section>` : ''}
+  ${tips.length ? `<section class="card"><h2>What it says</h2><ul class="small tips">${tips.map((x) => `<li>${esc(x)}</li>`).join('')}</ul><p class="muted small">Trends against your own baseline, not medical advice.</p></section>` : ''}
+  <section class="card">
+    <h2>Enter a day ${gOn(d) ? '<span class="right">saved · edit</span>' : ''}</h2>
+    ${dateNav('garmin-date', d, { max: t })}
+    <form id="garmin-form" class="grid2" data-date="${d}" autocomplete="off">
+      ${GARMIN_FIELDS.map(([k, label, unit, , hint]) => `<label class="field">${esc(label)}${unit ? ` <span class="muted small">(${esc(unit)})</span>` : ''}
+        <input name="${k}" inputmode="decimal" value="${gVal(d, k) ?? ''}" ${hint ? `placeholder="${esc(hint)}"` : ''}></label>`).join('')}
+      <button class="primary" style="grid-column:1/-1" type="submit">Save Garmin day · +${PTS.garmin} XP</button>
+    </form>
+    <p class="muted small">Fill what you have, from the watch or Garmin Connect → My Day. Leave the rest blank. Best done each morning for the day before, once last night's sleep has synced.</p>
+    <details class="small"><summary>Which watch icon is which?</summary><ul>
+      <li>❤ Heart: heart rate (use the <b>resting</b> figure from the heart-rate widget)</li>
+      <li>Person with lightning bolt: <b>Body Battery</b> (0–100 energy reserve)</li>
+      <li>Figure icon: <b>stress</b> (0–25 rest, 26–50 low, 51–75 medium, 76+ high)</li>
+      <li>Wind: <b>respiration</b>, breaths per minute</li>
+    </ul></details>
+  </section>
+  ${hist.length ? `<section class="card"><h2>History</h2><div class="list">${hist.map((x) => { const r = S.garmin[x]; return `<div class="row between">
+    <button class="linkish grow" data-act="garmin-edit" data-date="${x}"><b>${fmtDate(x)}</b><br><span class="muted small">${GARMIN_FIELDS.filter(([k]) => gVal(x, k) != null).slice(0, 5).map(([k, l]) => `${l.replace('Body Battery', 'BB').replace('Average ', '').replace('Resting heart rate', 'RHR')} ${k === 'steps' ? gVal(x, k).toLocaleString('en-GB') : gVal(x, k)}`).join(' · ')}</span></button>
+    <button class="icon ghost" data-act="garmin-del" data-date="${x}" aria-label="Delete Garmin day">✕</button></div>`; }).join('')}</div></section>` : ''}`;
+}
+
+function readinessCard(d) {
+  const r = garminReadiness(d);
+  if (!r) return `<section class="card slim"><p class="small">No Garmin data for today yet. Enter this morning's resting heart rate and Body Battery below for a recovery read.</p></section>`;
+  return `<section class="card slim"><p>${chip(r.text, r.cls)}</p></section>`;
+}
+
 function viewBodySettings() {
   const st = S.settings;
   const f = (name, label, val, mode = 'numeric') => `<label class="field">${label}<input name="${name}" inputmode="${mode}" value="${val ?? ''}"></label>`;
@@ -1780,6 +1895,8 @@ function viewHeroJournal() {
       <div class="stat"><b>${sm.diet}/${sm.days}</b><span>Diet dialled in</span></div>
       <div class="stat"><b>${sm.sessions}</b><span>Sessions</span></div>
       <div class="stat"><b>${sm.sleep ?? '—'}</b><span>Avg sleep (h)</span></div>
+      <div class="stat"><b>${gAvg('rhr', addDays(ws, 6), 7) != null ? Math.round(gAvg('rhr', addDays(ws, 6), 7)) : '—'}</b><span>Avg resting HR</span></div>
+      <div class="stat"><b>${gAvg('stress', addDays(ws, 6), 7) != null ? Math.round(gAvg('stress', addDays(ws, 6), 7)) : '—'}</b><span>Avg stress</span></div>
       <div class="stat"><b>${sm.change === null ? '—' : (sm.change > 0 ? '+' : '') + sm.change}</b><span>Weight vs last week</span></div>
     </div>
     <form id="review-form" class="grid1" autocomplete="off">
@@ -2003,7 +2120,7 @@ function viewFor(P) {
     case 'plan': return { tomorrow: viewPlanTomorrow, week: viewPlanWeek, shop: viewPlanShop }[ui.sub.plan]();
     case 'train': return viewTrain();
     case 'fuel': return { log: viewFuelLog, recipes: viewFuelRecipes, fluids: viewFuelFluids, stack: viewFuelStack }[ui.sub.fuel]();
-    case 'body': return { weight: viewBodyWeight, measure: viewBodyMeasure, sleep: viewBodySleep, settings: viewBodySettings }[ui.sub.body]();
+    case 'body': return { weight: viewBodyWeight, garmin: viewBodyGarmin, measure: viewBodyMeasure, sleep: viewBodySleep, settings: viewBodySettings }[ui.sub.body]();
     case 'hero': return { character: () => viewHeroCharacter(P), goals: viewHeroGoals, journal: viewHeroJournal, calendar: viewHeroCalendar }[ui.sub.hero]();
   }
   return '';
@@ -2181,6 +2298,9 @@ document.addEventListener('click', (e) => {
     case 'ask-alt': { const f = askAlt?.run; closeSheet(); askYes = askAlt = null; if (f) { f(); commit({ scrollTop: true }); } return; }
     case 'sub': ui.sub[ui.tab] = el.dataset.v; rememberUi(); render({ scrollTop: true }); return;
     case 'quest': changed = onQuest(el.dataset.key); break;
+    case 'garmin-date': { const dir = Number(el.dataset.dir); const t = today(); ui.garminDate = dir === 0 ? t : addDays(ui.garminDate || t, dir); if (ui.garminDate > t) ui.garminDate = t; render(); return; }
+    case 'garmin-edit': ui.garminDate = el.dataset.date; render(); document.getElementById('garmin-form')?.scrollIntoView({ block: 'center' }); return;
+    case 'garmin-del': ask(`Delete Garmin data for ${fmtDate(el.dataset.date)}? Steps and sleep logs stay.`, 'Delete', () => { delete S.garmin[el.dataset.date]; }); return;
     case 'steps-open': openSteps(el.dataset.date || today()); return;
     case 'steps-quick': {
       const d = document.querySelector('#steps-form [name=date]')?.value || el.dataset.date;
@@ -2660,6 +2780,20 @@ document.addEventListener('submit', (e) => {
       const ml = Math.round(num(data.ml) || 0);
       if (ml <= 0 || ml > 3000) return toast('Enter an amount in ml');
       addFluid(ml, ui.fuelDate || today());
+      break;
+    }
+    case 'garmin-form': {
+      const d = f.dataset.date || today();
+      const row = {};
+      for (const [k] of GARMIN_FIELDS) { const v = num(data[k]); if (v !== null && v >= 0) row[k] = v; }
+      if (!Object.keys(row).length) return toast('Enter at least one value');
+      if (row.steps != null) { const r = dayRec(d); r.steps = Math.round(row.steps); r.stepsAt ||= nowOn(d); delete row.steps; }
+      if (row.sleepH != null && (!sleepOn(d) || sleepOn(d).notes === 'From Garmin')) {
+        S.sleep = S.sleep.filter((x) => x.date !== d);
+        S.sleep.push({ date: d, at: nowOn(d), hours: round1(row.sleepH), quality: row.sleepScore != null ? Math.max(1, Math.min(10, Math.round(row.sleepScore / 10))) : 7, notes: 'From Garmin' });
+      }
+      if (Object.keys(row).length) S.garmin[d] = row; else delete S.garmin[d];
+      toast(`Garmin saved for ${d === today() ? 'today' : fmtDate(d)}`);
       break;
     }
     case 'dgoal-form': case 'wgoal-form': {
