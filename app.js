@@ -38,7 +38,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -104,7 +104,7 @@ function freshState() {
     v: 3,
     settings: {
       proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000,
-      startWeight: 90, target: 77, heightCm: null, cycleStart: '2026-10-05', highContrast: false,
+      startWeight: 90, target: 77, heightCm: null, cycleStart: '2026-10-01', cycleFixed: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
     },
@@ -122,6 +122,8 @@ function freshState() {
     weights: [],
     measurements: [],
     garmin: {},
+    channel: { name: '', url: '' },
+    videos: [],
     fluids: [],
     compounds: [],
     goals: seedGoals(),
@@ -188,6 +190,11 @@ function normalise(s) {
   for (const t of PROGRAM_TEMPLATES) if (!out.programs[t.id]) out.programs[t.id] = programFromTemplate(t);
   out.fluids = (out.fluids || []).map((f) => (f.type === 'coffee' ? { ...f, type: 'tea' } : f));
   delete out.refeeds;
+  // One-time move of the old placeholder cycle start (5 Oct) to the real restart date, 1 Oct.
+  if (!s.settings?.cycleFixed) {
+    if (out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-01';
+    out.settings.cycleFixed = true;
+  }
   return out;
 }
 
@@ -225,7 +232,9 @@ function load() {
       localStorage.setItem(STORE_KEY, JSON.stringify(n));
       return n;
     }
-    return normalise(parsed);
+    const n = normalise(parsed);
+    if (!parsed.settings?.cycleFixed) localStorage.setItem(STORE_KEY, JSON.stringify(n));
+    return n;
   } catch {
     storageOk = false;
     return freshState();
@@ -554,6 +563,7 @@ const ACHIEVEMENTS = [
   ['lost5', 'Five Down', 'Lose 5 kg from your start weight', () => { const w = latestWeight(); return !!w && w.kg <= S.settings.startWeight - 5; }],
   ['reflect7', 'Grateful', '7 gratitude entries', () => Object.keys(S.journal).length >= 7],
   ['author', 'Author', 'Write your 12-month vision', () => !!(S.author.vision && S.author.vision.trim())],
+  ['onair', 'On Air', 'Publish your first video', () => S.videos.some((v) => v.status === 'published')],
   ['first_goal', 'Quest Complete', 'Complete a goal', () => S.goals.some(goalDone)],
   ['level5', 'Level 5', 'Reach level 5', null],
   ['level10', 'Level 10', 'Reach level 10', null],
@@ -576,6 +586,7 @@ function computeXP() {
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
+  S.videos.filter((v) => v.status === 'published').forEach((v) => add(v.date || '', PTS.video, `Video: ${v.title}`, 'MND'));
   Object.entries(S.garmin).forEach(([d, g]) => { if (Object.keys(g).length >= 3) add(d, PTS.garmin, 'Garmin day logged', 'VIT'); });
   const prs = prSessions();
   for (const w of S.workouts) {
@@ -800,7 +811,7 @@ const SUBTABS = {
   plan: [['tomorrow', 'Tomorrow'], ['week', 'Week'], ['shop', 'Shopping']],
   fuel: [['log', 'Log'], ['recipes', 'Recipes'], ['fluids', 'Fluids'], ['stack', 'Stack']],
   body: [['weight', 'Weight'], ['garmin', 'Garmin'], ['measure', 'Tape'], ['sleep', 'Sleep'], ['settings', 'Setup']],
-  hero: [['character', 'Character'], ['goals', 'Goals'], ['journal', 'Journal'], ['calendar', 'Chains']],
+  hero: [['character', 'Stats'], ['goals', 'Goals'], ['journal', 'Journal'], ['calendar', 'Chains'], ['channel', 'Channel']],
 };
 const ui = {
   tab: 'today', sub: { plan: 'tomorrow', fuel: 'log', body: 'weight', hero: 'character' },
@@ -1923,6 +1934,112 @@ function viewHeroJournal() {
   ${past.length ? `<section class="card"><h2>Recent entries</h2><div class="list small">${past.map((x) => `<div><b>${fmtDate(x)}</b>${REFLECTION_QUESTIONS.filter(([k]) => S.journal[x][k]).map(([k, q]) => `<br><span class="muted">${q}</span> ${esc(S.journal[x][k])}`).join('')}</div>`).join('')}</div></section>` : ''}`;
 }
 
+// ===========================================================================
+// CHANNEL (YouTube)
+// ===========================================================================
+const VIDEO_STATUS = [['idea', 'Idea'], ['filming', 'Filming'], ['editing', 'Editing'], ['published', 'Published']];
+const VIDEO_TYPES = ['Progress update', 'Workout', 'Recipe', 'Fasting', 'Mindset', 'Vlog'];
+function youtubeId(url) {
+  const m = String(url || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/))([\w-]{11})/);
+  return m ? m[1] : null;
+}
+const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
+
+// Talking points for this week's progress video, straight from your logs.
+function progressScript() {
+  const t = today();
+  const ws = weekStart(t);
+  const lines = [];
+  const dayNo = daysBetween(chainStart(), t) + 1;
+  lines.push(dayNo > 0 ? `Day ${dayNo} since the restart on ${fmtDate(chainStart())}.` : `The restart begins ${fmtDate(chainStart())}.`);
+  const firstW = [...S.weights].filter((w) => w.date >= chainStart()).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const avg = avgWeight(t, 7);
+  if (avg != null) lines.push(`Weight: ${round1(avg)} kg (7-day average)${firstW ? `, ${round1(firstW.kg - avg) >= 0 ? 'down' : 'up'} ${Math.abs(round1(firstW.kg - avg))} kg since ${fmtDate(firstW.date)}` : ''}. Goal ${S.settings.target} kg.`);
+  const c = (id) => chainStreak(id);
+  lines.push(`No coffee: ${c('coffee').cur} days in a row (best ${c('coffee').best}).`);
+  lines.push(`Diet dialled in: ${c('diet').cur} days running, eating ${win().from}–${win().to}.`);
+  const sw = stepsWeek(ws);
+  lines.push(`Steps this week: ${sw.total.toLocaleString('en-GB')} (${sw.count} day${sw.count === 1 ? '' : 's'} at ${S.settings.stepGoal.toLocaleString('en-GB')}).`);
+  const wk = S.workouts.filter((w) => w.date >= ws);
+  const prs = prSessions();
+  lines.push(`Training this week: ${wk.length} session${wk.length === 1 ? '' : 's'}${wk.some((w) => prs.has(w.id)) ? ', with a new personal record' : ''}.`);
+  const fasts = S.fasts.filter((f) => f.end && f.end.slice(0, 10) >= ws);
+  if (fasts.length) lines.push(`Longest fast this week: ${Math.floor(Math.max(...fasts.map(fastHours)))} hours.`);
+  const gs = weeklyFor(ws);
+  if (gs.length) lines.push(`Weekly goals: ${gs.filter((g) => g.reached).length} of ${gs.length} reached so far.`);
+  lines.push('One lesson from this week: …');
+  lines.push('Next week I will: …');
+  return lines;
+}
+
+function videoCard(v) {
+  const id = youtubeId(v.url);
+  const url = safeUrl(v.url);
+  const idx = VIDEO_STATUS.findIndex(([k]) => k === v.status);
+  const next = VIDEO_STATUS[idx + 1];
+  return `<div class="video">
+    ${id ? `<a class="thumb" href="${esc(url)}" target="_blank" rel="noopener" aria-label="Watch ${esc(v.title)} on YouTube"><img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" alt="" loading="lazy"><span class="play" aria-hidden="true">▶</span></a>` : ''}
+    <div class="row between wrap"><b>${esc(v.title)}</b>${chip(VIDEO_STATUS[idx]?.[1] || v.status, v.status === 'published' ? 'good' : '')}</div>
+    <p class="muted small">${esc(v.type)}${v.date ? ` · ${fmtDate(v.date)}` : ''}${v.notes ? ` · ${esc(v.notes)}` : ''}</p>
+    <div class="row wrap">
+      ${next ? `<button class="small-btn" data-act="video-next" data-id="${esc(v.id)}">→ ${next[1]}${next[0] === 'published' ? ` · +${PTS.video} XP` : ''}</button>` : ''}
+      ${url ? `<a class="btn small-btn" href="${esc(url)}" target="_blank" rel="noopener">Open</a>` : ''}
+      <button class="small-btn" data-act="video-edit" data-id="${esc(v.id)}">Edit</button>
+    </div>
+  </div>`;
+}
+
+function viewHeroChannel() {
+  const ch = S.channel;
+  const pipeline = S.videos.filter((v) => v.status !== 'published').sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const published = S.videos.filter((v) => v.status === 'published').sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return `
+  <section class="card">
+    <h2>Your channel</h2>
+    ${ch.name || ch.url ? `<div class="row between wrap"><h3>${esc(ch.name || 'My channel')}</h3>${safeUrl(ch.url) ? `<a class="btn small-btn" href="${esc(safeUrl(ch.url))}" target="_blank" rel="noopener">Open on YouTube</a>` : ''}</div>
+      <p class="muted small">${published.length} published · ${pipeline.length} in the pipeline</p>` : '<p class="small">Add your channel so it\'s one tap away. Film the restart from day 1: the before footage is the part you can\'t get back.</p>'}
+    <details ${ch.name ? '' : 'open'}><summary class="small">Channel details</summary>
+      <form id="channel-form" class="grid1" autocomplete="off">
+        <label class="field">Channel name<input name="name" maxlength="60" value="${esc(ch.name)}"></label>
+        <label class="field">Channel link<input name="url" type="url" inputmode="url" placeholder="https://youtube.com/@yourname" value="${esc(ch.url)}"></label>
+        <button type="submit">Save channel</button>
+      </form></details>
+  </section>
+  <section class="card">
+    <h2>This week's progress video</h2>
+    <p class="muted small">Talking points from your logs. Copy them into your notes before you film.</p>
+    <ol class="small script">${progressScript().map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+    <button data-act="script-copy">Copy talking points</button>
+  </section>
+  <section class="card">
+    <h2>Add a video or idea</h2>
+    <form id="video-form" class="grid2" autocomplete="off">
+      <label class="field" style="grid-column:1/-1">Title<input name="title" required maxlength="100" placeholder="Day 1: no coffee, 18:6 and Mentzer"></label>
+      <label class="field" style="grid-column:1/-1">YouTube link (once it's up)<input name="url" type="url" inputmode="url" placeholder="https://youtu.be/…"></label>
+      <label class="field">Stage<select name="status">${VIDEO_STATUS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+      <label class="field">Type<select name="type">${VIDEO_TYPES.map((x) => `<option>${x}</option>`).join('')}</select></label>
+      <label class="field" style="grid-column:1/-1">Date<input name="date" type="date" value="${today()}"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Add</button>
+    </form>
+  </section>
+  ${pipeline.length ? `<section class="card"><h2>Pipeline <span class="right">${pipeline.length}</span></h2><div class="list">${pipeline.map(videoCard).join('')}</div></section>` : ''}
+  ${published.length ? `<section class="card"><h2>Published <span class="right">${published.length}</span></h2><div class="vgrid">${published.map(videoCard).join('')}</div></section>` : ''}
+  <section class="card slim"><p class="muted small">Each published video earns +${PTS.video} XP. A weekly goal such as "Publish 1 video" fits here too: set it in Goals → Weekly.</p></section>`;
+}
+
+function openVideoEdit(v) {
+  openSheet('Edit video', `<form id="video-edit-form" class="grid2" data-id="${esc(v.id)}" autocomplete="off">
+    <label class="field" style="grid-column:1/-1">Title<input name="title" required maxlength="100" value="${esc(v.title)}"></label>
+    <label class="field" style="grid-column:1/-1">YouTube link<input name="url" type="url" inputmode="url" value="${esc(v.url || '')}"></label>
+    <label class="field">Stage<select name="status">${VIDEO_STATUS.map(([k, l]) => `<option value="${k}" ${k === v.status ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label class="field">Type<select name="type">${VIDEO_TYPES.map((x) => `<option ${x === v.type ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+    <label class="field">Date<input name="date" type="date" value="${esc(v.date || '')}"></label>
+    <label class="field">Notes<input name="notes" maxlength="120" value="${esc(v.notes || '')}"></label>
+    <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
+    <button type="button" class="ghost danger" style="grid-column:1/-1" data-act="video-del" data-id="${esc(v.id)}">Delete</button>
+  </form>`);
+}
+
 function viewHeroCalendar() {
   const t = today();
   const cs = chainStart();
@@ -2130,7 +2247,7 @@ function viewFor(P) {
     case 'train': return viewTrain();
     case 'fuel': return { log: viewFuelLog, recipes: viewFuelRecipes, fluids: viewFuelFluids, stack: viewFuelStack }[ui.sub.fuel]();
     case 'body': return { weight: viewBodyWeight, garmin: viewBodyGarmin, measure: viewBodyMeasure, sleep: viewBodySleep, settings: viewBodySettings }[ui.sub.body]();
-    case 'hero': return { character: () => viewHeroCharacter(P), goals: viewHeroGoals, journal: viewHeroJournal, calendar: viewHeroCalendar }[ui.sub.hero]();
+    case 'hero': return { character: () => viewHeroCharacter(P), goals: viewHeroGoals, journal: viewHeroJournal, calendar: viewHeroCalendar, channel: viewHeroChannel }[ui.sub.hero]();
   }
   return '';
 }
@@ -2310,6 +2427,17 @@ document.addEventListener('click', (e) => {
     case 'garmin-date': { const dir = Number(el.dataset.dir); const t = today(); ui.garminDate = dir === 0 ? t : addDays(ui.garminDate || t, dir); if (ui.garminDate > t) ui.garminDate = t; render(); return; }
     case 'garmin-edit': ui.garminDate = el.dataset.date; render(); document.getElementById('garmin-form')?.scrollIntoView({ block: 'center' }); return;
     case 'garmin-del': ask(`Delete Garmin data for ${fmtDate(el.dataset.date)}? Steps and sleep logs stay.`, 'Delete', () => { delete S.garmin[el.dataset.date]; }); return;
+    case 'video-next': {
+      const v = S.videos.find((x) => x.id === el.dataset.id);
+      const i = VIDEO_STATUS.findIndex(([k]) => k === v.status);
+      const nx = VIDEO_STATUS[i + 1]?.[0];
+      if (nx === 'published' && !safeUrl(v.url)) { openVideoEdit({ ...v, status: 'published' }); toast('Add the YouTube link, then save'); return; }
+      if (nx) { v.status = nx; if (nx === 'published') { v.date = today(); toast(`Published · +${PTS.video} XP`); } }
+      break;
+    }
+    case 'video-edit': openVideoEdit(S.videos.find((x) => x.id === el.dataset.id)); return;
+    case 'video-del': S.videos = S.videos.filter((x) => x.id !== el.dataset.id); closeSheet(); toast('Video removed'); break;
+    case 'script-copy': copyText(progressScript().map((x, i) => `${i + 1}. ${x}`).join('\n'), 'Talking points copied'); return;
     case 'steps-open': openSteps(el.dataset.date || today()); return;
     case 'steps-quick': {
       const d = document.querySelector('#steps-form [name=date]')?.value || el.dataset.date;
@@ -2789,6 +2917,24 @@ document.addEventListener('submit', (e) => {
       const ml = Math.round(num(data.ml) || 0);
       if (ml <= 0 || ml > 3000) return toast('Enter an amount in ml');
       addFluid(ml, ui.fuelDate || today());
+      break;
+    }
+    case 'channel-form': {
+      const url = (data.url || '').trim();
+      if (url && !safeUrl(url)) return toast('Paste the full link, starting https://');
+      S.channel = { name: (data.name || '').trim(), url };
+      toast('Channel saved');
+      break;
+    }
+    case 'video-form': case 'video-edit-form': {
+      const title = (data.title || '').trim();
+      const url = (data.url || '').trim();
+      if (!title) return toast('Give it a title');
+      if (url && !safeUrl(url)) return toast('Paste the full link, starting https://');
+      const row = { title, url, status: data.status, type: data.type, date: data.date || today() };
+      if (f.id === 'video-edit-form') { Object.assign(S.videos.find((x) => x.id === f.dataset.id), row, { notes: (data.notes || '').trim() }); closeSheet(); }
+      else S.videos.push({ id: uid(), notes: '', ...row });
+      toast(row.status === 'published' ? `Published · +${PTS.video} XP` : 'Saved');
       break;
     }
     case 'garmin-form': {

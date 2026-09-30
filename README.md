@@ -71,6 +71,11 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
   - **Goal packs:** a goal pack arrives as a link. Opening it imports the goals and rules into
     this browser only; nothing personal lives in this code.
   - The gratitude journal, weekly review and self-authoring.
+  - **Channel:** your YouTube channel link, and videos moving from idea to filming, editing and
+    published, with thumbnails.
+    - Weekly progress-video talking points built from your logs: weight trend, chains, steps,
+      training and goals.
+    - +15 XP for each published video.
   - A chain calendar where you can correct a day.
 
 ## Chains
