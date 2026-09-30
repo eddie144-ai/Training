@@ -16,6 +16,8 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
 
 ## Tabs
 - **Today**
+  - **Daily checklist** at the top: every daily task is one tap, and ticking everything scores a
+    Perfect day (+10 XP).
   - Level, XP and a 7-day average weight.
   - The eating window (default 09:00–15:00, 18:6) with a live fasting timer.
   - Extended fasts: 24–72 h goals, stages, electrolyte reminders and safety notes.

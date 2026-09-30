@@ -45,7 +45,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { perfect: 10, dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -609,6 +609,7 @@ function computeXP() {
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
+  for (const d of allDates()) if (d >= chainStart() && d <= today()) { const c = checklistFor(d); if (c.length && c.every((x) => x.done)) add(d, PTS.perfect, 'Perfect day: whole checklist', 'MND'); }
   Object.entries(S.dreams).forEach(([d, x]) => { if (x.text) add(d, PTS.dream, 'Dream diary', 'MND'); });
   S.videos.filter((v) => v.status === 'published').forEach((v) => add(v.date || '', PTS.video, `Video: ${v.title}`, 'MND'));
   Object.entries(S.garmin).forEach(([d, g]) => { if (Object.keys(g).length >= 3) add(d, PTS.garmin, 'Garmin day logged', 'VIT'); });
@@ -1038,6 +1039,111 @@ function rhythm() {
   ];
 }
 
+// ===========================================================================
+// Daily checklist: every daily task in one tickable list
+// ===========================================================================
+function checklistFor(d) {
+  const st = S.settings;
+  const mac = macrosOn(d);
+  const kind = planKind(d);
+  const items = [];
+  const chainItem = (c) => items.push({ k: `chain:${c.id}`, label: c.name, done: chainStatus(d, c.id) === 'done', sub: c.since || c.id === 'coffee' ? `Day ${dayNumber(chainStreak(c.id))}` : '' });
+  chainItem(CHAINS[0]);
+  customChainDefs().forEach(chainItem);
+  const meal = (k, ref, label) => { const m = mealsOn(d).find((x) => x.ref === ref); items.push({ k, label, done: !!m, sub: m ? `logged ${fmtTime(m.at)}` : `tap to log · window ${win().from}–${win().to}` }); };
+  if (kind !== 'fast') {
+    meal('meal1', 'gironda1', 'Meal 1 · 3 patties + 6 eggs');
+    meal('meal2', 'gironda2', 'Meal 2 · steak + 6 eggs');
+    items.push({ k: 'macros', label: 'Hit macros', auto: true, done: mac.p >= st.proteinGoal && mac.kcal > 0 && mac.kcal <= st.kcalGoal,
+      sub: `P ${Math.round(mac.p)}/${st.proteinGoal} g · ${Math.round(mac.kcal)}/${st.kcalGoal} kcal` });
+  } else items.push({ k: 'fastday', label: 'Fast day: nothing eaten', auto: true, done: !mealsOn(d).length, sub: 'Water, tea and electrolytes only' });
+  const trained = workoutsOn(d).length > 0;
+  if (kind === 'rest' || kind === 'fast') items.push({ k: 'rest', label: 'Rest day respected', auto: true, done: !trained, sub: 'Recovery is when you grow' });
+  else items.push({ k: 'workout', label: 'Worked out', done: trained, sub: trained ? workoutsOn(d).map((w) => w.dayName).join(', ') : 'tap to mark done, or log sets in Train' });
+  items.push({ k: 'steps', label: `${st.stepGoal.toLocaleString('en-GB')} steps`, done: stepsOn(d) >= st.stepGoal, sub: stepsOn(d) ? `${stepsOn(d).toLocaleString('en-GB')} so far` : 'tap to enter from Garmin' });
+  goalsFor(d).forEach((g) => items.push({ k: `goal:${g.id}:${g.recurring ? 1 : 0}`, label: g.text, done: g.done, sub: catName(g.cat) }));
+  items.push({ k: 'plan', label: 'Plan tomorrow', done: chainStatus(d, 'plan') === 'done', sub: 'after your last meal' });
+  items.push({ k: 'journal', label: 'Gratitude journal', done: !!S.journal[d], sub: 'three good things' });
+  return items;
+}
+
+function checklistCard(d) {
+  const items = checklistFor(d);
+  const done = items.filter((x) => x.done).length;
+  const all = done === items.length;
+  return `<section class="card checklist ${all ? 'perfect' : ''}">
+    <div class="row between"><h2>Daily checklist</h2><b class="cl-count">${done}/${items.length}</b></div>
+    ${bar(done, items.length, all ? 'good' : 'xp')}
+    ${all ? `<p class="small good-text"><b>Perfect day.</b> Every box ticked · +${PTS.perfect} XP</p>` : ''}
+    <div class="cl-list">${items.map((x) => `<button class="cl-item ${x.done ? 'on' : ''}" role="checkbox" aria-checked="${x.done}" data-act="tick" data-k="${esc(x.k)}">
+      <span class="cl-box" aria-hidden="true">${x.done ? '✓' : ''}</span>
+      <span class="grow"><span class="cl-label">${esc(x.label)}</span>${x.sub ? `<br><span class="muted small">${esc(x.sub)}${x.auto && !x.done ? ' · ticks itself' : ''}</span>` : ''}</span></button>`).join('')}</div>
+  </section>`;
+}
+
+// A small burst from the ticked box: the reward should be instant.
+function celebrateTick(k, perfect) {
+  navigator.vibrate?.(perfect ? [30, 60, 30, 60, 80] : 18);
+  const el = [...document.querySelectorAll('[data-act=tick]')].find((b) => b.dataset.k === k);
+  if (!el) return;
+  el.classList.add('pop');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const box = el.querySelector('.cl-box').getBoundingClientRect();
+  const burst = document.createElement('div');
+  burst.className = 'burst';
+  burst.style.left = `${box.left + box.width / 2}px`;
+  burst.style.top = `${box.top + box.height / 2}px`;
+  const n = perfect ? 28 : 10;
+  for (let i = 0; i < n; i++) {
+    const sp = document.createElement('i');
+    const a = (Math.PI * 2 * i) / n, r = (perfect ? 90 : 40) + Math.random() * 24;
+    sp.style.setProperty('--x', `${Math.cos(a) * r}px`);
+    sp.style.setProperty('--y', `${Math.sin(a) * r}px`);
+    sp.style.background = ['var(--good)', 'var(--xp)', 'var(--warn)', 'var(--accent)'][i % 4];
+    burst.appendChild(sp);
+  }
+  document.body.appendChild(burst);
+  setTimeout(() => burst.remove(), 800);
+}
+
+function onTick(k) {
+  const d = today();
+  const item = checklistFor(d).find((x) => x.k === k);
+  if (!item) return false;
+  const [kind, id, rec] = k.split(':');
+  switch (kind) {
+    case 'chain': { const c = (dayRec(d).chains ||= {}); if (c[id] === true) delete c[id]; else c[id] = true; break; }
+    case 'meal1': case 'meal2': {
+      const ref = kind === 'meal1' ? 'gironda1' : 'gironda2';
+      const m = mealsOn(d).find((x) => x.ref === ref);
+      if (m) S.meals = S.meals.filter((x) => x.id !== m.id);
+      else addMealFromFood({ ...STAPLES.find((x) => x.id === ref), kind: 'staple' }, 1, d, kind === 'meal1' ? 'Breakfast' : 'Lunch');
+      break;
+    }
+    case 'workout': {
+      const ws = workoutsOn(d);
+      if (!ws.length) {
+        const prog = activeProgram(), day = nextDay(prog);
+        S.workouts.push({ id: uid(), date: d, at: new Date().toISOString(), programId: prog.id, programName: prog.name, family: prog.family, dayId: day.id, dayName: day.name, entries: [], quick: true });
+      } else if (ws.every((w) => w.quick)) S.workouts = S.workouts.filter((w) => !(w.date === d && w.quick));
+      else { ui.tab = 'train'; return 'nav'; }
+      break;
+    }
+    case 'steps': openSteps(d); return 'sheet';
+    case 'goal': {
+      if (rec === '1') { const t = (dayRec(d).dg ||= {}); if (t[id]) delete t[id]; else t[id] = true; }
+      else { const g = (S.dayGoals[d] || []).find((x) => x.id === id); if (g) g.done = !g.done; }
+      break;
+    }
+    case 'plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(d, 1); return 'nav';
+    case 'journal': ui.tab = 'hero'; ui.sub.hero = 'journal'; return 'nav';
+    default: // macros, rest, fast day tick themselves
+      if (!item.done) toast(k === 'macros' ? `Ticks itself at ${S.settings.proteinGoal} g protein and ≤ ${S.settings.kcalGoal} kcal` : 'This one ticks itself');
+      return 'none';
+  }
+  return 'ticked';
+}
+
 function viewToday(P) {
   const d = today();
   const w = latestWeight();
@@ -1058,6 +1164,7 @@ function viewToday(P) {
       <div class="stat"><b>${(fl / 1000).toFixed(1)} L</b><span>Fluids / ${(fg / 1000).toFixed(1)}</span></div>
     </div>
   </section>
+  ${d >= chainStart() ? checklistCard(d) : ''}
   ${fastingCard()}
   <section class="card">
     <h2>Chains <span class="right">${started ? 'miss a day and it resets' : `start ${fmtDate(chainStart())}`}</span></h2>
@@ -2562,6 +2669,23 @@ document.addEventListener('click', (e) => {
       const p = decodePack(document.getElementById('pack-text')?.value);
       if (!p) { toast('That isn\'t a goal pack'); return; }
       confirmPack(p);
+      return;
+    }
+    case 'tick': {
+      const k = el.dataset.k;
+      const before = checklistFor(today());
+      const was = before.find((x) => x.k === k)?.done;
+      const r = onTick(k);
+      if (r === 'none' || r === 'sheet') return;
+      if (r === 'nav') { rememberUi(); render({ scrollTop: true }); return; }
+      commit();
+      const after = checklistFor(today());
+      const now = after.find((x) => x.k === k)?.done;
+      if (now && !was) {
+        const perfect = after.every((x) => x.done);
+        celebrateTick(k, perfect);
+        if (perfect) toast(`Perfect day · ${after.length}/${after.length} · +${PTS.perfect} XP`);
+      }
       return;
     }
     case 'go-dream': ui.tab = 'hero'; ui.sub.hero = 'journal'; rememberUi(); render(); document.getElementById('dream-diary')?.scrollIntoView(); return;
