@@ -461,7 +461,11 @@ const e1rm = (kg, reps) => (kg && reps ? kg * (1 + reps / 30) : 0);
 const entryBest = (e) => Math.max(0, ...(e.sets || []).map((s) => e1rm(s.kg, s.reps)));
 const techOf = (e) => TECHNIQUES.find((t) => t.id === e?.tech) || null;
 const logMode = (e) => techOf(e)?.log || 'normal';
-const setText = (s) => (s.hold != null ? `${fmtNum(s.kg)} kg${s.reps != null ? `×${fmtNum(s.reps)}` : ''} · ${fmtNum(s.hold)} s hold` : `${fmtNum(s.kg)}×${fmtNum(s.reps)}`);
+const setText = (s) => {
+  const kg = s.kg == null ? 'BW' : fmtNum(s.kg);
+  if (s.hold != null) return `${kg} kg${s.reps != null ? `×${fmtNum(s.reps)}` : ''} · ${fmtNum(s.hold)} s hold`;
+  return s.reps == null ? `${kg} kg` : `${kg}×${fmtNum(s.reps)}`;
+};
 
 function prSessions() {
   const best = {};
@@ -780,6 +784,10 @@ function applyPack(p) {
     if (S.goals.some((x) => x.title === g.title)) continue;
     S.goals.push({ id: uid(), area: g.area || 'Goals', title: g.title, main: !!g.main, why: g.why || '', deadline: g.deadline || '', doneAt: null,
       milestones: (g.milestones || []).map((m) => ({ id: uid(), text: m, metric: null, doneAt: null })) });
+  }
+  // Starting weights: [kg, reps] per set. They only show until you log that exercise yourself.
+  for (const b of p.baselines || []) {
+    S.baselines[exKey(b.name)] = { name: b.name, date: b.date, note: b.note || '', sets: b.sets.map(([kg, reps]) => ({ kg: kg ?? null, reps: reps ?? null })) };
   }
   S.pack = { name: p.name || 'Goal pack', at: new Date().toISOString() };
 }
@@ -1172,7 +1180,7 @@ function exerciseLogCard(prog, day, e, i) {
     ${tech ? `<p class="small"><span class="chip tech">${esc(tech.name)}</span> ${esc(tech.summary)}</p>` : ''}
     ${e.note ? `<p class="muted small">${esc(e.note)}</p>` : ''}
     ${e.ss ? '<p class="small accent">Superset: go straight to the next exercise, no rest.</p>' : ''}
-    ${last ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${last.entry.sets.filter((s) => s.kg != null || s.reps != null || s.hold != null).map(setText).join(', ')}</p>` : ''}
+    ${last ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${last.entry.sets.filter((s) => s.kg != null || s.reps != null || s.hold != null).map(setText).join(', ')}${last.entry.note ? ` · ${esc(last.entry.note)}` : ''}</p>` : ''}
     ${hint ? `<p class="small good-text">▲ ${esc(hint)}</p>` : ''}
     ${mode === 'hold' ? `<p class="muted small">Target: ${esc(e.reps)}. Hold at full contraction, then lower slowly.</p>` : ''}
     ${rows}
@@ -2081,10 +2089,11 @@ function openFastStart() {
 
 function confirmPack(p) {
   const n = (x) => (x || []).length;
-  ask(`Import "${p.name || 'goal pack'}"?\n${n(p.daily)} daily · ${n(p.weekly)} weekly · ${n(p.longterm)} long-term goals · ${n(p.principles)} operating rules.\nYour existing goals are kept.`, 'Import', () => {
+  const parts = [n(p.daily) && `${n(p.daily)} daily`, n(p.weekly) && `${n(p.weekly)} weekly`, n(p.longterm) && `${n(p.longterm)} long-term goals`, n(p.principles) && `${n(p.principles)} operating rules`, n(p.baselines) && `${n(p.baselines)} starting weights`].filter(Boolean);
+  ask(`Import "${p.name || 'goal pack'}"?\n${parts.join(' · ')}.\nNothing you've already logged is changed.`, 'Import', () => {
     applyPack(p);
-    ui.tab = 'hero'; ui.sub.hero = 'goals'; ui.goalView = 'today';
-    toast('Goal pack imported');
+    if (n(p.daily) || n(p.weekly) || n(p.longterm)) { ui.tab = 'hero'; ui.sub.hero = 'goals'; ui.goalView = 'today'; } else if (n(p.baselines)) ui.tab = 'train';
+    toast(n(p.baselines) && !n(p.daily) ? 'Starting weights loaded' : 'Goal pack imported');
   });
 }
 
