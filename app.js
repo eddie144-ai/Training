@@ -13,14 +13,12 @@ const CHAINS = [
   { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee today. Tea is fine.' },
   { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
-  { id: 'walk', name: 'Morning walk', stat: 'END', pts: 3, desc: 'The morning walk, logged.' },
+  { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
   { id: 'plan', name: 'Tomorrow planned', stat: 'MND', pts: 3, desc: 'Tomorrow\'s plan saved today.' },
 ];
 
-// Only the walk has a time window.
-const WALK_WINDOW = { from: '06:30', to: '08:30' };
 const QUESTS = {
-  walk:     { name: 'Morning Walk',      stat: 'END', note: `${WALK_WINDOW.from}–${WALK_WINDOW.to} for the on-time bonus. Hydrate before and after.` },
+  steps:    { name: '15,000 Steps',      stat: 'END', note: 'Enter your Garmin total. A sweat-suit walk is a bonus.' },
   training: { name: 'Training Session',  stat: 'STR', note: 'Log it in Train, or tap to mark done.' },
   protein:  { name: 'Protein Goal',      stat: 'NUT', note: 'Hit your protein inside the window.' },
   fluids:   { name: 'Hydration Goal',    stat: 'VIT', note: 'Water, tea and electrolytes all count.' },
@@ -33,14 +31,14 @@ const QUEST_BONUS = 5;
 
 const STATS = [
   ['STR', 'Strength', 'Training sessions, PRs and following the plan'],
-  ['END', 'Endurance', 'Morning walks'],
+  ['END', 'Endurance', 'Steps and sweat-suit walks'],
   ['NUT', 'Nutrition', 'Diet chain, protein and fasts'],
   ['VIT', 'Recovery', 'Sleep and hydration'],
   ['MND', 'Mind', 'No coffee, planning, journal and goals'],
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -105,7 +103,7 @@ function freshState() {
   return {
     v: 3,
     settings: {
-      proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750,
+      proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000,
       startWeight: 90, target: 77, heightCm: null, cycleStart: '2026-10-05', highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
@@ -126,6 +124,12 @@ function freshState() {
     fluids: [],
     compounds: [],
     goals: seedGoals(),
+    goalDefs: { daily: [], weekly: [] },
+    dayGoals: {},
+    weekGoals: {},
+    weekCounts: {},
+    principles: [],
+    pack: null,
     journal: {},
     author: {},
     reviews: {},
@@ -178,6 +182,7 @@ function normalise(s) {
     ...d, ...s, v: 3,
     settings: { ...d.settings, ...s.settings, window: { ...d.settings.window, ...(s.settings?.window || {}) }, active: { ...d.settings.active, ...(s.settings?.active || {}) } },
     seen: { ...d.seen, ...s.seen },
+    goalDefs: { ...d.goalDefs, ...(s.goalDefs || {}) },
   };
   for (const t of PROGRAM_TEMPLATES) if (!out.programs[t.id]) out.programs[t.id] = programFromTemplate(t);
   out.fluids = (out.fluids || []).map((f) => (f.type === 'coffee' ? { ...f, type: 'tea' } : f));
@@ -254,7 +259,7 @@ const sleepOn = (date) => S.sleep.find((x) => x.date === date);
 const workoutsOn = (date) => S.workouts.filter((w) => w.date === date).sort((a, b) => a.at.localeCompare(b.at));
 const fluidsOn = (date) => S.fluids.filter((f) => f.date === date).sort((a, b) => a.at.localeCompare(b.at));
 const fluidTotal = (date) => sum(fluidsOn(date), (f) => f.ml);
-const fluidGoal = (date) => S.settings.fluidMl + (S.days[date]?.walk ? S.settings.walkExtraMl : 0);
+const fluidGoal = (date) => S.settings.fluidMl + (S.days[date]?.sweat ? S.settings.walkExtraMl : 0);
 const latestWeight = () => [...S.weights].sort((a, b) => a.date.localeCompare(b.date)).pop() || null;
 const chainStart = () => S.settings.chainStart;
 
@@ -342,13 +347,33 @@ function chainAuto(date, id) {
       if (trained || trainingRecovered(date)) return 'done';
       return past ? 'miss' : 'pending';
     }
-    case 'walk': return S.days[date]?.walk ? 'done' : past ? 'miss' : 'pending';
+    case 'steps': return stepsOn(date) >= S.settings.stepGoal ? 'done' : past ? 'miss' : 'pending';
     case 'plan': {
       const p = S.plans[addDays(date, 1)];
       return p?.madeOn && p.madeOn <= date ? 'done' : past ? 'miss' : 'pending';
     }
   }
   return 'pending';
+}
+
+// ---- steps: a weekly target ------------------------------------------------
+const stepsOn = (date) => S.days[date]?.steps || 0;
+// A week passes with the step goal on 5 days, or the weekly total. A part week (the first one) is pro-rated.
+function stepsWeek(ws) {
+  const st = S.settings;
+  const t = today();
+  const from = ws < chainStart() ? chainStart() : ws;
+  const end = addDays(ws, 6);
+  const avail = daysBetween(from, end) + 1;
+  const needDays = Math.min(st.stepDays, avail);
+  const needTotal = Math.round(st.stepWeek * needDays / st.stepDays);
+  let count = 0, total = 0;
+  for (let d = from; d <= end && d <= t; d = addDays(d, 1)) {
+    total += stepsOn(d);
+    if (chainStatus(d, 'steps') === 'done') count++;
+  }
+  const met = count >= needDays || total >= needTotal;
+  return { ws, count, total, needDays, needTotal, status: met ? 'done' : end < t ? 'miss' : 'pending' };
 }
 
 function chainStatus(date, id) {
@@ -365,6 +390,16 @@ function chainStreak(id) {
   if (chainMemo[id]) return chainMemo[id];
   const t = today();
   let cur = 0, best = 0, days = 0;
+  if (CHAINS.find((c) => c.id === id)?.weekly) {
+    if (t < chainStart()) return (chainMemo[id] = { cur, best, days, today: 'off', unit: 'wk' });
+    let week = null;
+    for (let ws = weekStart(chainStart()); ws <= t; ws = addDays(ws, 7)) {
+      week = stepsWeek(ws);
+      days += week.count;
+      if (week.status === 'done') { cur++; best = Math.max(best, cur); } else if (week.status === 'miss') cur = 0;
+    }
+    return (chainMemo[id] = { cur, best, days, today: week.status, week, unit: 'wk' });
+  }
   for (let d = chainStart(); d <= t; d = addDays(d, 1)) {
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
@@ -375,7 +410,7 @@ function chainStreak(id) {
 // ---- quests ----------------------------------------------------------------
 function questAt(date, key) {
   switch (key) {
-    case 'walk': return S.days[date]?.walk?.at || null;
+    case 'steps': return stepsOn(date) >= S.settings.stepGoal ? (S.days[date].stepsAt || atOn(date, '21:00')) : null;
     case 'training': return workoutsOn(date)[0]?.at || null;
     case 'protein': {
       if (macrosOn(date).p < S.settings.proteinGoal) return null;
@@ -392,7 +427,7 @@ function questAt(date, key) {
 }
 function questPoints(date, key) {
   const at = questAt(date, key);
-  return at ? QUEST_BASE + (key === 'walk' && inRange(at, WALK_WINDOW) ? QUEST_BONUS : 0) : 0;
+  return at ? QUEST_BASE : 0;
 }
 // Quests that apply on a date: no training quest on rest or fast days, no protein quest on fast days.
 function questsFor(date) {
@@ -416,6 +451,7 @@ function allDates() {
   for (const list of [S.meals, S.workouts, S.sleep, S.fluids]) list.forEach((x) => set.add(x.date));
   Object.keys(S.journal).forEach((d) => set.add(d));
   Object.values(S.plans).forEach((p) => p.madeOn && set.add(p.madeOn));
+  Object.keys(S.dayGoals || {}).forEach((d) => set.add(d));
   return [...set].sort();
 }
 
@@ -500,7 +536,9 @@ const ACHIEVEMENTS = [
   ['coffee30', 'Unshakeable', '30 days coffee-free', () => chainStreak('coffee').best >= 30],
   ['diet7', 'Dialled In', '7-day diet chain', () => chainStreak('diet').best >= 7],
   ['plan7', 'Architect', 'Plan tomorrow 7 nights running', () => chainStreak('plan').best >= 7],
-  ['walk7', 'Early Riser', '7 morning walks in a row', () => chainStreak('walk').best >= 7],
+  ['steps1', 'Step Machine', 'Hit the weekly step target', () => chainStreak('steps').best >= 1],
+  ['steps4', 'Relentless', 'Weekly step target 4 weeks running', () => chainStreak('steps').best >= 4],
+  ['goals7', 'Executor', 'Finish every daily goal on 7 days', () => allDates().filter((d) => goalsFor(d).length && goalsFor(d).every((g) => g.done)).length >= 7],
   ['fast24', 'One Full Day', 'Finish a 24-hour fast', () => bestFast() >= 24],
   ['fast48', 'Iron Will', 'Finish a 48-hour fast', () => bestFast() >= 48],
   ['weekplan', 'Weekend Planner', 'Save a weekly plan', () => Object.keys(S.weekPlans).length > 0],
@@ -528,6 +566,11 @@ function computeXP() {
   for (let d = chainStart(); d <= today(); d = addDays(d, 1)) {
     for (const c of CHAINS) if (chainStatus(d, c.id) === 'done') add(d, c.pts, `Chain: ${c.name}`, c.stat);
   }
+  if (today() >= chainStart()) for (let ws = weekStart(chainStart()); ws <= today(); ws = addDays(ws, 7)) {
+    if (stepsWeek(ws).status === 'done') add(ws, PTS.stepsWeek, 'Weekly step target', 'END');
+  }
+  Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
+  goalXP(add);
   const prs = prSessions();
   for (const w of S.workouts) {
     add(w.date, PTS.session, `Session: ${w.dayName}`, 'STR');
@@ -628,6 +671,15 @@ function weekWarning(d) {
   return '';
 }
 
+// Tomorrow's top 3 become that day's one-off goals.
+function syncTop(d) {
+  const p = S.plans[d] || {};
+  const keep = (S.dayGoals[d] || []).filter((g) => g.src !== 'plan');
+  const old = Object.fromEntries((S.dayGoals[d] || []).filter((g) => g.src === 'plan').map((g) => [g.text, g.done]));
+  const top = (p.top || []).filter(Boolean).map((text, i) => ({ id: `top${i}-${d}`, text, cat: 'build', src: 'plan', done: !!old[text] }));
+  S.dayGoals[d] = [...top, ...keep];
+}
+
 function foodLibrary() {
   return [
     ...STAPLES.map((x) => ({ ...x, meal: 'Staple', kind: 'staple' })),
@@ -652,6 +704,85 @@ function slotForTime(iso) {
 }
 
 // ===========================================================================
+// Daily and weekly goals
+// ===========================================================================
+const GOAL_CATS = [['health', 'Health', 'VIT'], ['wealth', 'Wealth', 'MND'], ['build', 'Build', 'MND'], ['family', 'Family', 'MND'], ['mind', 'Mind', 'MND']];
+const catName = (c) => GOAL_CATS.find(([k]) => k === c)?.[1] || 'Mind';
+const catStat = (c) => GOAL_CATS.find(([k]) => k === c)?.[2] || 'MND';
+const DAILY_SOFT_CAP = 3;
+
+// Recurring daily goals apply from the day they were added; one-offs belong to one date.
+function goalsFor(date) {
+  const ticks = S.days[date]?.dg || {};
+  const rec = S.goalDefs.daily.filter((g) => g.active !== false && (!g.from || g.from <= date))
+    .map((g) => ({ ...g, done: !!ticks[g.id], recurring: true }));
+  return [...rec, ...(S.dayGoals[date] || []).map((g) => ({ ...g, recurring: false }))];
+}
+
+const WEEK_AUTO = {
+  sleep7: { label: 'nights of 7 h+ sleep (from your sleep log)', count: (ws) => S.sleep.filter((x) => x.date >= ws && x.date <= addDays(ws, 6) && x.hours >= 7).length },
+  sessions: { label: 'training sessions (from Train)', count: (ws) => S.workouts.filter((w) => w.date >= ws && w.date <= addDays(ws, 6)).length },
+};
+function weeklyFor(ws) {
+  const counts = S.weekCounts[ws] || {};
+  const rec = S.goalDefs.weekly.filter((g) => g.active !== false && (!g.from || weekStart(g.from) <= ws))
+    .map((g) => ({ ...g, recurring: true }));
+  return [...rec, ...(S.weekGoals[ws] || []).map((g) => ({ ...g, recurring: false }))].map((g) => {
+    const count = g.auto && WEEK_AUTO[g.auto] ? WEEK_AUTO[g.auto].count(ws) : counts[g.id] || 0;
+    const target = Math.max(1, g.target || 1);
+    return { ...g, count, target, reached: count >= target };
+  });
+}
+
+function goalXP(add) {
+  const dates = new Set([...Object.keys(S.days).filter((d) => S.days[d].dg), ...Object.keys(S.dayGoals)]);
+  for (const d of dates) {
+    const gs = goalsFor(d);
+    const done = gs.filter((g) => g.done);
+    done.slice(0, 5).forEach((g) => add(d, PTS.goal1, `Goal: ${g.text}`, catStat(g.cat)));
+    if (gs.length && done.length === gs.length) add(d, PTS.goalAll, 'All daily goals done', 'MND');
+  }
+  const weeks = new Set([...Object.keys(S.weekCounts), ...Object.keys(S.weekGoals)]);
+  if (S.goalDefs.weekly.some((g) => g.auto)) for (let ws = weekStart(S.goalDefs.weekly.map((g) => g.from || today()).sort()[0]); ws <= today(); ws = addDays(ws, 7)) weeks.add(ws);
+  for (const ws of weeks) for (const g of weeklyFor(ws)) if (g.reached) add(ws, PTS.goalWeek, `Weekly goal: ${g.text}`, catStat(g.cat));
+}
+
+// A goal pack travels in a link (#import=...). The part after # never reaches a server,
+// so the pack only ever lives in this browser.
+function decodePack(text) {
+  let t = String(text || '').trim();
+  const i = t.indexOf('#import=');
+  if (i >= 0) t = t.slice(i + 8);
+  try {
+    const json = t.startsWith('{') ? t : decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/'))));
+    const p = JSON.parse(json);
+    return p && p.kind === 'trainer-goals' ? p : null;
+  } catch { return null; }
+}
+
+function applyPack(p) {
+  const t = today();
+  const merge = (list, items) => {
+    for (const it of items || []) {
+      const cur = list.find((x) => x.id === it.id);
+      const row = { active: true, from: t, ...it };
+      if (cur) Object.assign(cur, row, { from: cur.from || t }); else list.push(row);
+    }
+  };
+  merge(S.goalDefs.daily, p.daily);
+  merge(S.goalDefs.weekly, p.weekly);
+  if (p.principles?.length) S.principles = p.principles;
+  // Swap untouched placeholder goals for the pack's own.
+  for (const title of p.replace || []) S.goals = S.goals.filter((g) => !(g.title === title && !g.why && !g.milestones.length && !g.doneAt));
+  for (const g of p.longterm || []) {
+    if (S.goals.some((x) => x.title === g.title)) continue;
+    S.goals.push({ id: uid(), area: g.area || 'Goals', title: g.title, main: !!g.main, why: g.why || '', deadline: g.deadline || '', doneAt: null,
+      milestones: (g.milestones || []).map((m) => ({ id: uid(), text: m, metric: null, doneAt: null })) });
+  }
+  S.pack = { name: p.name || 'Goal pack', at: new Date().toISOString() };
+}
+
+// ===========================================================================
 // UI state
 // ===========================================================================
 const TABS = [['today', 'Today'], ['plan', 'Plan'], ['train', 'Train'], ['fuel', 'Fuel'], ['body', 'Body'], ['hero', 'Hero']];
@@ -664,6 +795,7 @@ const SUBTABS = {
 const ui = {
   tab: 'today', sub: { plan: 'tomorrow', fuel: 'log', body: 'weight', hero: 'character' },
   fuelDate: null, calDate: null, calChain: 'all', planDate: null, weekStart: null, dayId: null, editProgram: false, drafts: {},
+  goalView: 'today', goalDate: null, goalWeek: null,
   recipeFilter: 'All', recipeQuery: '', openRecipe: null, ingChecks: {}, fluidType: 'water',
   sleepHours: 7.5, sleepQuality: null, openSession: null, openTech: null,
 };
@@ -703,11 +835,9 @@ const STATUS_ICON = { done: '✓', miss: '✕', pending: '', off: '' };
 function questRow(date, key) {
   const q = QUESTS[key];
   const at = questAt(date, key);
-  const now = new Date();
-  const liveWalk = key === 'walk' && !at && inRange(now.toISOString(), WALK_WINDOW);
-  const pts = at ? `+${questPoints(date, key)}` : key === 'walk' ? `${QUEST_BASE}+${QUEST_BONUS}` : `${QUEST_BASE}`;
-  const sub = at ? `Done ${fmtTime(at)}${key === 'walk' && inRange(at, WALK_WINDOW) ? ' · on-time bonus' : ''}` : `${liveWalk ? 'Now · ' : ''}${q.note}`;
-  return `<button class="quest ${at ? 'done' : ''} ${liveWalk ? 'now' : ''}" data-act="quest" data-key="${key}" aria-pressed="${!!at}">
+  const pts = at ? `+${questPoints(date, key)}` : `${QUEST_BASE}`;
+  const sub = key === 'steps' && stepsOn(date) ? `${stepsOn(date).toLocaleString('en-GB')} / ${S.settings.stepGoal.toLocaleString('en-GB')}${at ? ' · done' : ''}` : at ? `Done ${fmtTime(at)}` : q.note;
+  return `<button class="quest ${at ? 'done' : ''}" data-act="quest" data-key="${key}" aria-pressed="${!!at}">
     <span class="tick" aria-hidden="true">${at ? '✓' : ''}</span>
     <span class="grow"><span class="t">${q.name}</span><br><span class="muted small">${esc(sub)}</span></span>
     <span class="stat-tag">${q.stat}</span><span class="pts">${pts}</span></button>`;
@@ -750,8 +880,18 @@ function fastingCard() {
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
-  const action = { diet: 'go-fuel', training: 'go-train', walk: 'quest-walk', plan: 'go-plan' }[c.id];
-  const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} day chain">${st.cur}</span>`;
+  const action = { diet: 'go-fuel', training: 'go-train', plan: 'go-plan' }[c.id];
+  const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} ${st.unit === 'wk' ? 'week' : 'day'} chain">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span>`;
+  if (c.id === 'steps') {
+    const w = st.week, d = today(), n = stepsOn(d), sweat = !!S.days[d]?.sweat;
+    const fmt = (x) => x.toLocaleString('en-GB');
+    return `<div class="chain ${s}">
+      <div class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}Steps this week</b><br>
+        <span class="muted small">${w.count}/${w.needDays} days at ${fmt(S.settings.stepGoal)} · ${fmt(w.total)} / ${fmt(w.needTotal)} total${s === 'done' ? ' · week won' : ''} · best ${st.best} wk</span></span>${flame}</div>
+      ${bar(Math.max(w.count / w.needDays, w.total / w.needTotal) * 100, 100, s === 'done' ? 'good' : '')}
+      <div class="grid2"><button data-act="steps-open" data-date="${d}">${n ? `Today ${fmt(n)}` : '+ Enter steps'}</button>
+      <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
+  }
   const note = s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? 'On track: finish inside the window' : c.desc;
   if (c.id === 'coffee') {
     return `<div class="chain ${s}">
@@ -781,15 +921,28 @@ function todaysPlanCard(d) {
     const done = kind === 'train' ? workoutsOn(d).length > 0 : !workoutsOn(d).length;
     items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="go-train"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>${kind === 'train' ? `Train: ${esc(nextDay(activeProgram()).name)}` : kind === 'fast' ? 'Fast day: no training, keep it easy' : 'Rest day: recovery is when you grow'}</span></button>`);
   }
-  if (p.walk !== false) { const done = !!S.days[d]?.walk; items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="quest" data-key="walk"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>Morning walk</span></button>`); }
+  { const done = stepsOn(d) >= S.settings.stepGoal; items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="steps-open" data-date="${d}"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>${S.settings.stepGoal.toLocaleString('en-GB')} steps</span></button>`); }
+  if (p.sweat) { const done = !!S.days[d]?.sweat; items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="sweat"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>Sweat-suit walk (bonus)</span></button>`); }
   for (const [slot, id] of plannedMeals(d)) {
     const f = findFood(id);
     const done = !!slotLogged(d, slot, id);
     items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="log-planned" data-slot="${slot}" data-id="${esc(id)}"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>${slot}: ${esc(f.name)}${done ? '' : ' <span class="muted small">· tap to log</span>'}</span></button>`);
   }
-  (p.top || []).forEach((t, i) => { if (t) { const done = !!p.topDone?.[i]; items.push(`<button class="check" role="checkbox" aria-checked="${done}" data-act="top-done" data-i="${i}"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span><span>${esc(t)}</span></button>`); } });
   if (!items.length) return '';
   return `<section class="card"><h2>Today's plan <span class="right">${kind ? esc(DAY_KINDS.find(([k]) => k === kind)[1]) + ' day' : ''}</span></h2><div class="list">${items.join('')}</div></section>`;
+}
+
+function todayGoalsCard(d) {
+  const gs = goalsFor(d);
+  const wk = weeklyFor(weekStart(d));
+  if (!gs.length && !wk.length) return `<section class="card slim"><p class="small">No daily or weekly goals yet. <button class="linkish inline" data-act="go-goals" data-v="today">Add goals</button></p></section>`;
+  const done = gs.filter((g) => g.done).length;
+  return `<section class="card">
+    <h2>Goals <span class="right">${gs.length ? `${done}/${gs.length} today` : ''}</span></h2>
+    ${gs.length ? `<div class="list">${gs.map((g) => goalRow(d, g)).join('')}</div>` : ''}
+    ${wk.length ? `<p class="rlabel">This week</p><div class="list">${wk.map((g) => `<div class="row between"><span class="grow small">${esc(g.text)} <b class="${g.reached ? 'good-text' : ''}">${g.count}/${g.target}</b></span>${g.auto || g.reached ? '' : `<button class="small-btn" data-act="wg-inc" data-ws="${weekStart(d)}" data-id="${esc(g.id)}" data-d="1">+1</button>`}</div>`).join('')}</div>` : ''}
+    <button class="ghost small-btn" data-act="go-goals" data-v="today">Add or change goals</button>
+  </section>`;
 }
 
 function planTomorrowPrompt(d) {
@@ -806,7 +959,7 @@ function planTomorrowPrompt(d) {
 function rhythm() {
   const w = win();
   return [
-    [`${WALK_WINDOW.from}–${WALK_WINDOW.to}`, 'Morning walk (sweat suit)'],
+    ['All day', `${S.settings.stepGoal.toLocaleString('en-GB')} steps (sweat suit is a bonus)`],
     [w.from, 'Eating window opens: first meal'],
     [`${w.from}–${w.to}`, 'Train in or just before the window'],
     [w.to, 'Last meal done: window closes'],
@@ -838,10 +991,11 @@ function viewToday(P) {
   ${fastingCard()}
   <section class="card">
     <h2>Chains <span class="right">${started ? 'miss a day and it resets' : `start ${fmtDate(chainStart())}`}</span></h2>
-    ${started ? CHAINS.map(chainRow).join('') : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, the walk and planning.</p>
+    ${started ? CHAINS.map(chainRow).join('') : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
       <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
   </section>
   ${started ? coffeeSupport() : ''}
+  ${todayGoalsCard(d)}
   ${todaysPlanCard(d)}
   ${planTomorrowPrompt(d)}
   <section class="card">
@@ -853,7 +1007,7 @@ function viewToday(P) {
     <h2>Fluids <span class="right">${(fl / 1000).toFixed(2)} / ${(fg / 1000).toFixed(2)} L</span></h2>
     ${bar(fl, fg, fl >= fg ? 'good' : '')}
     <div class="grid4">${[250, 500, 750, 1000].map((ml) => `<button data-act="fluid-add" data-ml="${ml}">+${ml}</button>`).join('')}</div>
-    ${S.days[d]?.walk ? `<p class="muted small">Walk day: target raised by ${S.settings.walkExtraMl} ml to replace sweat losses.</p>` : ''}
+    ${S.days[d]?.sweat ? `<p class="muted small">Sweat-suit day: target raised by ${S.settings.walkExtraMl} ml to replace sweat losses.</p>` : ''}
   </section>
   <section class="card">
     <h2>Stoic of the day</h2>
@@ -897,8 +1051,8 @@ function viewPlanTomorrow() {
   <section class="card">
     <h2>Day type ${p.madeAt ? `<span class="right">${chip('saved ' + fmtTime(p.madeAt), 'good')}</span>` : ''}</h2>
     ${segmented('plan-kind', DAY_KINDS, kind, 'Day type', `data-date="${d}"`)}
-    <p class="muted small">${kind === 'train' ? `Next session: <b>${esc(prog.name)} · ${esc(nextDay(prog).name)}</b>. Train in or just before your window (${esc(win().from)}–${esc(win().to)}).` : kind === 'fast' ? 'Fast day: no meals, water and electrolytes, walk only. Counts for the diet chain if nothing is logged.' : kind === 'rest' ? 'Rest day: recovery is when you grow. Training today would break the plan.' : 'Pick training, rest or fast.'}</p>
-    <button class="check" role="checkbox" aria-checked="${p.walk !== false}" data-act="plan-walk" data-date="${d}"><span class="box" aria-hidden="true">${p.walk !== false ? '✓' : ''}</span><span>Morning walk ${WALK_WINDOW.from}–${WALK_WINDOW.to}</span></button>
+    <p class="muted small">${kind === 'train' ? `Next session: <b>${esc(prog.name)} · ${esc(nextDay(prog).name)}</b>. Train in or just before your window (${esc(win().from)}–${esc(win().to)}).` : kind === 'fast' ? 'Fast day: no meals, water and electrolytes, steps only. Counts for the diet chain if nothing is logged.' : kind === 'rest' ? 'Rest day: recovery is when you grow. Training today would break the plan.' : 'Pick training, rest or fast.'}</p>
+    <button class="check" role="checkbox" aria-checked="${!!p.sweat}" data-act="plan-sweat" data-date="${d}"><span class="box" aria-hidden="true">${p.sweat ? '✓' : ''}</span><span>Sweat-suit walk (bonus +${PTS.sweat} XP)</span></button>
   </section>
   <section class="card">
     <h2>Meals <span class="right">${esc(win().from)}–${esc(win().to)}</span></h2>
@@ -941,6 +1095,9 @@ function viewPlanWeek() {
       ${warn ? `<p class="small warn-text">⚠ ${esc(warn)}</p>` : ''}
     </div>`;
   }).join('')}</div></section>
+  <section class="card"><h2>Weekly goals <span class="right">${weeklyFor(ws).length}</span></h2>
+    ${weeklyFor(ws).map((g) => `<p class="small">• ${esc(g.text)} · ${g.target}×</p>`).join('') || '<p class="muted small">None set for this week.</p>'}
+    <button class="small-btn" data-act="go-goals" data-v="week" data-ws="${ws}">Set weekly goals →</button></section>
   <section class="card slim"><p class="muted small">Fasting and Mentzer: schedule HIT sessions in or just before your eating window, not deep into a multi-day fast. Talk to your GP before fasting past 72 hours.</p></section>
   <button class="primary" data-act="week-save">${saved ? 'Update weekly plan' : `Save weekly plan · +${PTS.week} XP`}</button>`;
 }
@@ -1230,7 +1387,7 @@ function viewFuelFluids() {
     ${segmented('fluid-type', FLUID_TYPES, ui.fluidType, 'Drink type')}
     <div class="grid4">${[250, 330, 500, 750].map((ml) => `<button data-act="fluid-add" data-ml="${ml}" data-date="${d}">+${ml} ml</button>`).join('')}</div>
     <form id="fluid-form" class="row" autocomplete="off"><input name="ml" inputmode="numeric" placeholder="Other amount (ml)" aria-label="Amount in ml"><button type="submit">Add</button></form>
-    <p class="muted small">Target ${S.settings.fluidMl} ml, plus ${S.settings.walkExtraMl} ml on sweat-suit walk days. Add electrolytes after sweat-suit walks and on long fasts.</p>
+    <p class="muted small">Target ${S.settings.fluidMl} ml, plus ${S.settings.walkExtraMl} ml on sweat-suit days. Add electrolytes after sweat-suit walks and on long fasts.</p>
   </section>
   <section class="card">
     <h2>Logged</h2>
@@ -1397,7 +1554,10 @@ function viewBodySettings() {
       ${f('carbGoal', 'Carbs (g)', st.carbGoal)}
       ${f('fatGoal', 'Fat (g)', st.fatGoal)}
       ${f('fluidMl', 'Fluids (ml)', st.fluidMl)}
-      ${f('walkExtraMl', 'Extra on walk days (ml)', st.walkExtraMl)}
+      ${f('walkExtraMl', 'Extra on sweat-suit days (ml)', st.walkExtraMl)}
+      ${f('stepGoal', 'Daily steps', st.stepGoal)}
+      ${f('stepDays', 'Step days a week', st.stepDays)}
+      ${f('stepWeek', 'Or weekly steps total', st.stepWeek)}
       ${f('startWeight', 'Start weight (kg)', st.startWeight, 'decimal')}
       ${f('target', 'Target weight (kg)', st.target, 'decimal')}
       ${f('heightCm', 'Height (cm)', st.heightCm, 'decimal')}
@@ -1453,7 +1613,8 @@ function viewHeroCharacter(P) {
     <h2>How XP works</h2>
     <div class="list small">
       <div>Chains, per day kept: ${CHAINS.map((c) => `${c.name} +${c.pts}`).join(' · ')}</div>
-      <div>Daily quests +${QUEST_BASE} · morning walk +${QUEST_BONUS} more between ${WALK_WINDOW.from} and ${WALK_WINDOW.to}</div>
+      <div>Daily quests +${QUEST_BASE} · sweat-suit bonus +${PTS.sweat} · weekly step target +${PTS.stepsWeek}</div>
+      <div>Daily goal +${PTS.goal1} each · all daily goals done +${PTS.goalAll} · weekly goal reached +${PTS.goalWeek}</div>
       <div>Training session +${PTS.session} · personal record +${PTS.pr}</div>
       <div>Extended fast +${PTS.fastDay} per full 24 hours</div>
       <div>Sleep up to +15 · weigh-in +${PTS.weigh} · measurements +${PTS.measure}</div>
@@ -1488,7 +1649,94 @@ function goalCard(g) {
   </section>`;
 }
 
+function goalRow(date, g) {
+  return `<div class="row between goalrow"><button class="check grow" role="checkbox" aria-checked="${g.done}" data-act="dg-tick" data-date="${date}" data-id="${esc(g.id)}" data-rec="${g.recurring ? 1 : 0}">
+    <span class="box" aria-hidden="true">${g.done ? '✓' : ''}</span><span class="grow ${g.done ? 'struck' : ''}">${esc(g.text)}${g.why ? `<br><span class="muted small">${esc(g.why)}</span>` : ''}</span><span class="catg">${esc(catName(g.cat))}</span></button>
+    ${g.recurring ? '' : `<button class="icon ghost" data-act="dg-del" data-date="${date}" data-id="${esc(g.id)}" aria-label="Delete goal">✕</button>`}</div>`;
+}
+
+function weekGoalRow(ws, g) {
+  return `<div class="wgoal"><div class="row between"><span class="grow"><b>${esc(g.text)}</b> <span class="catg">${esc(catName(g.cat))}</span>${g.why ? `<br><span class="muted small">${esc(g.why)}</span>` : ''}</span>
+    <b class="nowrap ${g.reached ? 'good-text' : ''}">${g.count}/${g.target}${g.reached ? ' ✓' : ''}</b></div>
+    ${bar(g.count, g.target, g.reached ? 'good' : '')}
+    ${g.auto ? `<p class="muted small">Counts ${esc(WEEK_AUTO[g.auto]?.label || '')}.</p>` : `<div class="row wrap"><button class="small-btn" data-act="wg-inc" data-ws="${ws}" data-id="${esc(g.id)}" data-d="-1" aria-label="Take one off">−1</button><button class="small-btn" data-act="wg-inc" data-ws="${ws}" data-id="${esc(g.id)}" data-d="1">+1 done</button>
+    ${g.recurring ? '' : `<button class="small-btn ghost danger" data-act="wg-del" data-ws="${ws}" data-id="${esc(g.id)}">Remove</button>`}</div>`}</div>`;
+}
+
+const catOptions = (sel) => GOAL_CATS.map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${l}</option>`).join('');
+
+function viewGoalsToday() {
+  const t = today();
+  const d = ui.goalDate || t;
+  const gs = goalsFor(d);
+  const done = gs.filter((g) => g.done).length;
+  const recActive = S.goalDefs.daily.filter((g) => g.active !== false).length;
+  return `
+  ${dateNav('goal-date', d, { max: addDays(t, 1) })}
+  <section class="card">
+    <h2>Daily goals <span class="right">${done}/${gs.length}</span></h2>
+    ${gs.length ? bar(done, gs.length, done === gs.length ? 'good' : '') + `<div class="list">${gs.map((g) => goalRow(d, g)).join('')}</div>` : '<p class="muted">No goals for this day yet. Add one below, or plan tomorrow\'s top 3 in Plan.</p>'}
+    <form id="dgoal-form" class="grid2" data-date="${d}" autocomplete="off">
+      <label class="field" style="grid-column:1/-1">New goal<input name="text" required maxlength="100" placeholder="Something you can finish today"></label>
+      <label class="field">Area<select name="cat">${catOptions('build')}</select></label>
+      <label class="field check-field"><span>Every day</span><input name="every" type="checkbox"></label>
+      <label class="field" style="grid-column:1/-1">Why (optional)<input name="why" maxlength="140" placeholder="The reason, for the days you don't feel like it"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Add goal</button>
+    </form>
+    ${recActive > DAILY_SOFT_CAP ? `<p class="small warn-text">⚠ ${recActive} goals every day. Each extra one lowers the odds of finishing all of them: keep ${DAILY_SOFT_CAP} must-dos and pause the rest.</p>` : ''}
+  </section>
+  ${S.goalDefs.daily.length ? `<section class="card"><h2>Every-day goals</h2><div class="list">${S.goalDefs.daily.map((g) => `<div class="row between"><span class="grow ${g.active === false ? 'muted' : ''}">${esc(g.text)} <span class="catg">${esc(catName(g.cat))}</span></span>
+    <button class="small-btn" data-act="def-toggle" data-kind="daily" data-id="${esc(g.id)}">${g.active === false ? 'Resume' : 'Pause'}</button>
+    <button class="icon ghost" data-act="def-del" data-kind="daily" data-id="${esc(g.id)}" aria-label="Delete">✕</button></div>`).join('')}</div></section>` : ''}`;
+}
+
+function viewGoalsWeek() {
+  const ws = ui.goalWeek || weekStart(today());
+  const gs = weeklyFor(ws);
+  const reached = gs.filter((g) => g.reached).length;
+  return `
+  <div class="row between datenav">
+    <button class="icon" data-act="goal-week" data-dir="-7" aria-label="Previous week">‹</button>
+    <span class="grow center"><b>Week of ${fmtDate(ws)}</b></span>
+    <button class="icon" data-act="goal-week" data-dir="7" aria-label="Next week">›</button>
+  </div>
+  <section class="card">
+    <h2>Weekly goals <span class="right">${reached}/${gs.length} reached</span></h2>
+    ${gs.length ? `<div class="list">${gs.map((g) => weekGoalRow(ws, g)).join('')}</div>` : '<p class="muted">No weekly goals yet. Set them at the weekend with your weekly plan.</p>'}
+    <form id="wgoal-form" class="grid2" data-ws="${ws}" autocomplete="off">
+      <label class="field" style="grid-column:1/-1">New weekly goal<input name="text" required maxlength="100" placeholder="e.g. Income actions"></label>
+      <label class="field">Times this week<input name="target" inputmode="numeric" value="1"></label>
+      <label class="field">Area<select name="cat">${catOptions('wealth')}</select></label>
+      <label class="field check-field" style="grid-column:1/-1"><span>Every week</span><input name="every" type="checkbox"></label>
+      <label class="field" style="grid-column:1/-1">Why (optional)<input name="why" maxlength="140"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Add weekly goal</button>
+    </form>
+  </section>
+  ${S.goalDefs.weekly.length ? `<section class="card"><h2>Every-week goals</h2><div class="list">${S.goalDefs.weekly.map((g) => `<div class="row between"><span class="grow ${g.active === false ? 'muted' : ''}">${esc(g.text)} · ${g.target || 1}×</span>
+    <button class="small-btn" data-act="def-toggle" data-kind="weekly" data-id="${esc(g.id)}">${g.active === false ? 'Resume' : 'Pause'}</button>
+    <button class="icon ghost" data-act="def-del" data-kind="weekly" data-id="${esc(g.id)}" aria-label="Delete">✕</button></div>`).join('')}</div></section>` : ''}`;
+}
+
+function viewGoalsProfile() {
+  return `
+  ${S.principles.length ? `<section class="card"><h2>Your operating rules ${S.pack ? `<span class="right">${esc(S.pack.name)}</span>` : ''}</h2>
+    <div class="list">${S.principles.map(([h, x]) => `<div><b>${esc(h)}</b><br><span class="muted small">${esc(x)}</span></div>`).join('')}</div></section>` : ''}
+  <section class="card">
+    <h2>Import a goal pack</h2>
+    <p class="muted small">Paste a goal-pack link or code. It adds daily, weekly and long-term goals and your operating rules. Everything stays on this phone.</p>
+    <textarea id="pack-text" rows="3" placeholder="Paste the link here"></textarea>
+    <button data-act="pack-import">Import</button>
+    ${S.pack ? `<p class="muted small">Last imported: ${esc(S.pack.name)} · ${fmtDate(S.pack.at.slice(0, 10))}</p>` : ''}
+  </section>`;
+}
+
 function viewHeroGoals() {
+  const view = ui.goalView;
+  const inner = { today: viewGoalsToday, week: viewGoalsWeek, long: viewLongGoals, profile: viewGoalsProfile }[view]();
+  return segmented('goal-view', [['today', 'Daily'], ['week', 'Weekly'], ['long', 'Long-term'], ['profile', 'Rules']], view, 'Goal view') + inner;
+}
+
+function viewLongGoals() {
   const main = S.goals.filter((g) => g.main);
   const side = S.goals.filter((g) => !g.main);
   const areas = [...new Set(side.map((g) => g.area))];
@@ -1576,7 +1824,7 @@ function viewHeroCalendar() {
   <div class="chiprow">${[['all', 'All chains'], ...CHAINS.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="pchip" data-act="cal-chain" data-v="${k}" aria-pressed="${sel === k}">${esc(l)}</button>`).join('')}</div>
   <section class="card">
     <h2>Streaks</h2>
-    <div class="list">${CHAINS.map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days kept in total</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
+    <div class="list">${CHAINS.map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
   </section>
   <section class="card">
     <h2>${MON[first.getMonth()]} ${first.getFullYear()}</h2>
@@ -1690,6 +1938,17 @@ function openGoalForm(g) {
   </form>`);
 }
 
+function openSteps(date) {
+  const t = today(), y = addDays(t, -1);
+  const d = date === y ? y : t;
+  openSheet('Steps', `<form id="steps-form" class="grid1" autocomplete="off">
+    <label class="field">Day<select name="date">${[[t, 'Today'], [y, 'Yesterday']].map(([v, l]) => `<option value="${v}" ${v === d ? 'selected' : ''}>${l} · ${fmtDate(v)}</option>`).join('')}</select></label>
+    <label class="field">Steps (from Garmin)<input name="steps" inputmode="numeric" placeholder="${stepsOn(d) || S.settings.stepGoal}" value="${stepsOn(d) || ''}"></label>
+    <div class="grid2"><button type="button" data-act="steps-quick" data-date="${d}">✓ ${S.settings.stepGoal.toLocaleString('en-GB')} done</button><button class="primary" type="submit">Save</button></div>
+    <p class="muted small">Enter the day's total. The week is won with ${S.settings.stepDays} days at ${S.settings.stepGoal.toLocaleString('en-GB')}, or ${S.settings.stepWeek.toLocaleString('en-GB')} steps in total.</p>
+  </form>`);
+}
+
 function openFastStart() {
   const last = lastMealBefore(new Date());
   openSheet('Start an extended fast', `<form id="fast-form" class="grid1" autocomplete="off">
@@ -1703,11 +1962,20 @@ function openFastStart() {
   </form>`);
 }
 
+function confirmPack(p) {
+  const n = (x) => (x || []).length;
+  ask(`Import "${p.name || 'goal pack'}"?\n${n(p.daily)} daily · ${n(p.weekly)} weekly · ${n(p.longterm)} long-term goals · ${n(p.principles)} operating rules.\nYour existing goals are kept.`, 'Import', () => {
+    applyPack(p);
+    ui.tab = 'hero'; ui.sub.hero = 'goals'; ui.goalView = 'today';
+    toast('Goal pack imported');
+  });
+}
+
 function showWelcome() {
   openSheet('Welcome to Trainer 3', `
     <p>A clean start for ${fmtDate(chainStart())}. Everything was wiped except <b>the last weight and reps for each exercise</b>, which now show as starting points in Train.</p>
     <ul class="small">
-      <li><b>Chains:</b> no coffee first, then diet, training, the walk and planning. Miss a day and a chain resets.</li>
+      <li><b>Chains:</b> no coffee first, then diet, training, steps and planning. Miss a day and a chain resets.</li>
       <li><b>Eating window</b> ${esc(win().from)}–${esc(win().to)} (${windowLabel()}) with a fasting timer, plus extended fasts.</li>
       <li><b>Plan:</b> tomorrow after your last meal, and the week over the weekend. Shopping list included.</li>
       <li><b>Recipes</b> as cards with step-by-step methods and an Add to… menu.</li>
@@ -1821,11 +2089,7 @@ function onQuest(key) {
   const d = today();
   const at = questAt(d, key);
   switch (key) {
-    case 'walk':
-      if (at) { ask('Undo the morning walk?', 'Undo', () => { dayRec(d).walk = undefined; }); return false; }
-      dayRec(d).walk = { at: new Date().toISOString() };
-      toast(inRange(new Date().toISOString(), WALK_WINDOW) ? 'Walk logged · on-time bonus' : 'Walk logged');
-      return true;
+    case 'steps': openSteps(d); return false;
     case 'training':
       if (at) { ui.tab = 'train'; return true; }
       ask('Mark today\'s training as done without logging sets?\nOr open Train to log the full session.', 'Mark done', () => {
@@ -1917,8 +2181,47 @@ document.addEventListener('click', (e) => {
     case 'ask-alt': { const f = askAlt?.run; closeSheet(); askYes = askAlt = null; if (f) { f(); commit({ scrollTop: true }); } return; }
     case 'sub': ui.sub[ui.tab] = el.dataset.v; rememberUi(); render({ scrollTop: true }); return;
     case 'quest': changed = onQuest(el.dataset.key); break;
-    case 'quest-walk': changed = onQuest('walk'); break;
+    case 'steps-open': openSteps(el.dataset.date || today()); return;
+    case 'steps-quick': {
+      const d = document.querySelector('#steps-form [name=date]')?.value || el.dataset.date;
+      const r = dayRec(d); r.steps = Math.max(r.steps || 0, S.settings.stepGoal); r.stepsAt = nowOn(d);
+      closeSheet(); toast('Steps goal logged'); break;
+    }
+    case 'sweat': { const r = dayRec(today()); r.sweat = !r.sweat; if (r.sweat) toast(`Sweat suit · +${PTS.sweat} XP · fluid target +${S.settings.walkExtraMl} ml`); break; }
     case 'go-fuel': ui.tab = 'fuel'; ui.sub.fuel = 'log'; ui.fuelDate = today(); rememberUi(); render({ scrollTop: true }); return;
+    case 'go-goals': ui.tab = 'hero'; ui.sub.hero = 'goals'; ui.goalView = el.dataset.v || 'today'; if (el.dataset.ws) ui.goalWeek = el.dataset.ws; rememberUi(); render({ scrollTop: true }); return;
+    case 'goal-view': ui.goalView = el.dataset.v; render(); return;
+    case 'goal-date': { const dir = Number(el.dataset.dir); const t = today(); ui.goalDate = dir === 0 ? t : addDays(ui.goalDate || t, dir); if (ui.goalDate > addDays(t, 1)) ui.goalDate = addDays(t, 1); render(); return; }
+    case 'goal-week': ui.goalWeek = addDays(ui.goalWeek || weekStart(today()), Number(el.dataset.dir)); render(); return;
+    case 'dg-tick': {
+      const d = el.dataset.date, id = el.dataset.id;
+      if (el.dataset.rec === '1') { const t = (dayRec(d).dg ||= {}); if (t[id]) delete t[id]; else t[id] = true; }
+      else { const g = (S.dayGoals[d] || []).find((x) => x.id === id); if (g) g.done = !g.done; }
+      const gs = goalsFor(d);
+      if (gs.length && gs.every((g) => g.done)) toast(`All daily goals done · +${PTS.goalAll} XP`);
+      break;
+    }
+    case 'dg-del': S.dayGoals[el.dataset.date] = (S.dayGoals[el.dataset.date] || []).filter((g) => g.id !== el.dataset.id); break;
+    case 'wg-inc': {
+      const c = (S.weekCounts[el.dataset.ws] ||= {});
+      c[el.dataset.id] = Math.max(0, (c[el.dataset.id] || 0) + Number(el.dataset.d));
+      const g = weeklyFor(el.dataset.ws).find((x) => x.id === el.dataset.id);
+      if (g?.reached && Number(el.dataset.d) > 0 && g.count === g.target) toast(`Weekly goal reached · +${PTS.goalWeek} XP`);
+      break;
+    }
+    case 'wg-del': S.weekGoals[el.dataset.ws] = (S.weekGoals[el.dataset.ws] || []).filter((g) => g.id !== el.dataset.id); break;
+    case 'def-toggle': { const g = S.goalDefs[el.dataset.kind].find((x) => x.id === el.dataset.id); g.active = g.active === false; break; }
+    case 'def-del': {
+      const g = S.goalDefs[el.dataset.kind].find((x) => x.id === el.dataset.id);
+      ask(`Delete "${g.text}"? Past ticks stop counting for XP.`, 'Delete', () => { S.goalDefs[el.dataset.kind] = S.goalDefs[el.dataset.kind].filter((x) => x.id !== g.id); });
+      return;
+    }
+    case 'pack-import': {
+      const p = decodePack(document.getElementById('pack-text')?.value);
+      if (!p) { toast('That isn\'t a goal pack'); return; }
+      confirmPack(p);
+      return;
+    }
     case 'go-train': ui.tab = 'train'; rememberUi(); render({ scrollTop: true }); return;
     case 'go-plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(today(), 1); rememberUi(); render({ scrollTop: true }); return;
     case 'coffee': {
@@ -1962,7 +2265,7 @@ document.addEventListener('click', (e) => {
       p.kind = p.kind === el.dataset.v ? null : el.dataset.v;
       break;
     }
-    case 'plan-walk': { const p = planRec(el.dataset.date); p.walk = p.walk === false; break; }
+    case 'plan-sweat': { const p = planRec(el.dataset.date); p.sweat = !p.sweat; break; }
     case 'plan-save': {
       const d = el.dataset.date;
       const p = planRec(d);
@@ -1970,6 +2273,7 @@ document.addEventListener('click', (e) => {
       const first = !p.madeAt;
       p.madeAt = new Date().toISOString();
       if (!p.madeOn || first) p.madeOn = today();
+      syncTop(d);
       toast(first ? `Plan locked in for ${fmtDate(d)}` : 'Plan updated');
       if (d === addDays(today(), 1)) { ui.tab = 'today'; }
       break;
@@ -2358,6 +2662,27 @@ document.addEventListener('submit', (e) => {
       addFluid(ml, ui.fuelDate || today());
       break;
     }
+    case 'dgoal-form': case 'wgoal-form': {
+      const text = (data.text || '').trim();
+      if (!text) return toast('Write the goal first');
+      const weekly = f.id === 'wgoal-form';
+      const row = { id: uid(), text, cat: data.cat, why: (data.why || '').trim() };
+      if (weekly) row.target = Math.max(1, Math.min(50, Math.round(num(data.target) || 1)));
+      if (data.every) S.goalDefs[weekly ? 'weekly' : 'daily'].push({ ...row, active: true, from: weekly ? f.dataset.ws : f.dataset.date });
+      else if (weekly) (S.weekGoals[f.dataset.ws] ||= []).push(row);
+      else (S.dayGoals[f.dataset.date] ||= []).push({ ...row, done: false });
+      toast('Goal added');
+      break;
+    }
+    case 'steps-form': {
+      const n = Math.round(num(data.steps) ?? -1);
+      if (n < 0 || n > 150000) return toast('Enter your step count');
+      const r = dayRec(data.date || today());
+      r.steps = n; r.stepsAt = nowOn(data.date || today());
+      closeSheet();
+      toast(n >= S.settings.stepGoal ? `${n.toLocaleString('en-GB')} steps · goal hit` : `${n.toLocaleString('en-GB')} steps saved`);
+      break;
+    }
     case 'fast-form': {
       const last = lastMealBefore(new Date());
       const start = data.from === 'last' && last ? last.at : new Date().toISOString();
@@ -2410,7 +2735,7 @@ document.addEventListener('submit', (e) => {
       break;
     }
     case 'settings-form': {
-      for (const k of ['proteinGoal', 'kcalGoal', 'carbGoal', 'fatGoal', 'fluidMl', 'walkExtraMl', 'startWeight', 'target', 'heightCm']) {
+      for (const k of ['proteinGoal', 'kcalGoal', 'carbGoal', 'fatGoal', 'fluidMl', 'walkExtraMl', 'stepGoal', 'stepDays', 'stepWeek', 'startWeight', 'target', 'heightCm']) {
         const v = num(data[k]);
         if (v !== null && v >= 0) S.settings[k] = v;
       }
@@ -2459,6 +2784,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) rend
 
 render();
 if (S.notice === 'v3') showWelcome();
+function importFromHash() {
+  if (!location.hash.startsWith('#import=')) return;
+  const p = decodePack(location.hash);
+  try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+  if (p) confirmPack(p); else toast('That goal-pack link is damaged');
+}
+importFromHash();
+window.addEventListener('hashchange', importFromHash);
 setInterval(tick, 30000);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
