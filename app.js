@@ -1542,10 +1542,10 @@ function viewBodySleep() {
 const GARMIN_FIELDS = [
   ['steps', 'Steps', '', 'up', 'Syncs with your steps chain'],
   ['rhr', 'Resting heart rate', 'bpm', 'down', 'Heart icon → resting value'],
-  ['bbWake', 'Body Battery on waking', '', 'up', 'Person with lightning bolt'],
+  ['bbWake', 'Body Battery on waking', '', 'up', 'Figure with lightning circle'],
   ['bbHigh', 'Body Battery high', '', 'up', ''],
   ['bbLow', 'Body Battery low', '', 'up', ''],
-  ['stress', 'Average stress', '0–100', 'down', 'Figure icon; under 25 is rest'],
+  ['stress', 'Average stress', '0–100', 'down', 'Person with lightning bolt'],
   ['resp', 'Average respiration', 'brpm', null, 'Wind icon, breaths per minute'],
   ['spo2', 'Pulse Ox average', '%', 'up', 'Overnight average if tracked'],
   ['sleepH', 'Sleep', 'h', 'up', 'Also fills your sleep log'],
@@ -1630,8 +1630,8 @@ function viewBodyGarmin() {
     <p class="muted small">Fill what you have, from the watch or Garmin Connect → My Day. Leave the rest blank. Best done each morning for the day before, once last night's sleep has synced.</p>
     <details class="small"><summary>Which watch icon is which?</summary><ul>
       <li>❤ Heart: heart rate (use the <b>resting</b> figure from the heart-rate widget)</li>
-      <li>Person with lightning bolt: <b>Body Battery</b> (0–100 energy reserve)</li>
-      <li>Figure icon: <b>stress</b> (0–25 rest, 26–50 low, 51–75 medium, 76+ high)</li>
+      <li>Person with lightning bolt: <b>stress</b> (0–25 rest, 26–50 low, 51–75 medium, 76+ high)</li>
+      <li>Figure with lightning circle: <b>Body Battery</b> (0–100 energy reserve)</li>
       <li>Wind: <b>respiration</b>, breaths per minute</li>
     </ul></details>
   </section>
