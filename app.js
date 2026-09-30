@@ -1048,6 +1048,14 @@ function checklistFor(d) {
   const kind = planKind(d);
   const items = [];
   const chainItem = (c) => items.push({ k: `chain:${c.id}`, label: c.name, done: chainStatus(d, c.id) === 'done', sub: c.since || c.id === 'coffee' ? `Day ${dayNumber(chainStreak(c.id))}` : '' });
+  // Morning first: weigh in daily; tape measurements on day 1 and every Monday.
+  const w = S.weights.find((x) => x.date === d);
+  const prevW = [...S.weights].filter((x) => x.date < d).sort((a, b) => a.date.localeCompare(b.date)).pop();
+  items.push({ k: 'weigh', label: 'Weigh in', done: !!w, sub: w ? `${w.kg} kg${prevW ? ` · ${round1(w.kg - prevW.kg) > 0 ? '+' : ''}${round1(w.kg - prevW.kg)} vs ${fmtDate(prevW.date)}` : ''}` : 'after the toilet, before food or drink' });
+  if (measureDay(d)) {
+    const m = S.measurements.find((x) => x.date === d);
+    items.push({ k: 'measure', label: 'Measurements', done: !!m, sub: m ? MEASURES.filter((k) => m[k] != null).map((k) => `${k} ${m[k]}`).join(' · ') : 'waist, chest, arms, thighs, hips, neck + photos' });
+  }
   chainItem(CHAINS[0]);
   customChainDefs().forEach(chainItem);
   const meal = (k, ref, label) => { const m = mealsOn(d).find((x) => x.ref === ref); items.push({ k, label, done: !!m, sub: m ? `logged ${fmtTime(m.at)}` : `tap to log · window ${win().from}–${win().to}` }); };
@@ -1065,6 +1073,28 @@ function checklistFor(d) {
   items.push({ k: 'plan', label: 'Plan tomorrow', done: chainStatus(d, 'plan') === 'done', sub: 'after your last meal' });
   items.push({ k: 'journal', label: 'Gratitude journal', done: !!S.journal[d], sub: 'three good things' });
   return items;
+}
+
+const measureDay = (d) => d === chainStart() || parseDate(d).getDay() === 1;
+
+function openWeighIn() {
+  const last = latestWeight();
+  openSheet('Weigh in', `<form id="weight-form" class="grid1" autocomplete="off">
+    <label class="field">Weight (kg)<input name="kg" inputmode="decimal" required placeholder="${last ? last.kg : '90.0'}"></label>
+    <input type="hidden" name="date" value="${today()}">
+    <button class="primary" type="submit">Save · +${PTS.weigh} XP</button>
+    <p class="muted small">Same time every morning: after the toilet, before food or drink. Day-to-day swings of a kilo are water and salt; the 7-day average is the number that matters.</p>
+  </form>`);
+}
+
+function openMeasureSheet() {
+  const last = [...S.measurements].sort((a, b) => b.date.localeCompare(a.date))[0];
+  openSheet('Measurements', `<form id="meas-form" class="grid2" autocomplete="off">
+    ${MEASURES.map((m) => `<label class="field">${m[0].toUpperCase() + m.slice(1)} (cm)<input name="${m}" inputmode="decimal" placeholder="${last?.[m] ?? ''}"></label>`).join('')}
+    <input type="hidden" name="date" value="${today()}">
+    <button class="primary" style="grid-column:1/-1" type="submit">Save · +${PTS.measure} XP</button>
+    <p class="muted small" style="grid-column:1/-1">Tape level and snug, not tight. Waist at the navel, neck just below the Adam's apple, arms and thighs at the widest point. Then front, side and back photos: same spot, same light.${S.settings.heightCm ? '' : ' Add your height in Body → Setup for a body-fat estimate.'}</p>
+  </form>`);
 }
 
 function checklistCard(d) {
@@ -1130,6 +1160,8 @@ function onTick(k) {
       break;
     }
     case 'steps': openSteps(d); return 'sheet';
+    case 'weigh': openWeighIn(); return 'sheet';
+    case 'measure': openMeasureSheet(); return 'sheet';
     case 'goal': {
       if (rec === '1') { const t = (dayRec(d).dg ||= {}); if (t[id]) delete t[id]; else t[id] = true; }
       else { const g = (S.dayGoals[d] || []).find((x) => x.id === id); if (g) g.done = !g.done; }
@@ -3258,6 +3290,7 @@ document.addEventListener('submit', (e) => {
       const d = data.date || today();
       S.weights = S.weights.filter((w) => w.date !== d);
       S.weights.push({ date: d, kg: round1(kg) });
+      if (document.querySelector('.sheet #weight-form')) { closeSheet(); toast(`${round1(kg)} kg logged`); }
       break;
     }
     case 'meas-form': {
@@ -3268,6 +3301,7 @@ document.addEventListener('submit', (e) => {
       const prev = S.measurements.find((x) => x.date === d) || {};
       S.measurements = S.measurements.filter((x) => x.date !== d);
       S.measurements.push({ ...prev, ...row });
+      if (document.querySelector('.sheet #meas-form')) { closeSheet(); toast('Measurements saved'); }
       break;
     }
     case 'settings-form': {
