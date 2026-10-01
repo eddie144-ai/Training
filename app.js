@@ -111,8 +111,8 @@ function freshState() {
     v: 3,
     settings: {
       proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000,
-      startWeight: 96.8, startFixed: true, target: 77, heightCm: null, cycleStart: '2026-10-01', cycleFixed: true, highContrast: false,
-      window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-01',
+      startWeight: 96.8, startFixed: true, target: 77, heightCm: null, cycleStart: '2026-10-05', cycleFixed: true, mondayStart: true, highContrast: false,
+      window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-05', coffeeStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
@@ -205,6 +205,14 @@ function normalise(s) {
     if (out.settings.startWeight === 90) out.settings.startWeight = 96.8;
     out.settings.startFixed = true;
   }
+  // Programme moved to Monday 5 Oct 2026; the clean chains (coffee and your own) keep running from 1 Oct.
+  if (!s.settings?.mondayStart) {
+    out.settings.coffeeStart = out.settings.coffeeStart || (out.settings.chainStart <= '2026-10-01' ? out.settings.chainStart : '2026-10-01');
+    if (out.settings.chainStart === '2026-10-01') out.settings.chainStart = '2026-10-05';
+    if (out.settings.cycleStart === '2026-10-01' || out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-05';
+    out.settings.mondayStart = true;
+    out.settings.cycleFixed = true;
+  }
   if (!s.settings?.cycleFixed) {
     if (out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-01';
     out.settings.cycleFixed = true;
@@ -247,7 +255,7 @@ function load() {
       return n;
     }
     const n = normalise(parsed);
-    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed) localStorage.setItem(STORE_KEY, JSON.stringify(n));
+    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed || !parsed.settings?.mondayStart) localStorage.setItem(STORE_KEY, JSON.stringify(n));
     return n;
   } catch {
     storageOk = false;
@@ -286,6 +294,10 @@ const fluidTotal = (date) => sum(fluidsOn(date), (f) => f.ml);
 const fluidGoal = (date) => S.settings.fluidMl + (S.days[date]?.sweat ? S.settings.walkExtraMl : 0);
 const latestWeight = () => [...S.weights].sort((a, b) => a.date.localeCompare(b.date)).pop() || null;
 const chainStart = () => S.settings.chainStart;
+// The clean chains (no coffee and your own "No ___" chains) can start before the rest of the programme.
+const cleanStart = () => (S.settings.coffeeStart && S.settings.coffeeStart < chainStart() ? S.settings.coffeeStart : chainStart());
+const firstStart = () => cleanStart();
+const isClean = (def) => !!def && (def.id === 'coffee' || def.custom);
 
 function fluidGoalAt(date) {
   const goal = fluidGoal(date);
@@ -407,10 +419,10 @@ function chainStatus(date, id) {
   if (def?.custom) {
     // Days clean before the app started count toward the streak (but earn no XP).
     if (def.since && date < def.since) return 'off';
-    // Days before the chain was added (or before the app's chains began) are carried in from `since`.
-    const carryEnd = def.created && def.created > chainStart() ? def.created : chainStart();
+    // Days before the chain was added (or before the clean chains began) are carried in from `since`.
+    const carryEnd = def.created && def.created > cleanStart() ? def.created : cleanStart();
     if (date < carryEnd) return def.since ? 'done' : 'off';
-  } else if (date < chainStart()) return 'off';
+  } else if (date < (isClean(def) ? cleanStart() : chainStart())) return 'off';
   const o = S.days[date]?.chains?.[id];
   if (o === true) return 'done';
   if (o === false) return 'miss';
@@ -434,12 +446,12 @@ function chainStreak(id) {
     }
     return (chainMemo[id] = { cur, best, days, today: week.status, week, unit: 'wk' });
   }
-  const from = def?.custom && def.since ? def.since : chainStart();
+  const from = def?.custom && def.since ? def.since : isClean(def) ? cleanStart() : chainStart();
   for (let d = from; d <= t; d = addDays(d, 1)) {
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
   }
-  return (chainMemo[id] = { cur, best, days, today: t >= chainStart() ? chainStatus(t, id) : 'off' });
+  return (chainMemo[id] = { cur, best, days, today: t >= (isClean(def) ? cleanStart() : chainStart()) ? chainStatus(t, id) : 'off' });
 }
 
 // ---- quests ----------------------------------------------------------------
@@ -603,7 +615,7 @@ function computeXP() {
       add(d, p, QUESTS[k].name + (p > QUEST_BASE ? ' · on time' : ''), QUESTS[k].stat);
     }
   }
-  for (let d = chainStart(); d <= today(); d = addDays(d, 1)) {
+  for (let d = firstStart(); d <= today(); d = addDays(d, 1)) {
     for (const c of allChains()) {
       if (c.custom && c.created && d < c.created) continue; // carried-in days: streak only, no XP
       if (chainStatus(d, c.id) === 'done') add(d, c.pts, `Chain: ${c.name}`, c.stat);
@@ -614,7 +626,7 @@ function computeXP() {
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
-  for (const d of allDates()) if (d >= chainStart() && d <= today()) { const c = checklistFor(d); if (c.length && c.every((x) => x.done)) add(d, PTS.perfect, 'Perfect day: whole checklist', 'MND'); }
+  for (const d of allDates()) if (d >= cleanStart() && d <= today()) { const c = checklistFor(d); if (c.length && c.every((x) => x.done)) add(d, PTS.perfect, 'Perfect day: whole checklist', 'MND'); }
   Object.entries(S.dreams).forEach(([d, x]) => { if (x.text) add(d, PTS.dream, 'Dream diary', 'MND'); });
   S.videos.filter((v) => v.status === 'published').forEach((v) => add(v.date || '', PTS.video, `Video: ${v.title}`, 'MND'));
   Object.entries(S.garmin).forEach(([d, g]) => { if (Object.keys(g).length >= 3) add(d, PTS.garmin, 'Garmin day logged', 'VIT'); });
@@ -982,7 +994,7 @@ function milestoneNote(n) {
 function coffeeSupport() {
   const st = chainStreak('coffee');
   const t = today();
-  const dayNo = t < chainStart() ? 0 : st.cur + (st.today === 'pending' ? 1 : 0);
+  const dayNo = t < cleanStart() ? 0 : st.cur + (st.today === 'pending' ? 1 : 0);
   const tip = [...COFFEE_TIPS].reverse().find(([n]) => n === dayNo) || (dayNo <= 3 && dayNo > 0 ? COFFEE_TIPS[Math.min(dayNo, 3) - 1] : null);
   if (!tip) return '';
   return `<section class="card support"><h2>No-coffee chain · ${esc(tip[1])}</h2><p>${esc(tip[2])}</p></section>`;
@@ -1063,6 +1075,10 @@ function checklistFor(d) {
   }
   chainItem(CHAINS[0]);
   customChainDefs().forEach(chainItem);
+  if (d < chainStart()) {
+    items.push({ k: 'plan', label: 'Plan the first week', done: !!S.weekPlans[weekStart(chainStart())], sub: `programme starts ${fmtDate(chainStart())}` });
+    return items;
+  }
   const meal = (k, ref, label) => { const m = mealsOn(d).find((x) => x.ref === ref); items.push({ k, label, done: !!m, sub: m ? `logged ${fmtTime(m.at)}` : `tap to log · window ${win().from}–${win().to}` }); };
   if (kind !== 'fast') {
     meal('meal1', 'gironda1', 'Meal 1 · 3 patties + 6 eggs');
@@ -1172,7 +1188,9 @@ function onTick(k) {
       else { const g = (S.dayGoals[d] || []).find((x) => x.id === id); if (g) g.done = !g.done; }
       break;
     }
-    case 'plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(d, 1); return 'nav';
+    case 'plan':
+      if (d < chainStart()) { ui.tab = 'plan'; ui.sub.plan = 'week'; ui.weekStart = weekStart(chainStart()); return 'nav'; }
+      ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(d, 1); return 'nav';
     case 'journal': ui.tab = 'hero'; ui.sub.hero = 'journal'; return 'nav';
     default: // macros, rest, fast day tick themselves
       if (!item.done) toast(k === 'macros' ? `Ticks itself at ${S.settings.proteinGoal} g protein and ≤ ${S.settings.kcalGoal} kcal` : 'This one ticks itself');
@@ -1201,14 +1219,15 @@ function viewToday(P) {
       <div class="stat"><b>${(fl / 1000).toFixed(1)} L</b><span>Fluids / ${(fg / 1000).toFixed(1)}</span></div>
     </div>
   </section>
-  ${d >= chainStart() ? checklistCard(d) : ''}
+  ${d >= cleanStart() ? checklistCard(d) : ''}
   ${fastingCard()}
   <section class="card">
-    <h2>Chains <span class="right">${started ? 'miss a day and it resets' : `start ${fmtDate(chainStart())}`}</span></h2>
-    ${started ? allChains().map(chainRow).join('') : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
+    <h2>Chains <span class="right">miss a day and it resets</span></h2>
+    ${started ? allChains().map(chainRow).join('') : d >= cleanStart() ? `${allChains().filter(isClean).map(chainRow).join('')}
+      <p class="small">Diet, training, steps and planning chains start <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). Use the days before to plan the first week and do a shop.</p>` : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
       <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
   </section>
-  ${started ? coffeeSupport() : ''}
+  ${d >= cleanStart() ? coffeeSupport() : ''}
   ${new Date().getHours() < 11 && !S.dreams[d] ? `<section class="card slim"><p class="small">🌙 Remember a dream? <button class="linkish inline" data-act="go-dream">Log it before it fades</button></p></section>` : ''}
   ${todayGoalsCard(d)}
   ${todaysPlanCard(d)}
@@ -1361,6 +1380,17 @@ function viewPlanShop() {
 function draftKey(pid, did) { return `${pid}|${did}`; }
 function getDraft(pid, did) { return (ui.drafts[draftKey(pid, did)] ||= {}); }
 
+// The weight to beat, in a circle like the Day badges.
+function prevBadge(last) {
+  if (!last) return '<span class="prevbadge none" aria-label="No previous weight"><small>Last</small>—</span>';
+  const sets = last.entry.sets.filter((x) => x.kg != null || x.reps != null || x.hold != null);
+  if (!sets.length) return '';
+  const top = sets.reduce((a, b) => ((b.kg ?? -1) > (a.kg ?? -1) ? b : a), sets[0]);
+  const kg = top.kg == null ? 'BW' : fmtNum(top.kg);
+  const tail = top.hold != null ? `${fmtNum(top.hold)} s` : top.reps != null ? `× ${fmtNum(top.reps)}` : 'kg';
+  return `<span class="prevbadge ${last.baseline ? 'base' : ''}" aria-label="Last time ${kg}${top.kg != null ? ' kg' : ''} ${tail}"><small>${last.baseline ? 'Start' : 'Last'}</small>${kg}<small>${tail}</small></span>`;
+}
+
 function exerciseLogCard(prog, day, e, i) {
   const draft = getDraft(prog.id, day.id)[e.id] || {};
   const last = lastEntryFor(e.name);
@@ -1381,7 +1411,7 @@ function exerciseLogCard(prog, day, e, i) {
   }).join('');
   const prevSs = i > 0 && day.exercises[i - 1].ss;
   return `<div class="excard ${e.ss ? 'ss-start' : ''} ${prevSs ? 'ss-end' : ''}">
-    <div class="row between wrap"><b>${esc(e.name)}</b><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span></div>
+    <div class="row between"><span class="grow"><b>${esc(e.name)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span></span>${prevBadge(last)}</div>
     ${tech ? `<p class="small"><span class="chip tech">${esc(tech.name)}</span> ${esc(tech.summary)}</p>` : ''}
     ${e.note ? `<p class="muted small">${esc(e.note)}</p>` : ''}
     ${e.ss ? '<p class="small accent">Superset: go straight to the next exercise, no rest.</p>' : ''}
@@ -1890,7 +1920,8 @@ function viewBodySettings() {
       ${f('target', 'Target weight (kg)', st.target, 'decimal')}
       ${f('heightCm', 'Height (cm)', st.heightCm, 'decimal')}
       <label class="field">4-week cycle start<input name="cycleStart" type="date" value="${esc(st.cycleStart)}"></label>
-      <label class="field" style="grid-column:1/-1">Chains start<input name="chainStart" type="date" value="${esc(st.chainStart)}"></label>
+      <label class="field">Programme start<input name="chainStart" type="date" value="${esc(st.chainStart)}"></label>
+      <label class="field">No-coffee start<input name="coffeeStart" type="date" value="${esc(st.coffeeStart || st.chainStart)}"></label>
       <button class="primary" style="grid-column:1/-1" type="submit">Save targets</button>
     </form>
     <p class="muted small">The diet chain needs every meal inside the window and calories at or under target.</p>
@@ -2258,7 +2289,7 @@ function openVideoEdit(v) {
 
 function viewHeroCalendar() {
   const t = today();
-  const cs = chainStart();
+  const cs = firstStart();
   const d = ui.calDate || (t < cs ? cs : t);
   ui.calDate = d;
   const sel = ui.calChain;
@@ -3316,6 +3347,7 @@ document.addEventListener('submit', (e) => {
       }
       if (data.cycleStart) S.settings.cycleStart = data.cycleStart;
       if (data.chainStart) S.settings.chainStart = data.chainStart;
+      if (data.coffeeStart) S.settings.coffeeStart = data.coffeeStart;
       toast('Targets saved');
       break;
     }
