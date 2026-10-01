@@ -2199,7 +2199,8 @@ function progressScript() {
   const lines = [];
   const dayNo = daysBetween(chainStart(), t) + 1;
   lines.push(dayNo > 0 ? `Day ${dayNo} since the restart on ${fmtDate(chainStart())}.` : `The restart begins ${fmtDate(chainStart())}.`);
-  const firstW = [...S.weights].filter((w) => w.date >= chainStart()).sort((a, b) => a.date.localeCompare(b.date))[0];
+  // Weight counts from the first day of any chain, so this week's weigh-ins are included.
+  const firstW = [...S.weights].filter((w) => w.date >= firstStart()).sort((a, b) => a.date.localeCompare(b.date))[0];
   const avg = avgWeight(t, 7);
   if (avg != null) lines.push(`Weight: ${round1(avg)} kg (7-day average)${firstW ? `, ${round1(firstW.kg - avg) >= 0 ? 'down' : 'up'} ${Math.abs(round1(firstW.kg - avg))} kg since ${fmtDate(firstW.date)}` : ''}. Goal ${S.settings.target} kg.`);
   const c = (id) => chainStreak(id);
