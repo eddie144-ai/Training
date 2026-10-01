@@ -16,9 +16,9 @@ const ex = (name, sets, reps, note = '', ss = false, tech = '') => ({ name, sets
 
 const PROGRAM_TEMPLATES = [
   {
-    id: 'my4week', family: 'cycle', name: 'My 4-Week Program',
-    source: 'Your plan (tracker workbook)',
-    about: 'Weeks 1–2 build strength at 6–8 reps; weeks 3–4 switch to 10–12 for hypertrophy. Arm moves in weeks 3–4 are rotation slots.',
+    id: 'my4week', family: 'cycle', name: 'My 4-Week Program', version: 2,
+    source: 'Your plan',
+    about: 'Phase 1 (weeks 1–2) builds a strength base at 6–8 reps. Phase 2 (weeks 3–4) is hypertrophy volume at 10–12, with a different arm rotation on Day 4 in week 3 and week 4.',
     days: [
       { name: 'Day 1 · Chest & Triceps', group: 'Phase 1 · Weeks 1–2', weeks: [1, 2], exercises: [
         ex('Reverse Grip Bench Press', 4, '6–8'), ex('V-Bar Dumbbell Chest Press', 4, '6–8'),
@@ -26,10 +26,10 @@ const PROGRAM_TEMPLATES = [
         ex('Lying Tricep Zottman Curls', 3, '8–10'), ex('Lat Machine Tricep Pulldown', 3, '8–10')] },
       { name: 'Day 2 · Legs, Calves & Abs', group: 'Phase 1 · Weeks 1–2', weeks: [1, 2], exercises: [
         ex('Barbell Squat', 3, '6–8'), ex('Leg Press', 4, '6–8'), ex('Romanian Deadlift', 4, '6–8'),
-        ex('Standing Calf Raise', 3, '20'), ex('Leg Curl Machine for Lower Abs', 3, '15–20'),
+        ex('Standing Calf Raise', 3, '20'), ex('Leg Curl Machine for Lower Abs', 3, '15–20', 'Pad-resistance reverse crunches'),
         ex('Barbell Plate Lying Side Twists', 3, '15/side')] },
       { name: 'Day 3 · Shoulders & Traps', group: 'Phase 1 · Weeks 1–2', weeks: [1, 2], exercises: [
-        ex('Straight Arm Shoulder Raises', 4, '6–8'), ex('Arnold Press', 4, '6–8'),
+        ex('Straight Arm Shoulder Raises', 4, '6–8', 'Standing or seated'), ex('Arnold Press', 4, '6–8'),
         ex('Barbell Upright Row', 4, '6–8'), ex('Shrugs', 3, '6–8')] },
       { name: 'Day 4 · Back, Biceps & Abs', group: 'Phase 1 · Weeks 1–2', weeks: [1, 2], exercises: [
         ex('Barbell Deadlift', 3, '6–8'), ex('Barbell Bent-Over Row', 4, '6–8'), ex('Spider Curls', 4, '12–15'),
@@ -38,18 +38,23 @@ const PROGRAM_TEMPLATES = [
       { name: 'Day 1 · Chest & Triceps', group: 'Phase 2 · Weeks 3–4', weeks: [3, 4], exercises: [
         ex('Reverse Grip Bench Press', 4, '10–12'), ex('V-Bar Dumbbell Chest Press', 4, '10–12'),
         ex('2x Dumbbell Pullover into Chest Press', 4, '10–12'), ex('Close Grip Bench Press', 4, '10–12'),
-        ex('Lying Tricep Zottman Curls', 3, '12–15', 'Rotation slot'), ex('Lat Machine Tricep Pulldown', 3, '12–15', 'Rotation slot')] },
+        ex('Lying Tricep Zottman Curls', 3, '10–12'), ex('Tricep Pressdown (Elbows 180°)', 3, '10–12'),
+        ex('Close Grip Cable Tricep Pressdown', 3, '10–12')] },
       { name: 'Day 2 · Legs, Calves & Abs', group: 'Phase 2 · Weeks 3–4', weeks: [3, 4], exercises: [
         ex('Barbell Squat', 3, '10–12'), ex('Leg Press', 4, '10–12'), ex('Romanian Deadlift', 4, '10–12'),
-        ex('Standing Calf Raise', 3, '20–25'), ex('Leg Curl Machine for Lower Abs', 3, '15–20'),
-        ex('Barbell Plate Lying Side Twists', 3, '15–20/side')] },
+        ex('Standing Calf Raise', 3, '20'), ex('Leg Curl Machine for Lower Abs', 3, '15–20', 'Pad-resistance reverse crunches'),
+        ex('Barbell Plate Lying Side Twists', 3, '15/side')] },
       { name: 'Day 3 · Shoulders & Traps', group: 'Phase 2 · Weeks 3–4', weeks: [3, 4], exercises: [
-        ex('Straight Arm Shoulder Raises', 4, '10–12'), ex('Arnold Press', 4, '10–12'),
+        ex('Straight Arm Shoulder Raises', 4, '10–12', 'Standing or seated'), ex('Arnold Press', 4, '10–12'),
         ex('Barbell Upright Row', 4, '10–12'), ex('Shrugs', 3, '10–12')] },
-      { name: 'Day 4 · Back, Biceps & Abs', group: 'Phase 2 · Weeks 3–4', weeks: [3, 4], exercises: [
-        ex('Barbell Deadlift', 3, '10–12'), ex('Barbell Bent-Over Row', 4, '10–12'), ex('Spider Curls', 4, '12–15', 'Rotation slot'),
-        ex('Dumbbell Preacher Curls (Pinkie Inwards)', 3, '12–15', 'Rotation slot'), ex('Dumbbell Hammer Concentration Curls', 3, '12–15', 'Rotation slot'),
-        ex('Seated Zottman Curls', 3, '12–15', 'Rotation slot')] },
+      { name: 'Day 4 · Back, Biceps & Abs (week 3 arms)', group: 'Phase 2 · Weeks 3–4', weeks: [3], exercises: [
+        ex('Barbell Deadlift', 3, '10–12'), ex('Barbell Bent-Over Row', 4, '10–12'),
+        ex('Cross Body Hammer Curls', 4, '10–12', 'Hard squeeze'), ex('Dumbbell Hammer Concentration Curls', 3, '10–12'),
+        ex('Preacher Open-Palmed DB Curls', 3, '10–12'), ex('Cable Drag Curl into Full Curl', 3, '10–12')] },
+      { name: 'Day 4 · Back, Biceps & Abs (week 4 arms)', group: 'Phase 2 · Weeks 3–4', weeks: [4], exercises: [
+        ex('Barbell Deadlift', 3, '10–12'), ex('Barbell Bent-Over Row', 4, '10–12'),
+        ex('Drag Curls', 4, '10–12'), ex('Dumbbell Hammer Concentration Curls', 3, '10–12'),
+        ex('One-Arm Bicep Pulldown', 3, '10–12'), ex('Leaning Against the Wall Curls', 3, '10–12')] },
     ],
   },
   {

@@ -197,6 +197,11 @@ function normalise(s) {
     goalDefs: { ...d.goalDefs, ...(s.goalDefs || {}) },
   };
   for (const t of PROGRAM_TEMPLATES) if (!out.programs[t.id]) out.programs[t.id] = programFromTemplate(t);
+  // Built-in programs refresh when their template is revised, unless you've edited them.
+  for (const t of PROGRAM_TEMPLATES) {
+    const cur = out.programs[t.id];
+    if (t.version && (cur.version || 1) < t.version && !cur.edited) out.programs[t.id] = programFromTemplate(t);
+  }
   out.fluids = (out.fluids || []).map((f) => (f.type === 'coffee' ? { ...f, type: 'tea' } : f));
   delete out.refeeds;
   // One-time move of the old placeholder cycle start (5 Oct) to the real restart date, 1 Oct.
@@ -1446,6 +1451,15 @@ function exerciseEditRow(prog, day, e, i) {
   </div>`;
 }
 
+// Everything you lifted before the app, for reference: the circles above use the same numbers.
+function referenceLifts() {
+  const list = Object.values(S.baselines || {}).sort((a, b) => a.name.localeCompare(b.name));
+  if (!list.length) return '';
+  return `<section class="card"><details><summary><b>Previous lifts</b> <span class="muted small">· ${list.length} exercises for reference</span></summary>
+    <div class="list small">${list.map((b) => `<div><b>${esc(b.name)}</b> <span class="muted">· ${fmtDate(b.date)}</span><br>${b.sets.filter((x) => x.kg != null || x.reps != null).map(setText).join(', ')}${b.note ? `<br><span class="muted">${esc(b.note)}</span>` : ''}</div>`).join('')}</div>
+  </details></section>`;
+}
+
 function techniqueCards() {
   return `<section class="card"><h2>Advanced techniques</h2>
     <p class="muted small">Tag an exercise with a technique in Edit exercises and the logger changes to match: singles for Rest-Pause, Omni-Contraction and Infitonic; seconds held for static holds.</p>
@@ -1511,6 +1525,7 @@ function viewTrain() {
       ${ui.openSession === w.id ? `<div class="small muted">${(w.entries || []).map((e) => `${esc(e.name)}: ${e.sets.map(setText).join(', ')}${e.note ? ` (${esc(e.note)})` : ''}`).join('<br>') || 'No sets logged.'}</div>` : ''}
     </div>`).join('')}</div>` : `<p class="muted">No sessions logged for this program yet.${Object.keys(S.baselines).length ? ' Your last weights from before the reset show as starting points.' : ''}</p>`}
   </section>
+  ${referenceLifts()}
   ${fam === 'hit' && S.settings.tier === 'advanced' ? techniqueCards() : ''}
   ${fam === 'hit' ? `<section class="card"><h2>Mentzer principles</h2><div class="list">${MENTZER_PRINCIPLES.map(([h, t]) => `<div><b>${h}</b><br><span class="muted small">${t}</span></div>`).join('')}</div></section>` : ''}`;
 }
@@ -2885,6 +2900,7 @@ document.addEventListener('click', (e) => {
     case 'del-workout': ask('Delete this session?', 'Delete', () => { S.workouts = S.workouts.filter((w) => w.id !== el.dataset.id); }); return;
     case 'ex-move': {
       const { day, i } = findEx(el.dataset.pid, el.dataset.did, el.dataset.eid);
+      S.programs[el.dataset.pid].edited = true;
       const j = i + Number(el.dataset.dir);
       if (j < 0 || j >= day.exercises.length) return;
       [day.exercises[i], day.exercises[j]] = [day.exercises[j], day.exercises[i]];
@@ -2892,12 +2908,13 @@ document.addEventListener('click', (e) => {
     }
     case 'ex-del': {
       const { day, i, ex } = findEx(el.dataset.pid, el.dataset.did, el.dataset.eid);
-      ask(`Remove ${ex.name} from this day?`, 'Remove', () => { day.exercises.splice(i, 1); });
+      ask(`Remove ${ex.name} from this day?`, 'Remove', () => { day.exercises.splice(i, 1); S.programs[el.dataset.pid].edited = true; });
       return;
     }
     case 'ex-add': {
       const prog = S.programs[el.dataset.pid];
       const day = prog.days.find((d) => d.id === el.dataset.did);
+      prog.edited = true;
       day.exercises.push({ id: uid(), name: 'New exercise', sets: prog.family === 'hit' ? 1 : 3, reps: prog.family === 'hit' ? '6–10' : '8–12', note: '', ss: false, tech: '' });
       break;
     }
@@ -2905,13 +2922,14 @@ document.addEventListener('click', (e) => {
       const prog = S.programs[el.dataset.pid];
       const nd = { id: uid(), name: `Day ${prog.days.length + 1}`, group: prog.days[prog.days.length - 1]?.group || '', weeks: prog.days[prog.days.length - 1]?.weeks, exercises: [] };
       prog.days.push(nd);
+      prog.edited = true;
       ui.dayId = nd.id;
       break;
     }
     case 'day-del': {
       const prog = S.programs[el.dataset.pid];
       ask('Delete this day and its exercises? Logged sessions stay in history.', 'Delete day', () => {
-        prog.days = prog.days.filter((d) => d.id !== el.dataset.did); ui.dayId = null;
+        prog.days = prog.days.filter((d) => d.id !== el.dataset.did); ui.dayId = null; prog.edited = true;
       });
       return;
     }
@@ -3146,8 +3164,9 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (t.dataset.edit) {
-    const { day, ex } = findEx(t.dataset.pid, t.dataset.did, t.dataset.eid);
+    const { prog, day, ex } = findEx(t.dataset.pid, t.dataset.did, t.dataset.eid);
     const f = t.dataset.edit;
+    if (prog) prog.edited = true;
     if (f === 'dayname') { day.name = t.value.trim() || day.name; commit(); return; }
     if (!ex) return;
     if (f === 'ss') ex.ss = t.checked;
