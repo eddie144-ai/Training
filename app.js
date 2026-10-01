@@ -813,12 +813,24 @@ function goalXP(add) {
 
 // A goal pack travels in a link (#import=...). The part after # never reaches a server,
 // so the pack only ever lives in this browser.
-function decodePack(text) {
+// Accepts a full link, the code alone, or raw JSON. Spaces, line breaks and invisible characters
+// that copy-paste can add are ignored. Codes starting "z." are gzip-compressed (much shorter).
+async function decodePack(text) {
   let t = String(text || '').trim();
+  if (t.startsWith('{')) { try { const p = JSON.parse(t); return p?.kind === 'trainer-goals' ? p : null; } catch { return null; } }
   const i = t.indexOf('#import=');
   if (i >= 0) t = t.slice(i + 8);
+  const zipped = t.startsWith('z.');
+  if (zipped) t = t.slice(2);
+  t = t.replace(/[^A-Za-z0-9\-_+/]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  t += '='.repeat((4 - (t.length % 4)) % 4);
   try {
-    const json = t.startsWith('{') ? t : decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/'))));
+    const bytes = Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+    let json;
+    if (zipped) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      json = await new Response(stream).text();
+    } else json = new TextDecoder().decode(bytes);
     const p = JSON.parse(json);
     return p && p.kind === 'trainer-goals' ? p : null;
   } catch { return null; }
@@ -2099,7 +2111,8 @@ function viewGoalsProfile() {
     <h2>Import a goal pack</h2>
     <p class="muted small">Paste a goal-pack link or code. It adds daily, weekly and long-term goals and your operating rules. Everything stays on this phone.</p>
     <textarea id="pack-text" rows="3" placeholder="Paste the link here"></textarea>
-    <button data-act="pack-import">Import</button>
+    <div class="grid2"><button data-act="pack-import">Import pasted link</button>
+      <label class="btn">Import from file<input type="file" accept=".txt,.json,text/plain,application/json" id="pack-file" class="sr"></label></div>
     ${S.pack ? `<p class="muted small">Last imported: ${esc(S.pack.name)} · ${fmtDate(S.pack.at.slice(0, 10))}</p>` : ''}
   </section>`;
 }
@@ -2750,9 +2763,10 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'pack-import': {
-      const p = decodePack(document.getElementById('pack-text')?.value);
-      if (!p) { toast('That isn\'t a goal pack'); return; }
-      confirmPack(p);
+      decodePack(document.getElementById('pack-text')?.value).then((p) => {
+        if (p) confirmPack(p);
+        else toast('That link looks cut short. Try the file instead: Import from file');
+      });
       return;
     }
     case 'tick': {
@@ -3125,6 +3139,12 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.id === 'pack-file') {
+    const file = t.files?.[0];
+    if (file) file.text().then(decodePack).then((p) => (p ? confirmPack(p) : toast('That file isn\'t a goal pack'))).catch(() => toast('Could not read that file'));
+    t.value = '';
+    return;
+  }
   if (t.id === 'import') {
     const file = t.files?.[0];
     if (file) file.text().then(restoreFrom).catch(() => toast('Could not read that file'));
@@ -3413,9 +3433,9 @@ render();
 if (S.notice === 'v3') showWelcome();
 function importFromHash() {
   if (!location.hash.startsWith('#import=')) return;
-  const p = decodePack(location.hash);
+  const hash = location.hash;
   try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
-  if (p) confirmPack(p); else toast('That goal-pack link is damaged');
+  decodePack(hash).then((p) => { if (p) confirmPack(p); else toast('That goal-pack link is damaged'); });
 }
 importFromHash();
 window.addEventListener('hashchange', importFromHash);
