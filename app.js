@@ -742,12 +742,73 @@ function weekWarning(d) {
   return '';
 }
 
+// ---- SMARTENUP goal check ---------------------------------------------------
+// Specific, Measurable, Achievable, Relevant, Time-bound, Exciting, Noted, Understood, Positive.
+// S, M, T, N, U and P are read from what you write; A, R and E are yours to tick honestly.
+const SMARTENUP = [
+  ['S', 'Specific', 'Say exactly what you will do. "Film the Day 1 intro" beats "work on the channel".'],
+  ['M', 'Measurable', 'Add a number (kg, steps, reps, minutes, pages) or make it clearly done or not done.'],
+  ['A', 'Achievable', 'Doable with the time and energy you will actually have. Tick A if it is.'],
+  ['R', 'Relevant', 'Moves you towards 77 kg, the channel or a long-term goal. Tick R if it does.'],
+  ['T', 'Time-bound', 'Give it a when: a time, or a trigger like "after Meal 1".'],
+  ['E', 'Exciting', 'You want to do it, not just should. Tick E if it pulls you.'],
+  ['N', 'Noted', 'Written down. Done by putting it here.'],
+  ['U', 'Understood', 'Write one line of why, for the moment you don\'t feel like it.'],
+  ['P', 'Positive', 'Phrase it as something to do, not to avoid: "Eat Meal 2 by 14:30", not "Don\'t snack".'],
+];
+const SMART_SELF = ['A', 'R', 'E'];
+const VAGUE = /\b(better|more|less|some|stuff|things|try|improve|work on|sort out|get on with|be good)\b/i;
+const DONE_VERBS = /\b(finish|complete|film|record|edit|publish|upload|post|send|email|book|call|ring|buy|order|cook|prep|pay|submit|apply|clean|plan|log|weigh|walk|train|read|write|fix|cancel|sign|meal)\w*\b/i;
+const WHEN_WORDS = /(\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b|\b(before|after|by|at|morning|noon|lunch|evening|tonight|bedtime)\b)/i;
+function smartCheck({ text = '', when = '', why = '', self = {} }) {
+  const t = text.trim();
+  if (!t) return null;
+  const words = t.split(/\s+/).length;
+  const hasNum = /\d/.test(t);
+  const pass = {
+    S: words >= 3 && !(VAGUE.test(t) && !hasNum),
+    M: hasNum || DONE_VERBS.test(t),
+    A: !!self.A, R: !!self.R, E: !!self.E,
+    T: !!when.trim() || WHEN_WORDS.test(t),
+    N: true,
+    U: why.trim().length >= 3,
+    P: !/^\s*(don'?t|do not|no\b|stop|avoid|never|not\b|quit)/i.test(t),
+  };
+  const score = SMARTENUP.filter(([k]) => pass[k]).length;
+  const miss = SMARTENUP.find(([k]) => !pass[k] && !SMART_SELF.includes(k)) || SMARTENUP.find(([k]) => !pass[k]);
+  return { pass, score, miss };
+}
+function smartStrip(r, tap) {
+  if (!r) return '<p class="muted small smart-hint">Write it, then make it SMARTENUP.</p>';
+  return `<div class="smart" aria-label="SMARTENUP ${r.score} of 9">${SMARTENUP.map(([k, name]) => {
+    const on = r.pass[k];
+    return SMART_SELF.includes(k) && tap
+      ? `<button type="button" class="sl self ${on ? 'on' : ''}" ${tap(k)} aria-pressed="${on}" title="${name}">${k}</button>`
+      : `<span class="sl ${on ? 'on' : ''}" title="${name}">${k}</span>`;
+  }).join('')}<b class="sl-score ${r.score === 9 ? 'good-text' : ''}">${r.score}/9</b></div>
+  <p class="muted small smart-hint">${r.miss ? `<b>${r.miss[0]} · ${r.miss[1]}:</b> ${esc(r.miss[2])}` : '★ Fully SMARTENUP. Now just do it.'}</p>`;
+}
+// Live update of a strip while typing, without a full re-render.
+function refreshSmart(box) {
+  const v = (n) => box.querySelector(`[data-sm="${n}"]`)?.value || '';
+  const self = {};
+  box.querySelectorAll('.sl.self').forEach((b) => { self[b.textContent] = b.classList.contains('on'); });
+  const strip = box.querySelector('.smart-wrap');
+  if (!strip) return;
+  const tapAttrs = box.dataset.smartTap;
+  const when = v('when') || (box.dataset.smartWhen === 'week' ? 'this week' : '');
+  strip.innerHTML = smartStrip(smartCheck({ text: v('text'), when, why: v('why'), self }), tapAttrs !== undefined ? (k) => `data-act="smart-self" ${tapAttrs} data-l="${k}"` : null);
+}
+
 // Tomorrow's top 3 become that day's one-off goals.
 function syncTop(d) {
   const p = S.plans[d] || {};
   const keep = (S.dayGoals[d] || []).filter((g) => g.src !== 'plan');
   const old = Object.fromEntries((S.dayGoals[d] || []).filter((g) => g.src === 'plan').map((g) => [g.text, g.done]));
-  const top = (p.top || []).filter(Boolean).map((text, i) => ({ id: `top${i}-${d}`, text, cat: 'build', src: 'plan', done: !!old[text] }));
+  const top = (p.top || []).map((text, i) => [text, i]).filter(([text]) => text).map(([text, i]) => ({
+    id: `top${i}-${d}`, text, cat: 'build', src: 'plan', done: !!old[text],
+    when: p.topWhen?.[i] || '', why: p.topWhy?.[i] || '',
+    ifThen: i === 0 && p.woop?.obstacle && p.woop?.plan ? `If ${p.woop.obstacle}, then ${p.woop.plan}` : '' }));
   S.dayGoals[d] = [...top, ...keep];
 }
 
@@ -1365,10 +1426,36 @@ function viewPlanTomorrow() {
     <p class="muted small">Browse full recipe cards in Fuel → Recipes. Planned meals appear on Today as a checklist: tap one to log it.</p>`}
   </section>
   <section class="card">
-    <h2>Top 3 for ${d === addDays(t, 1) ? 'tomorrow' : fmtDate(d)}</h2>
-    ${[0, 1, 2].map((i) => `<input value="${esc(p.top?.[i] || '')}" placeholder="${['Most important thing', 'Second', 'Third'][i]}" maxlength="100" aria-label="Priority ${i + 1}" data-plantop="${d}|${i}">`).join('')}
+    <h2>Top 3 for ${d === addDays(t, 1) ? 'tomorrow' : fmtDate(d)} <span class="right">SMARTENUP</span></h2>
+    ${smartGuide()}
+    ${[0, 1, 2].map((i) => topGoalEditor(d, p, i)).join('')}
+    ${p.top?.[0] ? `<div class="woop">
+      <p class="rlabel">If–then plan for #1</p>
+      <label class="field">What's most likely to get in the way?<input value="${esc(p.woop?.obstacle || '')}" maxlength="100" placeholder="e.g. I'm tired after work" data-planwoop="${d}|obstacle"></label>
+      <label class="field">If that happens, then I will…<input value="${esc(p.woop?.plan || '')}" maxlength="100" placeholder="e.g. do just the first 10 minutes" data-planwoop="${d}|plan"></label>
+      <p class="muted small">Picture finishing #1, then the obstacle, then your plan. Planning for the obstacle ahead of time (WOOP) makes follow-through far more likely than motivation alone.</p>
+    </div>` : ''}
   </section>
   <button class="primary" data-act="plan-save" data-date="${d}">${p.madeAt ? 'Update plan' : `Lock in the plan · +${QUEST_BASE} XP`}</button>`;
+}
+
+function smartGuide() {
+  return `<details class="smart-guide"><summary>How to write a goal that gets done</summary>
+    <div class="list small">${SMARTENUP.map(([k, n, h]) => `<div><b>${k} · ${n}</b><br><span class="muted">${esc(h)}</span></div>`).join('')}
+    <div><b>Process over outcome</b><br><span class="muted">77 kg is the outcome. Your top 3 should be actions you control today: steps, meals, the session, filming.</span></div>
+    <div><b>Never miss twice</b><br><span class="muted">If a day goes wrong, make tomorrow's #1 the smallest version of the habit. One miss is an accident; two is a new habit.</span></div></div></details>`;
+}
+
+function topGoalEditor(d, p, i) {
+  const self = p.topCheck?.[i] || {};
+  const r = smartCheck({ text: p.top?.[i] || '', when: p.topWhen?.[i] || '', why: p.topWhy?.[i] || '', self });
+  const tap = `data-date="${d}" data-i="${i}"`;
+  return `<div class="topgoal" data-smart data-smart-tap='${tap}'>
+    <input value="${esc(p.top?.[i] || '')}" placeholder="${['#1 · the one thing that matters most', '#2', '#3'][i]}" maxlength="100" aria-label="Priority ${i + 1}" data-plantop="${d}|${i}|text" data-sm="text">
+    <div class="grid2"><input value="${esc(p.topWhen?.[i] || '')}" placeholder="When? 10:00" maxlength="40" aria-label="When for priority ${i + 1}" data-plantop="${d}|${i}|when" data-sm="when">
+    <input value="${esc(p.topWhy?.[i] || '')}" placeholder="Why it matters" maxlength="100" aria-label="Why for priority ${i + 1}" data-plantop="${d}|${i}|why" data-sm="why"></div>
+    <div class="smart-wrap">${smartStrip(r, (k) => `data-act="smart-self" ${tap} data-l="${k}"`)}</div>
+  </div>`;
 }
 
 function viewPlanWeek() {
@@ -2090,7 +2177,7 @@ function goalCard(g) {
 
 function goalRow(date, g) {
   return `<div class="row between goalrow"><button class="check grow" role="checkbox" aria-checked="${g.done}" data-act="dg-tick" data-date="${date}" data-id="${esc(g.id)}" data-rec="${g.recurring ? 1 : 0}">
-    <span class="box" aria-hidden="true">${g.done ? '✓' : ''}</span><span class="grow ${g.done ? 'struck' : ''}">${esc(g.text)}${g.why ? `<br><span class="muted small">${esc(g.why)}</span>` : ''}</span><span class="catg">${esc(catName(g.cat))}</span></button>
+    <span class="box" aria-hidden="true">${g.done ? '✓' : ''}</span><span class="grow ${g.done ? 'struck' : ''}">${esc(g.text)}${g.when ? ` <span class="chip">⏱ ${esc(g.when)}</span>` : ''}${g.why ? `<br><span class="muted small">${esc(g.why)}</span>` : ''}${g.ifThen ? `<br><span class="small ifthen">↳ ${esc(g.ifThen)}</span>` : ''}</span><span class="catg">${esc(catName(g.cat))}</span></button>
     ${g.recurring ? '' : `<button class="icon ghost" data-act="dg-del" data-date="${date}" data-id="${esc(g.id)}" aria-label="Delete goal">✕</button>`}</div>`;
 }
 
@@ -2115,11 +2202,13 @@ function viewGoalsToday() {
   <section class="card">
     <h2>Daily goals <span class="right">${done}/${gs.length}</span></h2>
     ${gs.length ? bar(done, gs.length, done === gs.length ? 'good' : '') + `<div class="list">${gs.map((g) => goalRow(d, g)).join('')}</div>` : '<p class="muted">No goals for this day yet. Add one below, or plan tomorrow\'s top 3 in Plan.</p>'}
-    <form id="dgoal-form" class="grid2" data-date="${d}" autocomplete="off">
-      <label class="field" style="grid-column:1/-1">New goal<input name="text" required maxlength="100" placeholder="Something you can finish today"></label>
+    <form id="dgoal-form" class="grid2" data-date="${d}" data-smart data-smart-tap="" autocomplete="off">
+      <label class="field" style="grid-column:1/-1">New goal<input name="text" required maxlength="100" placeholder="Something you can finish today" data-sm="text"></label>
+      <label class="field">When<input name="when" maxlength="40" placeholder="e.g. after Meal 1" data-sm="when"></label>
       <label class="field">Area<select name="cat">${catOptions('build')}</select></label>
-      <label class="field check-field"><span>Every day</span><input name="every" type="checkbox"></label>
-      <label class="field" style="grid-column:1/-1">Why (optional)<input name="why" maxlength="140" placeholder="The reason, for the days you don't feel like it"></label>
+      <label class="field" style="grid-column:1/-1">Why<input name="why" maxlength="140" placeholder="The reason, for the days you don't feel like it" data-sm="why"></label>
+      <label class="field check-field" style="grid-column:1/-1"><span>Every day</span><input name="every" type="checkbox"></label>
+      <div class="smart-wrap" style="grid-column:1/-1">${smartStrip(null)}</div>
       <button class="primary" style="grid-column:1/-1" type="submit">Add goal</button>
     </form>
     ${recActive > DAILY_SOFT_CAP ? `<p class="small warn-text">⚠ ${recActive} goals every day. Each extra one lowers the odds of finishing all of them: keep ${DAILY_SOFT_CAP} must-dos and pause the rest.</p>` : ''}
@@ -2142,12 +2231,13 @@ function viewGoalsWeek() {
   <section class="card">
     <h2>Weekly goals <span class="right">${reached}/${gs.length} reached</span></h2>
     ${gs.length ? `<div class="list">${gs.map((g) => weekGoalRow(ws, g)).join('')}</div>` : '<p class="muted">No weekly goals yet. Set them at the weekend with your weekly plan.</p>'}
-    <form id="wgoal-form" class="grid2" data-ws="${ws}" autocomplete="off">
-      <label class="field" style="grid-column:1/-1">New weekly goal<input name="text" required maxlength="100" placeholder="e.g. Income actions"></label>
+    <form id="wgoal-form" class="grid2" data-ws="${ws}" data-smart data-smart-tap="" data-smart-when="week" autocomplete="off">
+      <label class="field" style="grid-column:1/-1">New weekly goal<input name="text" required maxlength="100" placeholder="e.g. Film and upload 2 videos" data-sm="text"></label>
       <label class="field">Times this week<input name="target" inputmode="numeric" value="1"></label>
       <label class="field">Area<select name="cat">${catOptions('wealth')}</select></label>
       <label class="field check-field" style="grid-column:1/-1"><span>Every week</span><input name="every" type="checkbox"></label>
-      <label class="field" style="grid-column:1/-1">Why (optional)<input name="why" maxlength="140"></label>
+      <label class="field" style="grid-column:1/-1">Why<input name="why" maxlength="140" data-sm="why"></label>
+      <div class="smart-wrap" style="grid-column:1/-1">${smartStrip(null)}</div>
       <button class="primary" style="grid-column:1/-1" type="submit">Add weekly goal</button>
     </form>
   </section>
@@ -2913,6 +3003,14 @@ document.addEventListener('click', (e) => {
       if (d === addDays(today(), 1)) { ui.tab = 'today'; }
       break;
     }
+    case 'smart-self': {
+      const d = el.dataset.date, i = el.dataset.i, l = el.dataset.l;
+      if (d === undefined || i === undefined) { el.classList.toggle('on'); el.setAttribute('aria-pressed', el.classList.contains('on')); refreshSmart(el.closest('[data-smart]')); return; }
+      const p = planRec(d);
+      const c = ((p.topCheck ||= {})[i] ||= {});
+      c[l] = !c[l];
+      break;
+    }
     case 'top-done': { const p = planRec(today()); (p.topDone ||= {})[el.dataset.i] = !p.topDone[el.dataset.i]; break; }
     case 'log-planned': {
       const d = today();
@@ -3187,6 +3285,11 @@ document.addEventListener('input', (e) => {
     again.focus(); again.setSelectionRange(pos, pos);
     return;
   }
+  if (t.dataset.sm) {
+    const box = t.closest('[data-smart]');
+    if (box) refreshSmart(box);
+    return;
+  }
   if (t.dataset.live === 'picker-q') {
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll('.picker-list .pick').forEach((b) => { b.hidden = !!q && !b.dataset.name.includes(q); });
@@ -3215,9 +3318,20 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (t.dataset.plantop) {
-    const [d, i] = t.dataset.plantop.split('|');
+    const [d, i, field = 'text'] = t.dataset.plantop.split('|');
     const p = planRec(d);
-    (p.top ||= ['', '', ''])[Number(i)] = t.value.trim();
+    const key = { text: 'top', when: 'topWhen', why: 'topWhy' }[field];
+    (p[key] ||= ['', '', ''])[Number(i)] = t.value.trim();
+    if (p.madeAt) syncTop(d);
+    save();
+    if (field === 'text' && Number(i) === 0) render();
+    return;
+  }
+  if (t.dataset.planwoop) {
+    const [d, field] = t.dataset.planwoop.split('|');
+    const p = planRec(d);
+    (p.woop ||= {})[field] = t.value.trim();
+    if (p.madeAt) syncTop(d);
     save();
     return;
   }
@@ -3367,6 +3481,7 @@ document.addEventListener('submit', (e) => {
       if (!text) return toast('Write the goal first');
       const weekly = f.id === 'wgoal-form';
       const row = { id: uid(), text, cat: data.cat, why: (data.why || '').trim() };
+      if (!weekly && (data.when || '').trim()) row.when = data.when.trim();
       if (weekly) row.target = Math.max(1, Math.min(50, Math.round(num(data.target) || 1)));
       if (data.every) S.goalDefs[weekly ? 'weekly' : 'daily'].push({ ...row, active: true, from: weekly ? f.dataset.ws : f.dataset.date });
       else if (weekly) (S.weekGoals[f.dataset.ws] ||= []).push(row);

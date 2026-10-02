@@ -33,6 +33,13 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
 - **Plan**
   - **Tomorrow:** train, rest or fast; an optional sweat-suit walk; Breakfast, Lunch and Dinner from drop-downs,
     with planned macros; and your top 3, which become that day's goals.
+  - **SMARTENUP goals:** each of the top 3 has a when and a why, and nine letters light up as
+    you type: Specific, Measurable, Achievable, Relevant, Time-bound, Exciting, Noted,
+    Understood, Positive. S, M, T, N, U and P are read from what you write; tap A, R and E
+    yourself. A hint names the next letter to fix.
+  - **If–then plan (WOOP)** for #1: what's most likely to get in the way, and what you'll do
+    when it does. It shows under the goal on Today. The same checker runs on daily and weekly
+    goals in Hero → Goals.
   - **Week:** a loose weekly plan for the weekend. Suggested training days are spaced for
     recovery; add fast days and batch-cook days. You're warned about back-to-back HIT days,
     training straight off a fast, and fasts past 72 hours.
