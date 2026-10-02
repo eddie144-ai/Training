@@ -1114,6 +1114,8 @@ function closeDraft(withAction) {
 }
 
 function exportData() {
+  // Download where the browser allows it, and copy too: some hosts block downloads silently.
+  copyText(JSON.stringify(S)).then((ok) => { if (ok) toast('Backup copied. Paste it into a note or email to yourself.'); });
   const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
