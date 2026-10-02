@@ -599,3 +599,26 @@ const COFFEE_TIPS = [
   [3, 'Day 3', 'Symptoms usually peak around now and ease soon after. You are through the worst of it.'],
   [7, 'One week', 'Sleep and afternoon energy usually start to feel steadier by now.'],
 ];
+
+// Drinks on the Gironda cut. Zero-calorie drinks don't break the fast or the Cut day chain.
+const CUT_DRINKS = {
+  yes: [
+    ['Water, still or sparkling', 'Your 3.5 L base. A slice of lemon or lime is fine.'],
+    ['Electrolytes, sugar-free', 'Salt, potassium and magnesium. Important on low carb: it stops the headaches, cramps and flat feeling. Take some after sweat-suit walks and on long fasts.'],
+    ['Black tea', 'No milk or sugar while fasting. Has some caffeine, so keep it before mid-afternoon.'],
+    ['Green tea', 'Plain. Also has some caffeine.'],
+    ['Herbal and fruit teas', 'Peppermint, chamomile, rooibos and similar. Caffeine-free, so fine in the evening.'],
+  ],
+  window: [
+    ['Tea with a splash of milk', 'A splash only, with a meal. Not during the fast.'],
+    ['Bone broth or beef stock', 'About 40 kcal a mug, plus salt. Good on long fasts or if you feel light-headed.'],
+    ['Diet or zero-sugar fizzy drinks', 'No calories, but they keep the sweet tooth going. One a day at most, never an energy-drink brand.'],
+  ],
+  no: [
+    ['Coffee, including decaf', 'Your No coffee chain. Decaf keeps the habit cue alive.'],
+    ['Energy drinks', 'Your No energy drinks chain, sugar-free ones included.'],
+    ['Fruit juice, smoothies, regular fizzy drinks', 'Liquid sugar: it breaks the fast, the low carb and the Cut day.'],
+    ['Alcohol', 'Empty calories, worse sleep, and slower recovery from HIT sessions.'],
+    ['Milky drinks, protein shakes, lattes', 'They\'re food. Logged as a meal, they break the Cut day chain.'],
+  ],
+};

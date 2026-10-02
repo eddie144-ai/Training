@@ -112,7 +112,7 @@ function freshState() {
   return {
     v: 3,
     settings: {
-      proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000, sleepGoal: 7.5, refeedWeeks: 6,
+      proteinGoal: 170, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000, sleepGoal: 7.5, refeedWeeks: 6, protein170: true,
       startWeight: 96.8, startFixed: true, target: 77, heightCm: null, cycleStart: '2026-10-05', cycleFixed: true, mondayStart: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-05', coffeeStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
@@ -220,6 +220,11 @@ function normalise(s) {
     out.settings.mondayStart = true;
     out.settings.cycleFixed = true;
   }
+  // One-time: protein target matches the two Gironda meals (77 + 93 g).
+  if (!s.settings?.protein170) {
+    if (out.settings.proteinGoal === 180) out.settings.proteinGoal = 170;
+    out.settings.protein170 = true;
+  }
   if (!s.settings?.cycleFixed) {
     if (out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-01';
     out.settings.cycleFixed = true;
@@ -262,7 +267,7 @@ function load() {
       return n;
     }
     const n = normalise(parsed);
-    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed || !parsed.settings?.mondayStart) localStorage.setItem(STORE_KEY, JSON.stringify(n));
+    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed || !parsed.settings?.mondayStart || !parsed.settings?.protein170) localStorage.setItem(STORE_KEY, JSON.stringify(n));
     return n;
   } catch {
     storageOk = false;
@@ -1382,6 +1387,7 @@ function viewToday(P) {
     <h2>Fluids <span class="right">${(fl / 1000).toFixed(2)} / ${(fg / 1000).toFixed(2)} L</span></h2>
     ${bar(fl, fg, fl >= fg ? 'good' : '')}
     <div class="grid4">${[250, 500, 750, 1000].map((ml) => `<button data-act="fluid-add" data-ml="${ml}">+${ml}</button>`).join('')}</div>
+    <button class="linkish inline small" data-act="go-drinks">What can I drink?</button>
     ${S.days[d]?.sweat ? `<p class="muted small">Sweat-suit day: target raised by ${S.settings.walkExtraMl} ml to replace sweat losses.</p>` : ''}
   </section>
   <section class="card">
@@ -1797,6 +1803,15 @@ function viewFuelRecipes() {
   <button data-act="new-myfood">+ Create my own food or recipe</button>`;
 }
 
+function drinksCard(open = true) {
+  const group = (title, cls, xs) => `<p class="rlabel ${cls}">${title}</p><div class="list small">${xs.map(([n, why]) => `<div><b>${esc(n)}</b><br><span class="muted">${esc(why)}</span></div>`).join('')}</div>`;
+  return `<section class="card"><details class="drinks" ${open ? 'open' : ''}><summary><h2>What to drink on the cut</h2></summary>
+    ${group('✓ Any time, fasting or not', 'good-text', CUT_DRINKS.yes)}
+    ${group('~ Inside the eating window only', 'warn-text', CUT_DRINKS.window)}
+    ${group('✗ Not on the cut', 'danger', CUT_DRINKS.no)}
+  </details></section>`;
+}
+
 function viewFuelFluids() {
   const d = ui.fuelDate || today();
   const list = fluidsOn(d);
@@ -1812,6 +1827,7 @@ function viewFuelFluids() {
     <form id="fluid-form" class="row" autocomplete="off"><input name="ml" inputmode="numeric" placeholder="Other amount (ml)" aria-label="Amount in ml"><button type="submit">Add</button></form>
     <p class="muted small">Target ${S.settings.fluidMl} ml, plus ${S.settings.walkExtraMl} ml on sweat-suit days. Add electrolytes after sweat-suit walks and on long fasts.</p>
   </section>
+  ${drinksCard()}
   <section class="card">
     <h2>Logged</h2>
     ${list.length ? `<div class="list">${list.map((f) => `<div class="row between"><span>${fmtTime(f.at)} · <b>${f.ml} ml</b> ${esc(FLUID_TYPES.find(([k]) => k === f.type)?.[1] || '')}</span><button class="icon ghost" data-act="del-fluid" data-id="${esc(f.id)}" aria-label="Delete">✕</button></div>`).join('')}</div>` : '<p class="muted">Nothing logged yet.</p>'}
@@ -2943,6 +2959,7 @@ document.addEventListener('click', (e) => {
     }
     case 'go-dream': ui.tab = 'hero'; ui.sub.hero = 'journal'; rememberUi(); render(); document.getElementById('dream-diary')?.scrollIntoView(); return;
     case 'go-train': ui.tab = 'train'; rememberUi(); render({ scrollTop: true }); return;
+    case 'go-drinks': ui.tab = 'fuel'; ui.sub.fuel = 'fluids'; ui.fuelDate = today(); rememberUi(); render(); document.querySelector('.drinks')?.scrollIntoView(); return;
     case 'go-sleep': ui.tab = 'body'; ui.sub.body = 'sleep'; rememberUi(); render({ scrollTop: true }); return;
     case 'refeed': { const r = dayRec(el.dataset.date || today()); if (r.refeed) delete r.refeed; else { r.refeed = true; toast('Refeed day: carbs up, calorie cap off, window still on'); } break; }
     case 'refeed-snooze': { const r = dayRec(today()); r.refeedSnooze = true; break; }

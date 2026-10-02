@@ -60,7 +60,8 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
   - **Recipes:** all 43 Dolce recipes as cards, showing macros, prep and cook time, tickable
     ingredients, numbered steps and batch tips. The **Add to…** menu logs a recipe today or
     plans it for tomorrow.
-  - **Fluids** and **Stack:** the pre-workout stack has been removed.
+  - **Fluids** and **Stack:** the pre-workout stack has been removed. Fluids lists what to drink on
+    the cut: any time, inside the window only, and not on the cut.
 - **Body → Garmin:** enter any day's Venu Sq data. Fields: steps, resting heart rate, Body
   Battery (on waking, high and low), stress, respiration, Pulse Ox, sleep and sleep score,
   intensity minutes, active calories, distance and max heart rate.
