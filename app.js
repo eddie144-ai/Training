@@ -12,6 +12,7 @@ const OLD_KEY = 'trainer.v2-backup';
 const CHAINS = [
   { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee. Tea is fine. Keeps counting unless you tap I had coffee.' },
   { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
+  { id: 'cut', name: 'Cut day', stat: 'NUT', pts: 4, desc: 'Only the Gironda meals: 6 eggs + 3 patties, and 6 eggs + steak. Nothing else.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
   { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
   { id: 'sleep', name: 'Sleep 7.5 h+', stat: 'VIT', pts: 3, desc: 'Log last night\'s sleep: 7.5 hours or more keeps it.' },
@@ -391,6 +392,14 @@ function chainAuto(date, id) {
       return past ? 'miss' : 'pending';
     }
     case 'steps': return stepsOn(date) >= S.settings.stepGoal ? 'done' : past ? 'miss' : 'pending';
+    case 'cut': {
+      // Only the two Gironda meals. A fast day or a planned refeed counts as on plan.
+      const meals = mealsOn(date);
+      if (meals.some((m) => !CUT_REFS.includes(m.ref)) && !isRefeed(date)) return 'miss';
+      if (isRefeed(date) || CUT_REFS.every((r) => meals.some((m) => m.ref === r))) return 'done';
+      if (!meals.length && isFastDay(date) && passed(date, win().to)) return 'done';
+      return past ? 'miss' : 'pending';
+    }
     case 'sleep': {
       // The night that ended on this morning, from the sleep log (or Garmin).
       const sl = sleepOn(date);
@@ -404,6 +413,8 @@ function chainAuto(date, id) {
   }
   return 'pending';
 }
+
+const CUT_REFS = ['gironda1', 'gironda2'];
 
 // ---- steps: a weekly target ------------------------------------------------
 const stepsOn = (date) => S.days[date]?.steps || 0;
@@ -1036,7 +1047,7 @@ const dayBadge = (st) => { const n = dayNumber(st); return `<span class="daybadg
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
-  const action = { diet: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
+  const action = { diet: 'go-fuel', cut: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
   const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} ${st.unit === 'wk' ? 'week' : 'day'} chain">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span>`;
   if (c.id === 'steps') {
     const w = st.week, d = today(), n = stepsOn(d), sweat = !!S.days[d]?.sweat;
@@ -1049,7 +1060,8 @@ function chainRow(c) {
       <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
   }
   const sl = c.id === 'sleep' ? sleepOn(today()) : null;
-  const note = sl ? `${sl.hours} h last night${s === 'miss' ? ': start again tonight' : ''}` : s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? (isRefeed(today()) ? 'Refeed day: just finish inside the window' : 'On track: finish inside the window') : c.desc;
+  const cutNote = c.id === 'cut' && s === 'pending' ? CUT_REFS.map((r, i) => `Meal ${i + 1} ${mealsOn(today()).some((m) => m.ref === r) ? '✓' : '—'}`).join(' · ') : '';
+  const note = cutNote ? cutNote : s === 'miss' && c.id === 'cut' ? 'Something off the Gironda plan today: start again tomorrow' : sl ? `${sl.hours} h last night${s === 'miss' ? ': start again tonight' : ''}` : s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? (isRefeed(today()) ? 'Refeed day: just finish inside the window' : 'On track: finish inside the window') : c.desc;
   if (c.custom) {
     const since = c.since ? daysBetween(c.since, today()) + (s === 'done' ? 1 : 0) : null;
     return `<div class="chain ${s}">
