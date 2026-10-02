@@ -607,12 +607,12 @@ const CUT_DRINKS = {
     ['Electrolytes, sugar-free', 'Salt, potassium and magnesium. Important on low carb: it stops the headaches, cramps and flat feeling. Take some after sweat-suit walks and on long fasts.'],
     ['Black tea', 'No milk or sugar while fasting. Has some caffeine, so keep it before mid-afternoon.'],
     ['Green tea', 'Plain. Also has some caffeine.'],
+    ['Diet or zero-sugar fizzy drinks', 'Zero calories, so fine fasting or not. Just not energy-drink brands, which are your other chain.'],
     ['Herbal and fruit teas', 'Peppermint, chamomile, rooibos and similar. Caffeine-free, so fine in the evening.'],
   ],
   window: [
     ['Tea with a splash of milk', 'A splash only, with a meal. Not during the fast.'],
     ['Bone broth or beef stock', 'About 40 kcal a mug, plus salt. Good on long fasts or if you feel light-headed.'],
-    ['Diet or zero-sugar fizzy drinks', 'No calories, but they keep the sweet tooth going. One a day at most, never an energy-drink brand.'],
   ],
   no: [
     ['Coffee, including decaf', 'Your No coffee chain. Decaf keeps the habit cue alive.'],
