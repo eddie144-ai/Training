@@ -85,17 +85,17 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
   - A chain calendar where you can correct a day.
 
 ## Chains
-Chains are strict: a missed day resets them to 0.
+Chains are strict: a missed day resets them to 0. The clean chains (no coffee and your own) keep counting by themselves; only a slip you report resets them.
 
 | Chain | Kept when |
 |---|---|
-| No coffee | You confirm the day was coffee-free (tea is fine). |
+| No coffee | Every day counts unless you tap **I had coffee** (tea is fine). Ticking today just confirms it. |
 | Diet dialled in | Every meal is inside the window and calories are at or under target, or it's a fast day. On a refeed day only the window counts. |
 | Training plan followed | You trained on a planned training day, or rested on a rest or fast day. With no plan, it counts while you're within 7 days of your last session. |
 | Steps | Counted in weeks: 15,000 steps on 5 days, or 75,000 in the week. The first part-week is pro-rated. |
 | Sleep 7.5 h+ | Last night's sleep, logged in Body → Sleep or from Garmin, is at least 7.5 hours (change it in Setup). |
 | Tomorrow planned | Tomorrow's plan is saved. |
-| Your own "No ___" chains | You confirm each clean day. Set a "clean since" date and the days before count toward the streak, but earn no XP. Add them in Hero → Chains. |
+| Your own "No ___" chains | Every day counts unless you tap **I slipped**. Set a "clean since" date and the days before count toward the streak, but earn no XP. Add them in Hero → Chains. |
 
 ## XP
 XP is recalculated from your logs every time, so edits can never leave it wrong. You gain a new

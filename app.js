@@ -10,7 +10,7 @@ const OLD_KEY = 'trainer.v2-backup';
 
 // Chains: strict day-by-day streaks. pts = XP per day kept.
 const CHAINS = [
-  { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee today. Tea is fine.' },
+  { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee. Tea is fine. Keeps counting unless you tap I had coffee.' },
   { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
   { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
@@ -20,7 +20,7 @@ const CHAINS = [
 
 // Your own "No ___" chains, checked in by hand like coffee. `since` carries in days clean before the app.
 const customChainDefs = () => (S.customChains || []).filter((c) => c.active !== false)
-  .map((c) => ({ id: c.id, name: c.name, stat: 'MND', pts: 5, custom: true, since: c.since || null, created: c.created || null, desc: 'Tap when the day is done, or if you slip.' }));
+  .map((c) => ({ id: c.id, name: c.name, stat: 'MND', pts: 5, custom: true, since: c.since || null, created: c.created || null, desc: 'Keeps counting unless you tap I slipped.' }));
 // Coffee first, then your own clean-streak chains, then the rest.
 const allChains = () => [CHAINS[0], ...customChainDefs(), ...CHAINS.slice(1)];
 const chainDef = (id) => allChains().find((c) => c.id === id);
@@ -369,9 +369,9 @@ function trainingRecovered(date) {
 function chainAuto(date, id) {
   const t = today();
   const past = date < t;
-  if (chainDef(id)?.custom) return past ? 'miss' : 'pending';
+  // Clean chains run on their own: a past day counts as clean unless you reported a slip.
+  if (chainDef(id)?.custom || id === 'coffee') return past ? 'done' : 'pending';
   switch (id) {
-    case 'coffee': return past ? 'miss' : 'pending';
     case 'diet': {
       const meals = mealsOn(date);
       if (!meals.length) {
@@ -999,7 +999,7 @@ function chainRow(c) {
   }
   if (c.id === 'coffee') {
     return `<div class="chain ${s}">
-      <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Tap when the day is done, or if you slip.' : esc(note)} · best ${st.best}</span></span>${dayBadge(st)}</div>
+      <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Keeps counting unless you tap I had coffee.' : esc(note)} · best ${st.best}</span></span>${dayBadge(st)}</div>
       <div class="grid2"><button class="${s === 'done' ? 'primary' : ''}" data-act="coffee" data-v="1" aria-pressed="${s === 'done'}">✓ Coffee-free today</button>
       <button class="${s === 'miss' ? 'danger' : ''}" data-act="coffee" data-v="0" aria-pressed="${s === 'miss'}">I had coffee</button></div></div>`;
   }
