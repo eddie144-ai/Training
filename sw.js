@@ -1,5 +1,5 @@
 // Offline cache for the Trainer app shell. Bump VERSION whenever a file below changes.
-const VERSION = 'trainer-v3.21';
+const VERSION = 'trainer-v3.22';
 const FILES = ['./', './index.html', './data.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {

@@ -1230,6 +1230,12 @@ function checklistFor(d) {
     else items.push({ k: 'macros', label: 'Hit macros', auto: true, done: mac.p >= st.proteinGoal && mac.kcal > 0 && mac.kcal <= st.kcalGoal,
       sub: `P ${Math.round(mac.p)}/${st.proteinGoal} g · ${Math.round(mac.kcal)}/${st.kcalGoal} kcal` });
   } else items.push({ k: 'fastday', label: 'Fast day: nothing eaten', auto: true, done: !mealsOn(d).length, sub: 'Water, tea and electrolytes only' });
+  {
+    const cs = chainStatus(d, 'cut'), st2 = chainStreak('cut');
+    const got = CUT_REFS.map((r, i) => `Meal ${i + 1} ${mealsOn(d).some((m) => m.ref === r) ? '✓' : '—'}`).join(' · ');
+    items.push({ k: 'cut', label: 'Cut day: Gironda meals only', auto: true, done: cs === 'done',
+      sub: cs === 'miss' ? 'something else logged today: start again tomorrow' : `${cs === 'done' ? `Day ${st2.cur}` : got} · nothing else` });
+  }
   const trained = workoutsOn(d).length > 0;
   if (kind === 'rest' || kind === 'fast') items.push({ k: 'rest', label: 'Rest day respected', auto: true, done: !trained, sub: 'Recovery is when you grow' });
   else items.push({ k: 'workout', label: 'Worked out', done: trained, sub: trained ? workoutsOn(d).map((w) => w.dayName).join(', ') : 'tap to mark done, or log sets in Train' });
@@ -1338,7 +1344,7 @@ function onTick(k) {
       ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(d, 1); return 'nav';
     case 'journal': ui.tab = 'hero'; ui.sub.hero = 'journal'; return 'nav';
     default: // macros, rest, fast day tick themselves
-      if (!item.done) toast(k === 'macros' ? `Ticks itself at ${S.settings.proteinGoal} g protein and ≤ ${S.settings.kcalGoal} kcal` : 'This one ticks itself');
+      if (!item.done) toast(k === 'cut' ? 'Ticks itself once Meal 1 and Meal 2 are logged and nothing else' : k === 'macros' ? `Ticks itself at ${S.settings.proteinGoal} g protein and ≤ ${S.settings.kcalGoal} kcal` : 'This one ticks itself');
       return 'none';
   }
   return 'ticked';
