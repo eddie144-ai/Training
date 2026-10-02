@@ -1,6 +1,6 @@
 # Trainer: RPG habit, training and nutrition companion
 
-An offline-first web app for the cut from about 90 kg to 75–77 kg. It combines strict daily
+An offline-first web app for the cut from 96.8 kg (1 October 2026) to 77 kg. It combines strict daily
 chains (no coffee first), an 18:6 eating window with extended fasts, Mike Mentzer's
 high-intensity training, the Dolce Diet and your 4-week muscle cycle, with RPG levels and stats.
 
@@ -21,7 +21,10 @@ phone (Body → Settings → Copy old data) until you delete it. Chains start on
   - Level, XP and a 7-day average weight.
   - The eating window (default 09:00–15:00, 18:6) with a live fasting timer.
   - Extended fasts: 24–72 h goals, stages, electrolyte reminders and safety notes.
-  - Chains: no coffee, diet dialled in, training plan followed, steps, tomorrow planned.
+  - Chains: no coffee, diet dialled in, training plan followed, steps, sleep, tomorrow planned.
+  - **Refeed reminder:** strict low carb is kept to blocks (default 6 weeks). A week before a
+    refeed is due, a card asks you to pick a training day. Tap **Today is a refeed day** and
+    that day has carbs up, no calorie cap, and the window still on. Each refeed starts a new block.
   - Today's daily goals and this week's goal progress.
   - Support for the first days without coffee.
   - Today's plan as a checklist: tap a planned meal to log it.
@@ -87,9 +90,10 @@ Chains are strict: a missed day resets them to 0.
 | Chain | Kept when |
 |---|---|
 | No coffee | You confirm the day was coffee-free (tea is fine). |
-| Diet dialled in | Every meal is inside the window and calories are at or under target, or it's a fast day. |
+| Diet dialled in | Every meal is inside the window and calories are at or under target, or it's a fast day. On a refeed day only the window counts. |
 | Training plan followed | You trained on a planned training day, or rested on a rest or fast day. With no plan, it counts while you're within 7 days of your last session. |
 | Steps | Counted in weeks: 15,000 steps on 5 days, or 75,000 in the week. The first part-week is pro-rated. |
+| Sleep 7.5 h+ | Last night's sleep, logged in Body → Sleep or from Garmin, is at least 7.5 hours (change it in Setup). |
 | Tomorrow planned | Tomorrow's plan is saved. |
 | Your own "No ___" chains | You confirm each clean day. Set a "clean since" date and the days before count toward the streak, but earn no XP. Add them in Hero → Chains. |
 
@@ -110,7 +114,5 @@ level every 100 XP.
 | Achievement | 25 |
 
 ## Install on Android
-Open **https://eddie144-ai.github.io/training/** in Chrome, then tap **⋮ → Install app**.
-Open it once while online; after that it works offline. Your data stays on your phone, in
-the browser's storage: nothing is uploaded here. Use **Body → Settings → Copy backup** now and
-then, and keep the text somewhere safe.
+Host this folder over HTTPS, for example with GitHub Pages or Netlify Drop. Open it in Chrome,
+then tap **⋮ → Install app**. It works offline after the first load.

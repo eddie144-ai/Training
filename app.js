@@ -14,6 +14,7 @@ const CHAINS = [
   { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
   { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
+  { id: 'sleep', name: 'Sleep 7.5 h+', stat: 'VIT', pts: 3, desc: 'Log last night\'s sleep: 7.5 hours or more keeps it.' },
   { id: 'plan', name: 'Tomorrow planned', stat: 'MND', pts: 3, desc: 'Tomorrow\'s plan saved today.' },
 ];
 
@@ -110,7 +111,7 @@ function freshState() {
   return {
     v: 3,
     settings: {
-      proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000,
+      proteinGoal: 180, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000, sleepGoal: 7.5, refeedWeeks: 6,
       startWeight: 96.8, startFixed: true, target: 77, heightCm: null, cycleStart: '2026-10-05', cycleFixed: true, mondayStart: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-05', coffeeStart: '2026-10-01',
       family: 'hit', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
@@ -378,7 +379,7 @@ function chainAuto(date, id) {
         return past ? 'miss' : 'pending';
       }
       if (meals.some((m) => !inWindow(m.at))) return 'miss';
-      if (macrosOn(date).kcal > S.settings.kcalGoal) return 'miss';
+      if (!isRefeed(date) && macrosOn(date).kcal > S.settings.kcalGoal) return 'miss';
       return passed(date, win().to) ? 'done' : 'pending';
     }
     case 'training': {
@@ -390,6 +391,12 @@ function chainAuto(date, id) {
       return past ? 'miss' : 'pending';
     }
     case 'steps': return stepsOn(date) >= S.settings.stepGoal ? 'done' : past ? 'miss' : 'pending';
+    case 'sleep': {
+      // The night that ended on this morning, from the sleep log (or Garmin).
+      const sl = sleepOn(date);
+      if (sl) return sl.hours >= S.settings.sleepGoal ? 'done' : 'miss';
+      return past ? 'miss' : 'pending';
+    }
     case 'plan': {
       const p = S.plans[addDays(date, 1)];
       return p?.madeOn && p.madeOn <= date ? 'done' : past ? 'miss' : 'pending';
@@ -968,7 +975,7 @@ const dayBadge = (st) => { const n = dayNumber(st); return `<span class="daybadg
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
-  const action = { diet: 'go-fuel', training: 'go-train', plan: 'go-plan' }[c.id];
+  const action = { diet: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
   const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} ${st.unit === 'wk' ? 'week' : 'day'} chain">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span>`;
   if (c.id === 'steps') {
     const w = st.week, d = today(), n = stepsOn(d), sweat = !!S.days[d]?.sweat;
@@ -980,7 +987,8 @@ function chainRow(c) {
       <div class="grid2"><button data-act="steps-open" data-date="${d}">${n ? `Today ${fmt(n)}` : '+ Enter steps'}</button>
       <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
   }
-  const note = s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? 'On track: finish inside the window' : c.desc;
+  const sl = c.id === 'sleep' ? sleepOn(today()) : null;
+  const note = sl ? `${sl.hours} h last night${s === 'miss' ? ': start again tonight' : ''}` : s === 'done' ? 'Kept today' : s === 'miss' ? 'Broken today: start again tomorrow' : c.id === 'diet' && mealsOn(today()).length ? (isRefeed(today()) ? 'Refeed day: just finish inside the window' : 'On track: finish inside the window') : c.desc;
   if (c.custom) {
     const since = c.since ? daysBetween(c.since, today()) + (s === 'done' ? 1 : 0) : null;
     return `<div class="chain ${s}">
@@ -1076,6 +1084,43 @@ function rhythm() {
 // ===========================================================================
 // Daily checklist: every daily task in one tickable list
 // ===========================================================================
+// ---- low-carb phases and refeeds ------------------------------------------
+// Strict near-zero-carb Gironda eating is best kept to blocks of about 4–8 weeks, broken by a planned refeed.
+const REFEED_CARBS = 200;
+const isRefeed = (date) => !!S.days[date]?.refeed;
+function lastRefeed(d) {
+  return Object.keys(S.days).filter((k) => k <= d && k >= chainStart() && S.days[k]?.refeed).sort().pop() || null;
+}
+function lowCarbBlock(d) {
+  const last = lastRefeed(addDays(d, -1));
+  const since = last ? addDays(last, 1) : chainStart();
+  const days = daysBetween(since, d) + 1;
+  const due = addDays(since, Math.max(1, S.settings.refeedWeeks || 6) * 7 - 1);
+  return { since, days, week: Math.ceil(days / 7), due, toGo: daysBetween(d, due) };
+}
+
+function refeedCard(d) {
+  if (d < chainStart()) return '';
+  const st = S.settings;
+  if (isRefeed(d)) {
+    return `<section class="card refeed">
+      <h2>Refeed day <span class="right">window still on</span></h2>
+      <p class="small">Carbs up to about ${REFEED_CARBS}–300 g from rice, potatoes, oats or fruit. Keep protein at ${st.proteinGoal} g and fat low. Eat inside ${win().from}–${win().to}. There's no calorie cap today, so the diet chain only checks the window.</p>
+      <p class="muted small">Expect 1–2 kg on the scale tomorrow. It's glycogen and water, not fat, and it's gone within a few days. Best placed on a training day, before or after the session.</p>
+      <button data-act="refeed" data-date="${d}">Undo refeed day</button>
+    </section>`;
+  }
+  const b = lowCarbBlock(d);
+  if (b.toGo > 7 || S.days[d]?.refeedSnooze) return '';
+  const late = b.days > 56;
+  return `<section class="card refeed">
+    <h2>Low carb · week ${b.week} <span class="right">${b.toGo > 0 ? `refeed due ${fmtDate(b.due)}` : late ? 'past 8 weeks' : 'refeed due'}</span></h2>
+    <p class="small">${late ? `That's ${b.days} days of strict low carb. Most guidance keeps it to 4–8 week blocks. Book a refeed in the next few days.` : b.toGo > 0 ? `Strict Gironda low carb works best in blocks of 4–8 weeks. Pick a training day in the next ${b.toGo + 1} days for a one-day refeed.` : `That's ${Math.floor(b.days / 7)} weeks of low carb. Time for a one-day refeed.`}</p>
+    <p class="muted small">Check in honestly: flat or low energy, lifts dropping two sessions running, poor sleep, low mood or a stalled scale for 2+ weeks? Any of those means refeed now, not later.</p>
+    <div class="grid2"><button class="primary" data-act="refeed" data-date="${d}">Today is a refeed day</button><button data-act="refeed-snooze">Not today</button></div>
+  </section>`;
+}
+
 function checklistFor(d) {
   const st = S.settings;
   const mac = macrosOn(d);
@@ -1096,11 +1141,15 @@ function checklistFor(d) {
     items.push({ k: 'plan', label: 'Plan the first week', done: !!S.weekPlans[weekStart(chainStart())], sub: `programme starts ${fmtDate(chainStart())}` });
     return items;
   }
+  const sl = sleepOn(d);
+  items.push({ k: 'sleep', label: `Slept ${st.sleepGoal} h+`, auto: true, done: !!sl && sl.hours >= st.sleepGoal, sub: sl ? `${sl.hours} h logged${sl.notes === 'From Garmin' ? ' from Garmin' : ''}` : 'tap to log last night' });
   const meal = (k, ref, label) => { const m = mealsOn(d).find((x) => x.ref === ref); items.push({ k, label, done: !!m, sub: m ? `logged ${fmtTime(m.at)}` : `tap to log · window ${win().from}–${win().to}` }); };
   if (kind !== 'fast') {
     meal('meal1', 'gironda1', 'Meal 1 · 3 patties + 6 eggs');
     meal('meal2', 'gironda2', 'Meal 2 · steak + 6 eggs');
-    items.push({ k: 'macros', label: 'Hit macros', auto: true, done: mac.p >= st.proteinGoal && mac.kcal > 0 && mac.kcal <= st.kcalGoal,
+    if (isRefeed(d)) items.push({ k: 'macros', label: 'Refeed: protein hit, carbs up', auto: true, done: mac.p >= st.proteinGoal && mac.c >= REFEED_CARBS,
+      sub: `P ${Math.round(mac.p)}/${st.proteinGoal} g · C ${Math.round(mac.c)}/${REFEED_CARBS}+ g · no calorie cap today` });
+    else items.push({ k: 'macros', label: 'Hit macros', auto: true, done: mac.p >= st.proteinGoal && mac.kcal > 0 && mac.kcal <= st.kcalGoal,
       sub: `P ${Math.round(mac.p)}/${st.proteinGoal} g · ${Math.round(mac.kcal)}/${st.kcalGoal} kcal` });
   } else items.push({ k: 'fastday', label: 'Fast day: nothing eaten', auto: true, done: !mealsOn(d).length, sub: 'Water, tea and electrolytes only' });
   const trained = workoutsOn(d).length > 0;
@@ -1200,6 +1249,7 @@ function onTick(k) {
     case 'steps': openSteps(d); return 'sheet';
     case 'weigh': openWeighIn(); return 'sheet';
     case 'measure': openMeasureSheet(); return 'sheet';
+    case 'sleep': if (item.done) return 'none'; ui.tab = 'body'; ui.sub.body = 'sleep'; return 'nav';
     case 'goal': {
       if (rec === '1') { const t = (dayRec(d).dg ||= {}); if (t[id]) delete t[id]; else t[id] = true; }
       else { const g = (S.dayGoals[d] || []).find((x) => x.id === id); if (g) g.done = !g.done; }
@@ -1244,6 +1294,7 @@ function viewToday(P) {
       <p class="small">Diet, training, steps and planning chains start <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). Use the days before to plan the first week and do a shop.</p>` : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
       <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
   </section>
+  ${refeedCard(d)}
   ${d >= cleanStart() ? coffeeSupport() : ''}
   ${new Date().getHours() < 11 && !S.dreams[d] ? `<section class="card slim"><p class="small">🌙 Remember a dream? <button class="linkish inline" data-act="go-dream">Log it before it fades</button></p></section>` : ''}
   ${todayGoalsCard(d)}
@@ -1943,6 +1994,8 @@ function viewBodySettings() {
       ${f('stepGoal', 'Daily steps', st.stepGoal)}
       ${f('stepDays', 'Step days a week', st.stepDays)}
       ${f('stepWeek', 'Or weekly steps total', st.stepWeek)}
+      ${f('sleepGoal', 'Sleep chain (hours)', st.sleepGoal, 'decimal')}
+      ${f('refeedWeeks', 'Refeed every (weeks)', st.refeedWeeks)}
       ${f('startWeight', 'Start weight (kg)', st.startWeight, 'decimal')}
       ${f('target', 'Target weight (kg)', st.target, 'decimal')}
       ${f('heightCm', 'Height (cm)', st.heightCm, 'decimal')}
@@ -2788,6 +2841,9 @@ document.addEventListener('click', (e) => {
     }
     case 'go-dream': ui.tab = 'hero'; ui.sub.hero = 'journal'; rememberUi(); render(); document.getElementById('dream-diary')?.scrollIntoView(); return;
     case 'go-train': ui.tab = 'train'; rememberUi(); render({ scrollTop: true }); return;
+    case 'go-sleep': ui.tab = 'body'; ui.sub.body = 'sleep'; rememberUi(); render({ scrollTop: true }); return;
+    case 'refeed': { const r = dayRec(el.dataset.date || today()); if (r.refeed) delete r.refeed; else { r.refeed = true; toast('Refeed day: carbs up, calorie cap off, window still on'); } break; }
+    case 'refeed-snooze': { const r = dayRec(today()); r.refeedSnooze = true; break; }
     case 'go-plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(today(), 1); rememberUi(); render({ scrollTop: true }); return;
     case 'clean': {
       const c = (dayRec(today()).chains ||= {});
@@ -3381,7 +3437,7 @@ document.addEventListener('submit', (e) => {
       break;
     }
     case 'settings-form': {
-      for (const k of ['proteinGoal', 'kcalGoal', 'carbGoal', 'fatGoal', 'fluidMl', 'walkExtraMl', 'stepGoal', 'stepDays', 'stepWeek', 'startWeight', 'target', 'heightCm']) {
+      for (const k of ['proteinGoal', 'kcalGoal', 'carbGoal', 'fatGoal', 'fluidMl', 'walkExtraMl', 'stepGoal', 'stepDays', 'stepWeek', 'sleepGoal', 'refeedWeeks', 'startWeight', 'target', 'heightCm']) {
         const v = num(data[k]);
         if (v !== null && v >= 0) S.settings[k] = v;
       }
