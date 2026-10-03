@@ -7,9 +7,10 @@ import { resolve } from 'node:path';
 const base = (process.env.BASE_URL ?? '/Training/deliberation').replace(/\/$/, '');
 const out = resolve(process.env.OUT_DIR ?? '../deliberation');
 
-if (process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY) {
+const embedded = ['EXPO_PUBLIC_ANTHROPIC_API_KEY', 'EXPO_PUBLIC_GEMINI_API_KEY'].filter((k) => process.env[k]);
+if (embedded.length) {
   // The hosted build is public; a key here would be readable by anyone.
-  console.error('Unset EXPO_PUBLIC_ANTHROPIC_API_KEY in your shell before building for hosting. (.env is ignored.)');
+  console.error(`Unset ${embedded.join(' and ')} in your shell before building for hosting. (.env is ignored.)`);
   process.exit(1);
 }
 

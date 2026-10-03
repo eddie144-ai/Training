@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AgentCard } from '../../components/AgentCard';
 import { domainLabel } from '../../components/DomainSelector';
 import { MatrixView } from '../../components/MatrixView';
-import { runCouncilDeliberation } from '../../lib/anthropic';
+import { getEngine, runCouncilDeliberation } from '../../lib/council';
 import { SEAT_ORDER } from '../../lib/seats';
 import { getSession, saveSession } from '../../lib/storage';
 import type { CouncilSession } from '../../types';
@@ -31,7 +31,10 @@ export default function DeliberationScreen() {
     setPhase('seats');
 
     try {
-      const { seatOutputs, matrix } = await runCouncilDeliberation(current.input, {
+      const engine = await getEngine();
+      current = { ...current, engine: engine.label };
+      setSession(current);
+      const { seatOutputs, matrix } = await runCouncilDeliberation(engine, current.input, {
         signal: controller.signal,
         onSeatUpdate: (output) => {
           current = { ...current, seats: { ...current.seats, [output.seatId]: output } };
@@ -118,7 +121,12 @@ export default function DeliberationScreen() {
             </View>
 
             {/* Seats */}
-            <Text className="mb-3 font-mono text-xs uppercase tracking-wider text-zinc-400">Council deliberations</Text>
+            <View className="mb-3 flex-row items-center justify-between">
+              <Text className="font-mono text-xs uppercase tracking-wider text-zinc-400">Council deliberations</Text>
+              {session.engine ? (
+                <Text className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">{session.engine}</Text>
+              ) : null}
+            </View>
             <View className="mb-6 gap-3">
               {SEAT_ORDER.map((seatId, i) => (
                 <AgentCard key={seatId} seatId={seatId} index={i} data={session.seats[seatId]} />

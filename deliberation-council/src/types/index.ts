@@ -36,4 +36,6 @@ export interface CouncilSession {
   seats: Partial<Record<SeatId, SeatOutput>>;
   matrix?: CouncilMatrix;
   error?: string;
+  /** Model that ran the audit, e.g. "Claude Opus 5.5" or "Gemini 3.8 Flash". */
+  engine?: string;
 }

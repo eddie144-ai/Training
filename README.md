@@ -129,7 +129,7 @@ then tap **⋮ → Install app**. It works offline after the first load.
 ## Also in this repo
 - `council/`: Council, the therapy and life companion (see its README).
 - `deliberation-council/`: source for Deliberation Council, an Expo (React Native) app that runs a
-  decision through four Claude seats and synthesises an action matrix. See its README.
+  decision through four AI seats (Claude or free Gemini) and synthesises an action matrix. See its README.
 - `deliberation/`: the built web version, served at `<site>/deliberation/` and installable on a
   phone like Trainer. Regenerate it with `npm run build:web` in `deliberation-council/`.
 - `n8n/`: workflows.
