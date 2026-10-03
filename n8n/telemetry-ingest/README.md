@@ -27,7 +27,8 @@ Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → *
    ```
 
 ## What changed from the original spec
-The system prompt and user message wording are unchanged. The schema is unchanged apart from
+The user message wording is unchanged. The system prompt is unchanged apart from one added
+sentence in rule 2 that converts lbs to kg. The schema is unchanged apart from
 `sets` and `reps`, which can be null. Only what breaks the API call
 or the parsing was fixed.
 | Original | Change | Why |
@@ -43,10 +44,6 @@ or the parsing was fixed.
 | No fallback | `fallbacks: "default"` + `anthropic-beta: server-side-fallback-2026-07-01` | If a safety classifier declines, the API retries on a fallback model in the same call. |
 
 Output on success: `{ success: true, data: {...schema...}, model, usage, ingested_at }`.
-On failure: `{ success: false, error, stop_reason, ... }`. Known limits, kept on purpose:
-- Units are stripped, not converted, so a weight logged in pounds lands in `body_weight_kg` or
-  `weight_kg` as pounds.
-
-Route on `success` with an IF node
+On failure: `{ success: false, error, stop_reason, ... }`. Route on `success` with an IF node
 before the database insert. `data.timestamp` is null unless the log states a time, so use
 `ingested_at` as the row time.
