@@ -5,7 +5,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
 
 const systemPrompt = read('system-prompt.txt').trim();
-const schema = JSON.parse(read('schema.json'));
+// schema.json is kept exactly as written. The "$schema" line is metadata for
+// downstream validators, not part of the shape, so it is left out of the copy
+// sent to the API.
+const { $schema, ...schema } = JSON.parse(read('schema.json'));
 const buildRequest = read('build-request.js')
   .replace('__SYSTEM_PROMPT__', JSON.stringify(systemPrompt))
   .replace('__SCHEMA__', JSON.stringify(schema, null, 2));

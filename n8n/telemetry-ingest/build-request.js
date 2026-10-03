@@ -26,7 +26,7 @@ return {
       messages: [
         {
           role: 'user',
-          content: `Extract the telemetry from this log:\n\n<log>\n${rawLog}\n</log>`,
+          content: `Extract the telemetry metrics from this log into JSON:\n\n${rawLog}`,
         },
       ],
     },

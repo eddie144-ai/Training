@@ -1,7 +1,11 @@
 {
+  "$schema": "[http://json-schema.org/draft-07/schema#](http://json-schema.org/draft-07/schema#)",
   "type": "object",
   "properties": {
-    "timestamp": { "type": ["string", "null"], "format": "date-time" },
+    "timestamp": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
     "biometrics": {
       "type": "object",
       "properties": {
@@ -31,15 +35,19 @@
         "properties": {
           "exercise": { "type": "string" },
           "weight_kg": { "type": ["number", "null"] },
-          "sets": { "type": ["integer", "null"] },
-          "reps": { "type": ["integer", "null"] },
+          "sets": { "type": "integer" },
+          "reps": { "type": "integer" },
           "notes": { "type": ["string", "null"] }
         },
         "required": ["exercise", "weight_kg", "sets", "reps", "notes"],
         "additionalProperties": false
       }
     },
-    "flags": { "type": "array", "items": { "type": "string" } }
+    "flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Log any anomalies, fatigue warnings, or explicit performance dips mentioned in the text."
+    }
   },
   "required": ["timestamp", "biometrics", "nutrition", "training", "flags"],
   "additionalProperties": false

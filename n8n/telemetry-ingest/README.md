@@ -7,9 +7,9 @@ Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → *
 → **Parse Claude response**.
 
 ## Files
-- `system-prompt.txt`: the parser's instructions.
-- `schema.json`: the output shape. It goes to the API as a structured-output schema, so Claude's
-  reply always matches it.
+- `system-prompt.txt`: the parser's instructions, word for word as originally written.
+- `schema.json`: the output shape, exactly as originally written. It goes to the API as a
+  structured-output schema (minus the `$schema` line), so Claude's reply always matches it.
 - `build-request.js`, `parse-response.js`: the two Code nodes.
 - `build.mjs`: writes `workflow.json` from the files above. Run `node build.mjs` after any edit.
 - `workflow.json`: import this into n8n (Workflows → Import from file).
@@ -27,6 +27,8 @@ Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → *
    ```
 
 ## What changed from the original spec
+The system prompt, schema and user message wording are unchanged. Only what breaks the API call
+or the parsing was fixed.
 | Original | Change | Why |
 |---|---|---|
 | `claude-3-5-sonnet-20241022` | `claude-opus-5-5` | That model was retired on 28 Oct 2025, so every call would fail. |
@@ -36,11 +38,16 @@ Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → *
 | `content[0].text` | Uses the first `text` block | `content[0]` can be a thinking or fallback block. |
 | Log pasted into a hand-written JSON body | Body built in code, sent with `JSON.stringify` | A log with a quote or line break made the old body invalid JSON. |
 | No `stop_reason` check | `refusal` and `max_tokens` return `success: false` | Either one means the output isn't usable. |
-| `sets` / `reps` required integers | Nullable | A log like "plank 60s" has no reps, and a required integer would force the model to invent one. |
-| "Strip units" | Convert lb to kg, then strip | Otherwise 210 lb would be stored as 210 kg. |
+| `$schema` line | Kept in `schema.json`, left out of the API request | It's validator metadata, not part of the output shape. |
 | No fallback | `fallbacks: "default"` + `anthropic-beta: server-side-fallback-2026-07-01` | If a safety classifier declines, the API retries on a fallback model in the same call. |
 
 Output on success: `{ success: true, data: {...schema...}, model, usage, ingested_at }`.
-On failure: `{ success: false, error, stop_reason, ... }`. Route on `success` with an IF node
+On failure: `{ success: false, error, stop_reason, ... }`. Known limits, kept on purpose:
+- `sets` and `reps` are required integers, so for a timed hold or a run Claude has to put a number
+  there.
+- Units are stripped, not converted, so a weight logged in pounds lands in `body_weight_kg` or
+  `weight_kg` as pounds.
+
+Route on `success` with an IF node
 before the database insert. `data.timestamp` is null unless the log states a time, so use
 `ingested_at` as the row time.
