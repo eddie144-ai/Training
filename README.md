@@ -133,3 +133,6 @@ then tap **⋮ → Install app**. It works offline after the first load.
 - `deliberation/`: the built web version, served at `<site>/deliberation/` and installable on a
   phone like Trainer. Regenerate it with `npm run build:web` in `deliberation-council/`.
 - `n8n/`: workflows.
+- `massa/`: MASSA, a Dixon-Coles value betting engine with automated paper trading, bankroll rules
+  (profit sweep, stop-loss, exposure caps) and a validation gate before real money. Served at
+  `<site>/massa/`; `massa/run.mjs` runs the same cycle from cron or n8n. See its README.

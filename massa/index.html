@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121211">
+<meta name="description" content="MASSA: Dixon-Coles value betting engine with automated paper trading, bankroll rules and a validation gate.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>MASSA</title>
+<style>
+  /* Same layout as Trainer and Council: one column of cards, sticky header, tab bar at the bottom. Green accent. */
+  :root {
+    --bg: #121211; --surface: #1a1a19; --card: #232322; --raised: #2c2c2a; --border: #383835;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #8e8d85;
+    --accent: #2fbf71; --accent-ink: #121211; --cool: #3987e5;
+    --good: #2fbf71; --warn: #fab219; --bad: #e05252;
+    --radius: 16px; --nav-h: 64px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 16px); }
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: var(--surface); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .pill { font-size: 13px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: var(--raised); border: 1px solid var(--border); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pill.paper { color: var(--cool); }
+  .pill.real { color: var(--warn); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+  .card.alert { box-shadow: inset 4px 0 0 var(--bad); }
+  .card.flag { box-shadow: inset 4px 0 0 var(--warn); }
+  .card h2 { margin: 0; font-size: 13px; letter-spacing: .8px; text-transform: uppercase; color: var(--text-2); display: flex; gap: 8px; align-items: center; }
+  .card h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 600; }
+  h3 { margin: 0; font-size: 17px; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .small { font-size: 13px; }
+  .good { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .row { display: flex; gap: 10px; align-items: center; min-width: 0; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .grow { flex: 1; min-width: 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--raised); border-radius: 12px; padding: 10px; min-width: 0; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .list { display: grid; gap: 8px; }
+  .item { background: var(--raised); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; min-width: 0; }
+  .item .top { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
+  .item .top b { overflow-wrap: anywhere; }
+  .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg); white-space: nowrap; }
+  .tag.won { color: var(--good); } .tag.lost { color: var(--bad); } .tag.open { color: var(--cool); } .tag.pending { color: var(--warn); }
+  button, .btn { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 10px 14px; background: var(--raised); color: var(--text); cursor: pointer; min-height: 44px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; min-height: 44px; width: 100%; min-width: 0; }
+  input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; accent-color: var(--accent); }
+  label.field { display: grid; gap: 4px; font-size: 14px; color: var(--text-2); }
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .check { display: flex; gap: 10px; align-items: center; font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.value td { color: var(--good); font-weight: 700; }
+  .scroll { overflow-x: auto; }
+  details summary { cursor: pointer; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; background: var(--surface); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  nav button { flex: 1; background: none; border-radius: 0; min-height: var(--nav-h); display: grid; place-items: center; gap: 2px; font-size: 11px; color: var(--muted); padding: 6px 0; }
+  nav button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  nav button[aria-current="page"] { color: var(--accent); }
+  #toast { position: fixed; left: 16px; right: 16px; bottom: calc(var(--nav-h) + 16px + env(safe-area-inset-bottom, 0px)); z-index: 6; max-width: 600px; margin: 0 auto; background: var(--raised); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: none; }
+  #toast.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MASSA</h1>
+  <span id="mode-pill" class="pill paper">Paper</span>
+</header>
+<main id="main"></main>
+<div id="toast" role="status"></div>
+<nav id="nav"></nav>
+<script type="module" src="app.js"></script>
+</body>
+</html>

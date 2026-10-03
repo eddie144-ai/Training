@@ -1,0 +1,11 @@
+{
+  "name": "massa",
+  "private": true,
+  "type": "module",
+  "description": "MASSA: Dixon-Coles EV engine, bankroll automation and app",
+  "scripts": {
+    "test": "node --test",
+    "cycle": "node run.mjs cycle",
+    "status": "node run.mjs status"
+  }
+}
