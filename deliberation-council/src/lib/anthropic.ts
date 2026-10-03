@@ -4,6 +4,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { Platform } from 'react-native';
 
 import type { CouncilInput, CouncilMatrix, SeatId, SeatOutput } from '../types';
+import { getApiKey } from './apiKey';
 import { MATRIX_SCHEMA, SYNTHESIZER_PROMPT, SYSTEM_PROMPTS, buildSeatMessage } from './prompts';
 import { SEATS, SEAT_ORDER } from './seats';
 
@@ -12,23 +13,22 @@ const MODEL = 'claude-opus-5-5';
 // recommended fallback model inside the same call instead of returning a refusal.
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
-
-export const hasApiKey = Boolean(apiKey);
-
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!apiKey) {
-    throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set. Add it to .env and restart Expo.');
+const clients = new Map<string, Anthropic>();
+async function getClient(): Promise<Anthropic> {
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error('No API key. Add your Anthropic API key in Settings.');
+  let client = clients.get(apiKey);
+  if (!client) {
+    client = new Anthropic({
+      apiKey,
+      // Calls go straight from the device to the API with the user's own key, which never
+      // leaves their device otherwise. Put a proxy in front before sharing a build that embeds one.
+      dangerouslyAllowBrowser: true,
+      // React Native's built-in fetch can't stream response bodies; expo/fetch can.
+      ...(Platform.OS !== 'web' && { fetch: expoFetch as unknown as typeof fetch }),
+    });
+    clients.set(apiKey, client);
   }
-  client ??= new Anthropic({
-    apiKey,
-    // The key ships inside the app bundle. Acceptable for a personal build; put a proxy in
-    // front of the API before distributing the app to anyone else.
-    dangerouslyAllowBrowser: true,
-    // React Native's built-in fetch can't stream response bodies; expo/fetch can.
-    ...(Platform.OS !== 'web' && { fetch: expoFetch as unknown as typeof fetch }),
-  });
   return client;
 }
 
@@ -66,6 +66,7 @@ export interface CouncilCallbacks {
 }
 
 async function runSeat(
+  client: Anthropic,
   seatId: SeatId,
   input: CouncilInput,
   { onSeatUpdate, signal }: CouncilCallbacks,
@@ -75,7 +76,7 @@ async function runSeat(
   onSeatUpdate?.({ seatId, seatName, analysis: '', status: 'streaming' });
 
   try {
-    const stream = getClient().beta.messages.stream(
+    const stream = client.beta.messages.stream(
       {
         model: MODEL,
         max_tokens: 8000,
@@ -118,10 +119,15 @@ function isMatrix(value: unknown): value is CouncilMatrix {
   );
 }
 
-async function synthesize(input: CouncilInput, seats: SeatOutput[], signal?: AbortSignal): Promise<CouncilMatrix> {
+async function synthesize(
+  client: Anthropic,
+  input: CouncilInput,
+  seats: SeatOutput[],
+  signal?: AbortSignal,
+): Promise<CouncilMatrix> {
   const analyses = seats.map((s) => `[${s.seatName.toUpperCase()}]\n${s.analysis}`).join('\n\n');
 
-  const message = await getClient().beta.messages.create(
+  const message = await client.beta.messages.create(
     {
       model: MODEL,
       max_tokens: 8000,
@@ -158,9 +164,9 @@ export async function runCouncilDeliberation(
   input: CouncilInput,
   callbacks: CouncilCallbacks = {},
 ): Promise<{ seatOutputs: SeatOutput[]; matrix: CouncilMatrix }> {
-  getClient(); // Fail fast on a missing key, before any seat starts.
+  const client = await getClient(); // Fails fast on a missing key, before any seat starts.
 
-  const seatOutputs = await Promise.all(SEAT_ORDER.map((id) => runSeat(id, input, callbacks)));
+  const seatOutputs = await Promise.all(SEAT_ORDER.map((id) => runSeat(client, id, input, callbacks)));
   const answered = seatOutputs.filter((s) => s.status === 'complete' && s.analysis);
   if (answered.length < 2) {
     const reasons = seatOutputs.filter((s) => s.error).map((s) => s.error);
@@ -169,7 +175,7 @@ export async function runCouncilDeliberation(
 
   callbacks.onSynthesisStart?.();
   try {
-    const matrix = await synthesize(input, answered, callbacks.signal);
+    const matrix = await synthesize(client, input, answered, callbacks.signal);
     return { seatOutputs, matrix };
   } catch (err) {
     if (callbacks.signal?.aborted) throw err;

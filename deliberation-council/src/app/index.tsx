@@ -1,12 +1,12 @@
-import { useRouter } from 'expo-router';
-import { ArrowRight, History, Plus, X } from 'lucide-react-native';
-import { useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ArrowRight, History, Plus, Settings, X } from 'lucide-react-native';
+import { useCallback, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AudioInputButton } from '../components/AudioInputButton';
 import { DomainSelector } from '../components/DomainSelector';
-import { hasApiKey } from '../lib/anthropic';
+import { getApiKey } from '../lib/apiKey';
 import { SEATS, SEAT_ORDER } from '../lib/seats';
 import { createSession } from '../lib/storage';
 import type { DomainCategory } from '../types';
@@ -19,6 +19,13 @@ export default function InputScreen() {
   const [ruleDraft, setRuleDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const dictationBase = useRef('');
+  const [hasKey, setHasKey] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      getApiKey().then((k) => setHasKey(Boolean(k)));
+    }, []),
+  );
 
   const ready = query.trim().length > 0 && !submitting;
 
@@ -58,13 +65,22 @@ export default function InputScreen() {
               <Text className="font-mono text-xs uppercase tracking-[3px] text-muted">Deliberation</Text>
               <Text className="text-2xl font-bold text-cream">Council</Text>
             </View>
-            <Pressable
-              onPress={() => router.push('/history')}
-              accessibilityLabel="Saved audits"
-              className="rounded-lg border border-slate-edge bg-charcoal p-2.5 active:opacity-80"
-            >
-              <History color="#F4F4F5" size={20} />
-            </Pressable>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={() => router.push('/history')}
+                accessibilityLabel="Saved audits"
+                className="rounded-lg border border-slate-edge bg-charcoal p-2.5 active:opacity-80"
+              >
+                <History color="#F4F4F5" size={20} />
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/settings')}
+                accessibilityLabel="Settings"
+                className="rounded-lg border border-slate-edge bg-charcoal p-2.5 active:opacity-80"
+              >
+                <Settings color="#F4F4F5" size={20} />
+              </Pressable>
+            </View>
           </View>
 
           {/* Seat lights */}
@@ -78,12 +94,13 @@ export default function InputScreen() {
             ))}
           </View>
 
-          {!hasApiKey && (
-            <View className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3">
-              <Text className="font-mono text-xs text-red-300">
-                No API key. Set EXPO_PUBLIC_ANTHROPIC_API_KEY in .env and restart Expo.
-              </Text>
-            </View>
+          {!hasKey && (
+            <Pressable
+              onPress={() => router.push('/settings')}
+              className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 active:opacity-80"
+            >
+              <Text className="font-mono text-xs text-red-300">No API key yet. Tap to add yours in Settings ›</Text>
+            </Pressable>
           )}
 
           {/* Proposition */}

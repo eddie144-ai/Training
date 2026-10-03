@@ -36,7 +36,8 @@
           "microphonePermission": "Dictate a proposition for the council to audit.",
           "speechRecognitionPermission": "Turn your dictation into text for the council to audit."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "scheme": "deliberation-council",
     "backgroundColor": "#050507",

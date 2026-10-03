@@ -15,10 +15,12 @@ friction points and an action protocol. Every audit is saved on the device.
 - `src/app/deliberation/[id].tsx`: loads the saved session by id. A new or interrupted session
   runs; a finished one is shown from storage. Retry on failure.
 - `src/app/history.tsx`: saved audits, newest first, with delete.
+- `src/app/settings.tsx`: paste, replace or remove the Anthropic API key.
 - `src/components/`: `AgentCard`, `MatrixView`, `DomainSelector`, `AudioInputButton`.
 - `src/lib/anthropic.ts`: the engine. `src/lib/prompts.ts`: seat prompts, domain context, the
   matrix JSON schema. `src/lib/seats.ts`: seat names, accents, icons. `src/lib/storage.ts`:
-  AsyncStorage persistence (key `council.sessions.v1`, last 100 sessions).
+  AsyncStorage persistence (key `council.sessions.v1`, last 100 sessions). `src/lib/apiKey.ts`:
+  the API key, in SecureStore on iOS/Android and in browser storage on web.
 - `src/types/index.ts`: shared types.
 
 ## Engine rules
@@ -44,13 +46,22 @@ NativeWind `className` does not apply to Reanimated's `Animated.View`. Use `Anim
 for `entering` animations and animated styles, and put the classes on a plain `View` inside it.
 
 ## API key
-`EXPO_PUBLIC_ANTHROPIC_API_KEY` in `.env` (see `.env.example`). `EXPO_PUBLIC_` values are compiled
-into the bundle, so the key can be extracted from any build. Fine for a personal build with a spend
-limit; put a small proxy in front of the API before sharing the app.
+The user pastes their key in Settings and it's stored only on their device. `getApiKey()` falls
+back to `EXPO_PUBLIC_ANTHROPIC_API_KEY` from `.env` for local development. `EXPO_PUBLIC_` values
+are compiled into the bundle, so `npm run build:web` ignores `.env` (`EXPO_NO_DOTENV`) and refuses
+to run if the variable is set in the shell.
+
+## Web app (phone install)
+`npm run build:web` exports the web build into `../deliberation/`, which GitHub Pages serves at
+`https://eddie144-ai.github.io/Training/deliberation/` once it's on `main`. It sets Expo's
+`baseUrl` through `app.config.js` (`BASE_URL` overrides `/Training/deliberation`), injects the
+manifest, Apple tags and service worker from `public/`, and copies `index.html` to `404.html` so
+deep links survive a reload. Rebuild and commit `../deliberation/` after changing the app.
 
 ## Checks
 ```bash
 npx tsc --noEmit
 npx prettier --check "src/**/*.{ts,tsx}"
-npx expo export --platform web      # bundles; also try --platform android
+npx expo export --platform android --output-dir /tmp/android   # native bundle compiles
+npm run build:web                                              # hosted web build
 ```
