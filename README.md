@@ -125,3 +125,10 @@ level every 100 XP.
 ## Install on Android
 Host this folder over HTTPS, for example with GitHub Pages or Netlify Drop. Open it in Chrome,
 then tap **⋮ → Install app**. It works offline after the first load.
+
+## Also in this repo
+- `council/`: Council, the therapy and life companion (see its README).
+- `deliberation-council/`: Deliberation Council, an Expo (React Native) app that runs a decision
+  through four Claude seats and synthesises an action matrix. It needs `npm install` and an API key;
+  see its README. GitHub Pages serves its source files but not a working app.
+- `n8n/`: workflows.

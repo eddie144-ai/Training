@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Deliberation Council",
+    "slug": "deliberation-council",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.eddie144.deliberationcouncil"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#050507",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "ai.eddie144.deliberationcouncil"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single",
+      "name": "Deliberation Council",
+      "themeColor": "#050507",
+      "backgroundColor": "#050507"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Dictate a proposition for the council to audit.",
+          "speechRecognitionPermission": "Turn your dictation into text for the council to audit."
+        }
+      ]
+    ],
+    "scheme": "deliberation-council",
+    "backgroundColor": "#050507",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050507"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
