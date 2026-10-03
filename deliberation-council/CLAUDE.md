@@ -17,6 +17,8 @@ Claude (paid) or Gemini (free tier), chosen in Settings.
   runs; a finished one is shown from storage. Retry on failure.
 - `src/app/history.tsx`: saved audits, newest first, with delete.
 - `src/app/settings.tsx`: choose Claude or Gemini, manage each key, set the Gemini model.
+- `src/app/behavioral-audit.tsx`: paste a communication record and get an actions-vs-words audit
+  (one `generateJson` call through `src/lib/behavioralAudit.ts`, shown by `AuditReportView`). Not saved.
 - `src/components/`: `AgentCard`, `MatrixView`, `DomainSelector`, `AudioInputButton`.
 - `src/lib/council.ts`: orchestration (parallel seats, synthesis, shape check) over an `Engine`
   (`src/lib/engine.ts`). `src/lib/anthropic.ts` and `src/lib/gemini.ts` are the two engines.

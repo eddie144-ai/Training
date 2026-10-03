@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { ArrowRight, History, Plus, Settings, X } from 'lucide-react-native';
+import { Activity, ArrowRight, History, Plus, Settings, X } from 'lucide-react-native';
 import { useCallback, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -72,6 +72,13 @@ export default function InputScreen() {
               <Text className="text-2xl font-bold text-cream">Council</Text>
             </View>
             <View className="flex-row gap-2">
+              <Pressable
+                onPress={() => router.push('/behavioral-audit')}
+                accessibilityLabel="Behavioral audit"
+                className="rounded-lg border border-slate-edge bg-charcoal p-2.5 active:opacity-80"
+              >
+                <Activity color="#F4F4F5" size={20} />
+              </Pressable>
               <Pressable
                 onPress={() => router.push('/history')}
                 accessibilityLabel="Saved audits"
