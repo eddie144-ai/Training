@@ -89,7 +89,138 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// n8n Code node \"Parse Claude response\" (Run Once for Each Item)\n// Input: the HTTP Request node's output (the raw Messages API response).\n// The response can hold thinking and fallback blocks before the text, so\n// find the text block instead of reading content[0].\nconst res = $input.item.json;\nconst ingestedAt = new Date().toISOString();\n\nfunction fail(error, extra = {}) {\n  return {\n    json: {\n      success: false,\n      error,\n      stop_reason: res.stop_reason ?? null,\n      model: res.model ?? null,\n      ...extra,\n      ingested_at: ingestedAt,\n    },\n  };\n}\n\nif (res.type === 'error' || res.error) {\n  return fail(`API error: ${res.error?.type ?? 'unknown'}: ${res.error?.message ?? ''}`);\n}\nif (res.stop_reason === 'refusal') {\n  return fail('Claude declined the request', { stop_details: res.stop_details ?? null });\n}\nif (res.stop_reason === 'max_tokens') {\n  return fail('Output hit max_tokens and is incomplete');\n}\n\nconst text = (res.content ?? [])\n  .filter((block) => block.type === 'text')\n  .map((block) => block.text)\n  .join('')\n  .trim();\n\ntry {\n  const data = JSON.parse(text);\n  return {\n    json: {\n      success: true,\n      data,\n      model: res.model,\n      usage: res.usage ?? null,\n      ingested_at: ingestedAt,\n    },\n  };\n} catch (error) {\n  return fail('JSON parsing failed', { raw_output: text });\n}\n"
+        "jsCode": "// n8n Code node \"Parse Claude response\" (Run Once for Each Item)\n// Input: the HTTP Request node's output (the raw Messages API response).\n// The response can hold thinking and fallback blocks before the text, so\n// find the text block instead of reading content[0].\nconst res = $input.item.json;\nconst ingestedAt = new Date().toISOString();\n// The HTTP Request node replaces the item, so fetch the log from the node before it.\nconst rawLog = $('Build Claude request').item.json.raw_log;\n\nfunction fail(error, extra = {}) {\n  return {\n    json: {\n      success: false,\n      error,\n      stop_reason: res.stop_reason ?? null,\n      model: res.model ?? null,\n      ...extra,\n      raw_log: rawLog,\n      ingested_at: ingestedAt,\n    },\n  };\n}\n\nif (res.type === 'error' || res.error) {\n  return fail(`API error: ${res.error?.type ?? 'unknown'}: ${res.error?.message ?? ''}`);\n}\nif (res.stop_reason === 'refusal') {\n  return fail('Claude declined the request', { stop_details: res.stop_details ?? null });\n}\nif (res.stop_reason === 'max_tokens') {\n  return fail('Output hit max_tokens and is incomplete');\n}\n\nconst text = (res.content ?? [])\n  .filter((block) => block.type === 'text')\n  .map((block) => block.text)\n  .join('')\n  .trim();\n\ntry {\n  const data = JSON.parse(text);\n  return {\n    json: {\n      success: true,\n      data,\n      model: res.model,\n      usage: res.usage ?? null,\n      raw_log: rawLog,\n      ingested_at: ingestedAt,\n    },\n  };\n} catch (error) {\n  return fail('JSON parsing failed', { raw_output: text });\n}\n"
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000005",
+      "name": "Parsed OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "b1f0c6a2-0001-4c1e-9a10-0000000000a1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000006",
+      "name": "To log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"To log row\" (Run Once for Each Item)\n// Flattens a successful parse into one telemetry_logs row. Column names match\n// schema.sql, so the Postgres node maps them automatically. training and flags\n// are sent as JSON text; Postgres casts them to jsonb.\nconst { data, model, usage, raw_log, ingested_at } = $input.item.json;\nconst b = data.biometrics ?? {};\nconst n = data.nutrition ?? {};\n\nreturn {\n  json: {\n    ingested_at,\n    logged_at: data.timestamp ?? null,\n    body_weight_kg: b.body_weight_kg ?? null,\n    step_count: b.step_count ?? null,\n    resting_heart_rate: b.resting_heart_rate ?? null,\n    sleep_hours: b.sleep_hours ?? null,\n    protocol: n.protocol ?? null,\n    total_calories: n.total_calories ?? null,\n    protein_grams: n.protein_grams ?? null,\n    adherence: n.adherence ?? null,\n    training: JSON.stringify(data.training ?? []),\n    flags: JSON.stringify(data.flags ?? []),\n    raw_log,\n    model: model ?? null,\n    input_tokens: usage?.input_tokens ?? null,\n    output_tokens: usage?.output_tokens ?? null,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000007",
+      "name": "Insert telemetry log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        -100
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "telemetry_logs"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000008",
+      "name": "To error row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"To error row\" (Run Once for Each Item)\n// Shapes a failed parse into one telemetry_ingest_errors row (see schema.sql).\nconst { error, stop_reason, model, raw_output, raw_log, ingested_at } = $input.item.json;\n\nreturn {\n  json: {\n    ingested_at,\n    error,\n    stop_reason: stop_reason ?? null,\n    model: model ?? null,\n    raw_output: raw_output ?? null,\n    raw_log,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000009",
+      "name": "Insert ingest error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "telemetry_ingest_errors"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres"
+        }
       }
     }
   ],
@@ -121,6 +252,57 @@
         [
           {
             "node": "Parse Claude response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude response": {
+      "main": [
+        [
+          {
+            "node": "Parsed OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsed OK?": {
+      "main": [
+        [
+          {
+            "node": "To log row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "To error row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To log row": {
+      "main": [
+        [
+          {
+            "node": "Insert telemetry log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To error row": {
+      "main": [
+        [
+          {
+            "node": "Insert ingest error",
             "type": "main",
             "index": 0
           }

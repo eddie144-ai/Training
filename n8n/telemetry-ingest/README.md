@@ -1,25 +1,32 @@
 # Telemetry ingest (n8n + Claude)
 
 Turns a raw daily log (notes, Garmin numbers, voice-note transcript, workout notes) into one JSON
-object with a fixed shape, ready for a database.
+object with a fixed shape, and saves it to Postgres.
 
 Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → **Claude Messages API**
-→ **Parse Claude response**.
+→ **Parse Claude response** → **Parsed OK?**
+- yes → **To log row** → **Insert telemetry log** (table `telemetry_logs`)
+- no → **To error row** → **Insert ingest error** (table `telemetry_ingest_errors`, with the raw
+  log so it can be re-sent)
 
 ## Files
 - `system-prompt.txt`: the parser's instructions, word for word as originally written.
 - `schema.json`: the output shape, exactly as originally written. It goes to the API as a
   structured-output schema (minus the `$schema` line), so Claude's reply always matches it.
-- `build-request.js`, `parse-response.js`: the two Code nodes.
+- `build-request.js`, `parse-response.js`, `to-log-row.js`, `to-error-row.js`: the Code nodes.
+- `schema.sql`: creates the two Postgres tables.
 - `build.mjs`: writes `workflow.json` from the files above. Run `node build.mjs` after any edit.
 - `workflow.json`: import this into n8n (Workflows → Import from file).
 
 ## Setup
-1. Import `workflow.json`.
-2. Create a **Header Auth** credential named `Anthropic API key`: name `x-api-key`, value your key.
+1. Create the tables: `psql "$DATABASE_URL" -f schema.sql` (safe to run again).
+2. Import `workflow.json`.
+3. Create a **Header Auth** credential named `Anthropic API key`: name `x-api-key`, value your key.
    Select it on the **Claude Messages API** node. A credential is used instead of `$env` because
    n8n blocks `$env` in expressions by default (`N8N_BLOCK_ENV_ACCESS_IN_NODE`).
-3. Activate it, then test:
+4. Create a **Postgres** credential named `Postgres` for your database and select it on both
+   insert nodes. If n8n asks, open each insert node once so it loads the table's columns.
+5. Activate it, then test:
    ```bash
    curl -X POST http://localhost:5678/webhook/telemetry-ingest \
      -H 'Content-Type: application/json' \
@@ -43,7 +50,18 @@ or the parsing was fixed.
 | `$schema` line | Kept in `schema.json`, left out of the API request | It's validator metadata, not part of the output shape. |
 | No fallback | `fallbacks: "default"` + `anthropic-beta: server-side-fallback-2026-07-01` | If a safety classifier declines, the API retries on a fallback model in the same call. |
 
-Output on success: `{ success: true, data: {...schema...}, model, usage, ingested_at }`.
-On failure: `{ success: false, error, stop_reason, ... }`. Route on `success` with an IF node
-before the database insert. `data.timestamp` is null unless the log states a time, so use
-`ingested_at` as the row time.
+## Tables
+`telemetry_logs` has one row per parsed log: the biometric and nutrition fields as columns,
+`training` and `flags` as `jsonb`, plus `raw_log`, `model` and token counts. `logged_at` is the time
+stated in the log and is usually null, so sort and filter by `ingested_at`.
+
+Example: reps per exercise over time.
+```sql
+SELECT ingested_at::date, t->>'exercise' AS exercise, (t->>'weight_kg')::numeric AS kg,
+       (t->>'sets')::int AS sets, (t->>'reps')::int AS reps
+FROM telemetry_logs, jsonb_array_elements(training) AS t
+ORDER BY 1, 2;
+```
+
+`telemetry_ingest_errors` keeps logs Claude couldn't parse (refusal, cut-off reply, API error,
+bad JSON) with the error and the raw log.
