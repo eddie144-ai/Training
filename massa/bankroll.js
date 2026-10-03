@@ -1,7 +1,7 @@
 /* Bankroll: two separate accounts (paper and real), the ledger, exposure caps, drawdown throttle,
    settlement, profit sweeps, stop-loss and the validation gate that unlocks the real account. */
 
-import { settleSelection } from './engine.js';
+import { settleSelection, settleRule } from './engine.js';
 
 export const DEFAULT_SETTINGS = {
   mode: 'paper',          // 'paper' bets automatically; 'real' proposes bets for you to place (needs the gate)
@@ -9,6 +9,9 @@ export const DEFAULT_SETTINGS = {
   sports: ['soccer_epl'],
   regions: 'uk',
   bookmakers: [],         // Odds API bookmaker keys you hold accounts with; empty = all
+  markets: ['h2h', 'spreads', 'totals'], // each market costs one Odds API request per league per cycle
+  dartsPlayers: '',       // "Name, 3-dart average, checkout %" per line
+  dartsFormat: 'legs:6',  // legs:N (first to N legs) or sets:N:L (first to N sets of first to L legs)
   horizonHours: 48,       // only bet on fixtures starting within this window
   minGames: 6,            // each team needs this many rated matches
   minStake: 0.1,
@@ -37,6 +40,7 @@ export function newState() {
     accounts: { paper: newAccount(), real: newAccount() },
     bets: [],
     ratings: {},
+    results: {},            // results history per sport (non-football), from scores and imports
     lastEval: [],
     log: [],
     lastRun: null,
@@ -138,7 +142,7 @@ export function placeBet(state, acct, fixture, selection, stake, now = Date.now(
   const bet = {
     id: uid(), account: acct, eventId: fixture.id, sport: fixture.sport, league: fixture.league,
     fixture: `${fixture.home} v ${fixture.away}`, commence: fixture.commence,
-    market: selection.market, selection: selection.selection, book: selection.book,
+    market: selection.market, selection: selection.selection, book: selection.book, rule: selection.rule ?? null,
     odds: selection.odds, modelProb: selection.modelProb, fairProb: selection.fairProb, ev: selection.ev,
     stake, status: acct === 'paper' ? 'open' : 'pending', placedAt: iso(now), settledAt: null, profit: 0, score: null,
   };
@@ -178,18 +182,29 @@ export function settleBets(state, scores, now = Date.now()) {
     if (b.status !== 'open') continue;
     const sc = byId.get(b.eventId);
     if (!sc) continue;
-    const result = settleSelection(b.selection, sc.hg, sc.ag);
-    const a = state.accounts[b.account];
-    const back = result === 'won' ? b.stake * b.odds : result === 'void' ? b.stake : 0;
-    a.cash = round2(a.cash + back);
-    b.status = result;
-    b.profit = round2(back - b.stake);
-    b.score = `${sc.hg}-${sc.ag}`;
-    b.settledAt = iso(now);
-    a.peak = Math.max(a.peak, equity(state, b.account));
+    settleOne(state, b, b.rule ? settleRule(b.rule, sc.hg, sc.ag) : settleSelection(b.selection, sc.hg, sc.ag), `${sc.hg}-${sc.ag}`, now);
     n++;
   }
   return n;
+}
+
+function settleOne(state, b, result, score, now) {
+  const a = state.accounts[b.account];
+  const back = result === 'won' ? b.stake * b.odds : result === 'void' ? b.stake : 0;
+  a.cash = round2(a.cash + back);
+  b.status = result;
+  b.profit = round2(back - b.stake);
+  b.score = score;
+  b.settledAt = iso(now);
+  a.peak = Math.max(a.peak, equity(state, b.account));
+}
+
+/** Settles an open bet by hand, for events the scores feed doesn't report (some MMA, boxing, darts). */
+export function manualSettle(state, betId, result, now = Date.now()) {
+  const b = state.bets.find((x) => x.id === betId && x.status === 'open');
+  if (!b) throw new Error('No open bet with that id');
+  if (!['won', 'lost', 'void'].includes(result)) throw new Error(`Unknown result ${result}`);
+  settleOne(state, b, result, 'manual', now);
 }
 
 /** Profit sweep and stop-loss. Returns a list of messages. */
@@ -223,13 +238,13 @@ export function rebaseAndResume(state, acct) {
 }
 
 /**
- * The validation gate (Betting Council v1.1): enough settled paper bets, a 95% confidence
+ * The validation gate (Betting Council v1.1), per sport: enough settled paper bets, a 95% confidence
  * interval on ROI that sits above zero, and model probabilities that beat the de-vigged market
  * on Brier score.
  */
-export function validationGate(state) {
+export function validationGate(state, sport = null) {
   const s = state.settings;
-  const bets = state.bets.filter((b) => b.account === 'paper' && (b.status === 'won' || b.status === 'lost'));
+  const bets = state.bets.filter((b) => b.account === 'paper' && (b.status === 'won' || b.status === 'lost') && (!sport || b.sport === sport));
   const n = bets.length;
   const staked = bets.reduce((x, b) => x + b.stake, 0);
   const profit = bets.reduce((x, b) => x + b.profit, 0);

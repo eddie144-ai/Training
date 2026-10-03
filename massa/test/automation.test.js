@@ -129,7 +129,7 @@ test('Full cycle with mocked feeds: places a paper bet, then settles it', async 
   assert.equal(r1.placed.length, 1);
   assert.equal(r1.placed[0].selection, 'Home');
   assert.equal(s.apiRemaining, 480);
-  assert.ok(s.lastEval[0].xg.home > s.lastEval[0].xg.away);
+  assert.ok(s.lastEval[0].expected.home > s.lastEval[0].expected.away);
 
   // Same fixture isn't bet twice.
   const r2 = await runCycle(s, { fetchFn, now: NOW + 3600000 });

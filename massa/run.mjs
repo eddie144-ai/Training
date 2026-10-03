@@ -7,13 +7,16 @@
    node run.mjs withdraw <amount> [real]  take money out
    node run.mjs cycle                     settle, rate, price, stake, sweep
    node run.mjs status                    balances, open bets, gate
-   node run.mjs set <key> <json-value>    change a setting, e.g. set sports '["soccer_epl","soccer_efl_champ"]'
+   node run.mjs set <key> <json-value>    change a setting, e.g. set sports '["soccer_epl","basketball_nba"]'
+   node run.mjs settle <bet-id> won|lost|void   settle a bet the scores feed missed
+   node run.mjs results <sport> <file.csv>      add past results (date, home, away, home score, away score)
 
    MASSA_STATE (default ./massa-state.json) and ODDS_API_KEY (overrides settings.apiKey). */
 
 import { readFile, writeFile, rename } from 'node:fs/promises';
-import { newState, deposit, withdraw, equity, validationGate, DEFAULT_SETTINGS } from './bankroll.js';
-import { runCycle } from './pipeline.js';
+import { newState, deposit, withdraw, equity, validationGate, manualSettle, DEFAULT_SETTINGS } from './bankroll.js';
+import { runCycle, addResults } from './pipeline.js';
+import { parseGenericResults } from './feeds.js';
 
 const FILE = process.env.MASSA_STATE || './massa-state.json';
 
@@ -21,6 +24,7 @@ async function load() {
   try {
     const s = JSON.parse(await readFile(FILE, 'utf8'));
     s.settings = { ...DEFAULT_SETTINGS, ...s.settings };
+    s.results ??= {};
     return s;
   } catch (e) {
     if (e.code === 'ENOENT') return null;
@@ -34,7 +38,6 @@ async function save(s) {
 }
 
 function status(s) {
-  const g = validationGate(s);
   const lines = [];
   for (const a of ['paper', 'real']) {
     const acc = s.accounts[a];
@@ -42,8 +45,13 @@ function status(s) {
   }
   const open = s.bets.filter((b) => b.status === 'open' || b.status === 'pending');
   lines.push(`open/pending bets: ${open.length}`);
-  for (const b of open) lines.push(`  [${b.account}/${b.status}] ${b.fixture} ${b.selection} @ ${b.odds} £${b.stake.toFixed(2)} (${b.book ?? ''})`);
-  lines.push(`gate: ${g.passed ? 'PASSED' : 'locked'} — ${g.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.label} (${c.value})`).join(', ')}`);
+  for (const b of open) lines.push(`  ${b.id} [${b.account}/${b.status}] ${b.fixture} ${b.selection} @ ${b.odds} £${b.stake.toFixed(2)} (${b.book ?? ''})`);
+  const sports = [...new Set([...s.settings.sports, ...s.bets.map((b) => b.sport)])];
+  for (const sport of sports) {
+    const g = validationGate(s, sport);
+    lines.push(`gate ${sport}: ${g.passed ? 'PASSED' : 'locked'} — ${g.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.label} (${c.value})`).join(', ')}`);
+  }
+  for (const [sport, r] of Object.entries(s.results)) lines.push(`results ${sport}: ${r.length}`);
   lines.push(`last run: ${s.lastRun ?? 'never'}  API requests left: ${s.apiRemaining ?? '?'}`);
   return lines.join('\n');
 }
@@ -71,11 +79,21 @@ switch (cmd) {
   case 'cycle': {
     const r = await runCycle(s, { fetchFn: fetch });
     for (const b of r.placed) {
-      console.log(`${b.status === 'pending' ? 'PLACE' : 'paper'}: ${b.fixture} — ${b.selection} @ ${b.odds} (${b.book}) £${b.stake.toFixed(2)}, EV ${(b.ev * 100).toFixed(1)}%`);
+      console.log(`${b.status === 'pending' ? 'PLACE' : 'paper'}: [${b.league}] ${b.fixture} — ${b.market}: ${b.selection} @ ${b.odds} (${b.book}) £${b.stake.toFixed(2)}, EV ${(b.ev * 100).toFixed(1)}%`);
     }
     for (const m of [...r.messages, ...r.errors]) console.log(m);
     console.log(`${r.settled} settled, ${r.placed.length} new`);
     if (r.errors.length) process.exitCode = 2;
+    break;
+  }
+  case 'settle':
+    manualSettle(s, args[0], args[1]);
+    console.log(status(s));
+    break;
+  case 'results': {
+    const rows = parseGenericResults(await readFile(args[1], 'utf8'));
+    console.log(`${addResults(s, args[0], rows)} new of ${rows.length} results for ${args[0]}`);
+    delete s.ratings[args[0]];
     break;
   }
   case 'set': {
