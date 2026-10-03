@@ -4,6 +4,8 @@
 // find the text block instead of reading content[0].
 const res = $input.item.json;
 const ingestedAt = new Date().toISOString();
+// The HTTP Request node replaces the item, so fetch the log from the node before it.
+const rawLog = $('Build Claude request').item.json.raw_log;
 
 function fail(error, extra = {}) {
   return {
@@ -13,6 +15,7 @@ function fail(error, extra = {}) {
       stop_reason: res.stop_reason ?? null,
       model: res.model ?? null,
       ...extra,
+      raw_log: rawLog,
       ingested_at: ingestedAt,
     },
   };
@@ -42,6 +45,7 @@ try {
       data,
       model: res.model,
       usage: res.usage ?? null,
+      raw_log: rawLog,
       ingested_at: ingestedAt,
     },
   };
