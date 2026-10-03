@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AudioInputButton } from '../components/AudioInputButton';
 import { DomainSelector } from '../components/DomainSelector';
-import { getApiKey } from '../lib/apiKey';
+import { getApiKey, getGeminiModel, getProvider } from '../lib/apiKey';
+import { geminiLabel } from '../lib/gemini';
 import { SEATS, SEAT_ORDER } from '../lib/seats';
 import { createSession } from '../lib/storage';
 import type { DomainCategory } from '../types';
@@ -20,10 +21,15 @@ export default function InputScreen() {
   const [submitting, setSubmitting] = useState(false);
   const dictationBase = useRef('');
   const [hasKey, setHasKey] = useState(true);
+  const [engineLabel, setEngineLabel] = useState('');
 
   useFocusEffect(
     useCallback(() => {
-      getApiKey().then((k) => setHasKey(Boolean(k)));
+      (async () => {
+        const provider = await getProvider();
+        setHasKey(Boolean(await getApiKey(provider)));
+        setEngineLabel(provider === 'gemini' ? geminiLabel(await getGeminiModel()) : 'Claude Opus 5.5');
+      })();
     }, []),
   );
 
@@ -93,13 +99,20 @@ export default function InputScreen() {
               />
             ))}
           </View>
+          {engineLabel ? (
+            <Text className="mt-2 text-right font-mono text-[10px] uppercase tracking-widest text-zinc-600">
+              Engine · {engineLabel}
+            </Text>
+          ) : null}
 
           {!hasKey && (
             <Pressable
               onPress={() => router.push('/settings')}
               className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 active:opacity-80"
             >
-              <Text className="font-mono text-xs text-red-300">No API key yet. Tap to add yours in Settings ›</Text>
+              <Text className="font-mono text-xs text-red-300">
+                No API key for this engine yet. Tap to add one in Settings ›
+              </Text>
             </Pressable>
           )}
 
