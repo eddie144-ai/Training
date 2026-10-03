@@ -27,7 +27,8 @@ Flow: **Webhook** (POST `{"raw_log": "..."}`) → **Build Claude request** → *
    ```
 
 ## What changed from the original spec
-The system prompt, schema and user message wording are unchanged. Only what breaks the API call
+The system prompt and user message wording are unchanged. The schema is unchanged apart from
+`sets` and `reps`, which can be null. Only what breaks the API call
 or the parsing was fixed.
 | Original | Change | Why |
 |---|---|---|
@@ -43,8 +44,6 @@ or the parsing was fixed.
 
 Output on success: `{ success: true, data: {...schema...}, model, usage, ingested_at }`.
 On failure: `{ success: false, error, stop_reason, ... }`. Known limits, kept on purpose:
-- `sets` and `reps` are required integers, so for a timed hold or a run Claude has to put a number
-  there.
 - Units are stripped, not converted, so a weight logged in pounds lands in `body_weight_kg` or
   `weight_kg` as pounds.
 

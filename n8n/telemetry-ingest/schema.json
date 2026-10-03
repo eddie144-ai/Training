@@ -35,8 +35,8 @@
         "properties": {
           "exercise": { "type": "string" },
           "weight_kg": { "type": ["number", "null"] },
-          "sets": { "type": "integer" },
-          "reps": { "type": "integer" },
+          "sets": { "type": ["integer", "null"] },
+          "reps": { "type": ["integer", "null"] },
           "notes": { "type": ["string", "null"] }
         },
         "required": ["exercise", "weight_kg", "sets", "reps", "notes"],
