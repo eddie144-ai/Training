@@ -1,0 +1,134 @@
+{
+  "name": "Telemetry ingest (Claude)",
+  "nodes": [
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b1f0c6a2-0001-4c1e-9a10-0000000000ff",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telemetry-ingest",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000002",
+      "name": "Build Claude request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"Build Claude request\" (Run Once for Each Item)\n// Input: the Webhook item, with the log at body.raw_log.\n// Output: { request } for the HTTP Request node to send as its JSON body.\n// build.mjs fills in SYSTEM_PROMPT and SCHEMA from system-prompt.txt and schema.json\n// when it writes workflow.json. Edit those files, not the copy in workflow.json.\nconst SYSTEM_PROMPT = \"You are a clinical telemetry ingestion parser. Your sole task is to process unformatted daily updates, biometric logs, voice note transcripts, and workout notes, then extract them into a normalized, single JSON object.\\n\\nOPERATIONAL RULES:\\n1. Strict Extraction: Extract ONLY explicitly stated data. Never interpolate, guess, or synthesize missing values. If a field is omitted in the raw text, return `null`.\\n2. Type Safety: Ensure numeric values (weights, reps, step counts) are strictly numbers, not strings. Strip units (\\\"kg\\\", \\\"lbs\\\", \\\"steps\\\") during extraction. Convert any weight given in lbs to kg (1 lb = 0.45359237 kg), rounded to one decimal place.\\n3. Workout Parsing: Structure exercise data sequentially into an array of objects containing movement, weight, sets, reps, and optional notes.\\n4. Schema Enforcement: You MUST return raw JSON adhering strictly to the required output schema. Do NOT include Markdown code blocks (no ```json wrapper), commentary, or leading/trailing prose.\";\nconst SCHEMA = {\n  \"type\": \"object\",\n  \"properties\": {\n    \"timestamp\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"format\": \"date-time\"\n    },\n    \"biometrics\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"body_weight_kg\": {\n          \"type\": [\n            \"number\",\n            \"null\"\n          ]\n        },\n        \"step_count\": {\n          \"type\": [\n            \"integer\",\n            \"null\"\n          ]\n        },\n        \"resting_heart_rate\": {\n          \"type\": [\n            \"integer\",\n            \"null\"\n          ]\n        },\n        \"sleep_hours\": {\n          \"type\": [\n            \"number\",\n            \"null\"\n          ]\n        }\n      },\n      \"required\": [\n        \"body_weight_kg\",\n        \"step_count\",\n        \"resting_heart_rate\",\n        \"sleep_hours\"\n      ],\n      \"additionalProperties\": false\n    },\n    \"nutrition\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"protocol\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        },\n        \"total_calories\": {\n          \"type\": [\n            \"integer\",\n            \"null\"\n          ]\n        },\n        \"protein_grams\": {\n          \"type\": [\n            \"integer\",\n            \"null\"\n          ]\n        },\n        \"adherence\": {\n          \"type\": [\n            \"boolean\",\n            \"null\"\n          ]\n        }\n      },\n      \"required\": [\n        \"protocol\",\n        \"total_calories\",\n        \"protein_grams\",\n        \"adherence\"\n      ],\n      \"additionalProperties\": false\n    },\n    \"training\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"exercise\": {\n            \"type\": \"string\"\n          },\n          \"weight_kg\": {\n            \"type\": [\n              \"number\",\n              \"null\"\n            ]\n          },\n          \"sets\": {\n            \"type\": [\n              \"integer\",\n              \"null\"\n            ]\n          },\n          \"reps\": {\n            \"type\": [\n              \"integer\",\n              \"null\"\n            ]\n          },\n          \"notes\": {\n            \"type\": [\n              \"string\",\n              \"null\"\n            ]\n          }\n        },\n        \"required\": [\n          \"exercise\",\n          \"weight_kg\",\n          \"sets\",\n          \"reps\",\n          \"notes\"\n        ],\n        \"additionalProperties\": false\n      }\n    },\n    \"flags\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Log any anomalies, fatigue warnings, or explicit performance dips mentioned in the text.\"\n    }\n  },\n  \"required\": [\n    \"timestamp\",\n    \"biometrics\",\n    \"nutrition\",\n    \"training\",\n    \"flags\"\n  ],\n  \"additionalProperties\": false\n};\n\nconst rawLog = String($input.item.json.body?.raw_log ?? '').trim();\nif (!rawLog) {\n  throw new Error('body.raw_log is empty');\n}\n\nreturn {\n  json: {\n    raw_log: rawLog,\n    request: {\n      model: 'claude-opus-5-5',\n      max_tokens: 16000,\n      output_config: {\n        effort: 'low',\n        format: { type: 'json_schema', schema: SCHEMA },\n      },\n      fallbacks: 'default',\n      system: SYSTEM_PROMPT,\n      messages: [\n        {\n          role: 'user',\n          content: `Extract the telemetry metrics from this log into JSON:\\n\\n${rawLog}`,\n        },\n      ],\n    },\n  },\n};\n"
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000003",
+      "name": "Claude Messages API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API key"
+        }
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4c1e-9a10-000000000004",
+      "name": "Parse Claude response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"Parse Claude response\" (Run Once for Each Item)\n// Input: the HTTP Request node's output (the raw Messages API response).\n// The response can hold thinking and fallback blocks before the text, so\n// find the text block instead of reading content[0].\nconst res = $input.item.json;\nconst ingestedAt = new Date().toISOString();\n\nfunction fail(error, extra = {}) {\n  return {\n    json: {\n      success: false,\n      error,\n      stop_reason: res.stop_reason ?? null,\n      model: res.model ?? null,\n      ...extra,\n      ingested_at: ingestedAt,\n    },\n  };\n}\n\nif (res.type === 'error' || res.error) {\n  return fail(`API error: ${res.error?.type ?? 'unknown'}: ${res.error?.message ?? ''}`);\n}\nif (res.stop_reason === 'refusal') {\n  return fail('Claude declined the request', { stop_details: res.stop_details ?? null });\n}\nif (res.stop_reason === 'max_tokens') {\n  return fail('Output hit max_tokens and is incomplete');\n}\n\nconst text = (res.content ?? [])\n  .filter((block) => block.type === 'text')\n  .map((block) => block.text)\n  .join('')\n  .trim();\n\ntry {\n  const data = JSON.parse(text);\n  return {\n    json: {\n      success: true,\n      data,\n      model: res.model,\n      usage: res.usage ?? null,\n      ingested_at: ingestedAt,\n    },\n  };\n} catch (error) {\n  return fail('JSON parsing failed', { raw_output: text });\n}\n"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Claude request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude request": {
+      "main": [
+        [
+          {
+            "node": "Claude Messages API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Messages API": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
