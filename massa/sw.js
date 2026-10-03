@@ -1,7 +1,7 @@
 // Offline cache for the MASSA app shell. Bump VERSION whenever a file below changes.
 // Odds, scores and results come from other origins and are never cached.
-const VERSION = 'massa-v1.0';
-const FILES = ['./', './index.html', './app.js', './engine.js', './ratings.js', './feeds.js', './bankroll.js', './pipeline.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+const VERSION = 'massa-v1.1';
+const FILES = ['./', './index.html', './app.js', './engine.js', './ratings.js', './feeds.js', './bankroll.js', './pipeline.js', './sports/registry.js', './sports/darts.js', './sports/tennis.js', './sports/elo.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));

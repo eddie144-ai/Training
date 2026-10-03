@@ -110,21 +110,24 @@ export function devig(odds, method = DEFAULTS.devig) {
   return fair.map((p) => p / fs);
 }
 
-/** EV per unit staked: p·o − 1. */
-export const expectedValue = (p, odds) => p * odds - 1;
+/** EV per unit staked: p·o + push − 1 (push = chance the stake comes back). */
+export const expectedValue = (p, odds, push = 0) => p * odds + push - 1;
 
-/** Fractional Kelly as a fraction of bankroll, capped. Zero when there's no edge. */
-export function kellyStake(p, odds, fraction = DEFAULTS.kellyFraction, capPct = DEFAULTS.maxStakePct) {
+/** Fractional Kelly as a fraction of bankroll, capped. Zero when there's no edge.
+    `push` is the chance the stake is returned (whole-number lines): f* = (p·b − q) / (b·(p + q)). */
+export function kellyStake(p, odds, fraction = DEFAULTS.kellyFraction, capPct = DEFAULTS.maxStakePct, push = 0) {
   assertOdds([odds]);
   const b = odds - 1;
-  const full = (p * b - (1 - p)) / b;
+  const q = 1 - p - push;
+  const full = (p * b - q) / (b * (p + q));
   if (!(full > 0)) return 0;
   return Math.min(full * fraction, capPct / 100);
 }
 
 /**
  * Evaluates one market of mutually exclusive outcomes (1X2, Over/Under, BTTS Yes/No).
- * outcomes: [{ selection, odds, modelProb, book? }]
+ * outcomes: [{ selection, odds, modelProb, pushProb?, rule?, book? }]
+ * rule says how the bet settles (see settleRule); pushProb is the chance it's void.
  */
 export function evaluateMarket(market, outcomes, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
@@ -133,20 +136,23 @@ export function evaluateMarket(market, outcomes, opts = {}) {
   const fair = devig(odds, o.devig);
   const marginOk = marginPct <= o.maxMarginPct;
   const evaluations = outcomes.map((x, i) => {
-    const ev = expectedValue(x.modelProb, x.odds);
+    const push = x.pushProb ?? 0;
+    const ev = expectedValue(x.modelProb, x.odds, push);
     const value = marginOk && ev >= o.minEv;
     return {
       market,
       selection: x.selection,
       book: x.book ?? null,
+      rule: x.rule ?? null,
+      pushProb: push,
       odds: x.odds,
       impliedProb: 1 / x.odds,
       fairProb: fair[i],
       modelProb: x.modelProb,
-      modelFairOdds: x.modelProb > 0 ? 1 / x.modelProb : null,
+      modelFairOdds: x.modelProb > 0 ? (1 - push) / x.modelProb : null,
       edge: x.modelProb - fair[i],
       ev,
-      stakeFraction: value ? kellyStake(x.modelProb, x.odds, o.kellyFraction, o.maxStakePct) : 0,
+      stakeFraction: value ? kellyStake(x.modelProb, x.odds, o.kellyFraction, o.maxStakePct, push) : 0,
       value,
     };
   });
@@ -170,24 +176,24 @@ export function evaluateFixture({ lambda, mu }, prices, opts = {}) {
   if (prices.h2h) {
     const { home, draw, away, books = {} } = prices.h2h;
     markets.push(evaluateMarket('1X2', [
-      { selection: 'Home', odds: home, modelProb: probs.homeWin, book: books.home },
-      { selection: 'Draw', odds: draw, modelProb: probs.draw, book: books.draw },
-      { selection: 'Away', odds: away, modelProb: probs.awayWin, book: books.away },
+      { selection: 'Home', odds: home, modelProb: probs.homeWin, book: books.home, rule: { kind: 'winner', side: 'home' } },
+      { selection: 'Draw', odds: draw, modelProb: probs.draw, book: books.draw, rule: { kind: 'winner', side: 'draw' } },
+      { selection: 'Away', odds: away, modelProb: probs.awayWin, book: books.away, rule: { kind: 'winner', side: 'away' } },
     ], o));
   }
   if (prices.totals && probs.over[prices.totals.line] != null) {
     const { line, over, under, books = {} } = prices.totals;
     const pOver = probs.over[line];
     markets.push(evaluateMarket(`Total ${line}`, [
-      { selection: `Over ${line}`, odds: over, modelProb: pOver, book: books.over },
-      { selection: `Under ${line}`, odds: under, modelProb: 1 - pOver, book: books.under },
+      { selection: `Over ${line}`, odds: over, modelProb: pOver, book: books.over, rule: { kind: 'total', side: 'over', line } },
+      { selection: `Under ${line}`, odds: under, modelProb: 1 - pOver, book: books.under, rule: { kind: 'total', side: 'under', line } },
     ], o));
   }
   if (prices.btts) {
     const { yes, no, books = {} } = prices.btts;
     markets.push(evaluateMarket('BTTS', [
-      { selection: 'BTTS Yes', odds: yes, modelProb: probs.btts, book: books.yes },
-      { selection: 'BTTS No', odds: no, modelProb: 1 - probs.btts, book: books.no },
+      { selection: 'BTTS Yes', odds: yes, modelProb: probs.btts, book: books.yes, rule: { kind: 'btts', yes: true } },
+      { selection: 'BTTS No', odds: no, modelProb: 1 - probs.btts, book: books.no, rule: { kind: 'btts', yes: false } },
     ], o));
   }
   return { expectedGoals: probs.expectedGoals, probabilities: probs, markets };
@@ -217,4 +223,111 @@ export function settleSelection(selection, homeGoals, awayGoals) {
     won = m[1] === 'Over' ? total > line : total < line;
   }
   return won ? 'won' : 'lost';
+}
+
+/** Settles by rule against a final score (home, away): 'won', 'lost' or 'void'.
+    winner {side: home|draw|away}; total {side: over|under, line}; spread {side: home|away, line}
+    where line is the handicap added to that side's score; btts {yes}. */
+export function settleRule(rule, hs, as) {
+  const r = (won, push = false) => (push ? 'void' : won ? 'won' : 'lost');
+  switch (rule.kind) {
+    case 'winner':
+      return r(rule.side === 'home' ? hs > as : rule.side === 'away' ? as > hs : hs === as);
+    case 'total': {
+      const t = hs + as;
+      return r(rule.side === 'over' ? t > rule.line : t < rule.line, t === rule.line);
+    }
+    case 'spread': {
+      const diff = rule.side === 'home' ? hs + rule.line - as : as + rule.line - hs;
+      return r(diff > 0, diff === 0);
+    }
+    case 'btts':
+      return r((hs > 0 && as > 0) === rule.yes);
+    default:
+      throw new Error(`Unknown rule ${rule.kind}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generic score models for every sport. A model answers four questions about the final
+// score: P(margin > t), P(margin = t), P(total > t), P(total = t), where margin = home − away.
+// ---------------------------------------------------------------------------
+
+/** Standard normal CDF (Abramowitz–Stegun 7.1.26 via erf, error < 1.5e-7). */
+export function normalCdf(z) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z * z) / 2);
+  return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
+}
+
+/** Model from a discrete joint score distribution: [{ h, a, p }]. */
+export function modelFromScores(scores) {
+  const gt = (f, t) => scores.reduce((s, x) => (f(x) > t + 1e-9 ? s + x.p : s), 0);
+  const eq = (f, t) => scores.reduce((s, x) => (Math.abs(f(x) - t) < 1e-9 ? s + x.p : s), 0);
+  const margin = (x) => x.h - x.a;
+  const total = (x) => x.h + x.a;
+  return {
+    marginGreater: (t) => gt(margin, t), marginEqual: (t) => eq(margin, t),
+    totalGreater: (t) => gt(total, t), totalEqual: (t) => eq(total, t),
+  };
+}
+
+/** Model for integer scores from normal approximations of margin and total (points sports). */
+export function modelFromNormal(marginMean, marginSd, totalMean, totalSd) {
+  const gt = (m, sd, t) => 1 - normalCdf((Math.floor(t) + 0.5 - m) / sd);
+  const eq = (m, sd, t) => (Number.isInteger(t) ? normalCdf((t + 0.5 - m) / sd) - normalCdf((t - 0.5 - m) / sd) : 0);
+  return {
+    marginGreater: (t) => gt(marginMean, marginSd, t), marginEqual: (t) => eq(marginMean, marginSd, t),
+    totalGreater: (t) => gt(totalMean, totalSd, t), totalEqual: (t) => eq(totalMean, totalSd, t),
+  };
+}
+
+/**
+ * Evaluates h2h, spreads and totals for any score model.
+ * drawSplit: for two-way moneylines (overtime, extra innings, tie-breaks), the share of a level
+ * score that goes to the home side; null means the market is three-way.
+ * prices: { h2h?: {home, away, draw?}, spreads?: {line, home, away}, totals?: {line, over, under} }
+ * with spreads.line the home handicap (away gets −line).
+ */
+export function evaluateModel(model, prices, { drawSplit = 0.5, ...opts } = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const markets = [];
+  const pHome = model.marginGreater(0);
+  const pDraw = model.marginEqual(0);
+  if (prices.h2h) {
+    const { home, away, draw, books = {} } = prices.h2h;
+    if (draw) {
+      markets.push(evaluateMarket('Match (3-way)', [
+        { selection: 'Home', odds: home, modelProb: pHome, book: books.home, rule: { kind: 'winner', side: 'home' } },
+        { selection: 'Draw', odds: draw, modelProb: pDraw, book: books.draw, rule: { kind: 'winner', side: 'draw' } },
+        { selection: 'Away', odds: away, modelProb: 1 - pHome - pDraw, book: books.away, rule: { kind: 'winner', side: 'away' } },
+      ], o));
+    } else {
+      const ph = pHome + pDraw * (drawSplit ?? 0.5);
+      markets.push(evaluateMarket('Match', [
+        { selection: 'Home', odds: home, modelProb: ph, book: books.home, rule: { kind: 'winner', side: 'home' } },
+        { selection: 'Away', odds: away, modelProb: 1 - ph, book: books.away, rule: { kind: 'winner', side: 'away' } },
+      ], o));
+    }
+  }
+  if (prices.spreads) {
+    const { line, home, away, books = {} } = prices.spreads;
+    const win = model.marginGreater(-line);
+    const push = model.marginEqual(-line);
+    const fmt = (x) => (x > 0 ? `+${x}` : `${x}`);
+    markets.push(evaluateMarket(`Handicap ${fmt(line)}`, [
+      { selection: `Home ${fmt(line)}`, odds: home, modelProb: win, pushProb: push, book: books.home, rule: { kind: 'spread', side: 'home', line } },
+      { selection: `Away ${fmt(-line)}`, odds: away, modelProb: 1 - win - push, pushProb: push, book: books.away, rule: { kind: 'spread', side: 'away', line: -line } },
+    ], o));
+  }
+  if (prices.totals) {
+    const { line, over, under, books = {} } = prices.totals;
+    const pOver = model.totalGreater(line);
+    const push = model.totalEqual(line);
+    markets.push(evaluateMarket(`Total ${line}`, [
+      { selection: `Over ${line}`, odds: over, modelProb: pOver, pushProb: push, book: books.over, rule: { kind: 'total', side: 'over', line } },
+      { selection: `Under ${line}`, odds: under, modelProb: 1 - pOver - push, pushProb: push, book: books.under, rule: { kind: 'total', side: 'under', line } },
+    ], o));
+  }
+  return { markets };
 }
