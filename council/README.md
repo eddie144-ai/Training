@@ -30,8 +30,10 @@ from the same site.
     AI Council Decision Engine prompt) and *Future self*. It knows your profile, Self-Authoring, recent
     interviews and the last 14 days of Council (turn sharing off in Coach settings). Every session ends with a
     decision and an action you can add to your commitments.
-    Uses Claude Opus 5.5 or Gemini with your own key, called straight from the phone, sharing the keys
-    Deliberation Council saves on this site. Keys never go into backups. With no key, *Copy for Claude*
+    Four engines, each with your own key, called straight from the phone: Claude Opus 5.5 (paid, best),
+    Gemini, Groq and OpenRouter (free tiers). If the chosen engine fails or hits its limit, the next one
+    with a key answers and the chat says so. Claude and Gemini keys are shared with Deliberation Council
+    on this site. Keys never go into backups. With no key, *Copy for Claude*
     puts the brief and the conversation on the clipboard for the Claude app.
   - **Interviews:** offline question sets saved on the phone: a full intake (the questions a psychiatrist
     asks at a first appointment), PHQ-9 and GAD-7 screens with scoring, GROW coaching, motivational
@@ -68,8 +70,8 @@ from the same site.
 ```bash
 node council/tests/coach.test.mjs   # from the repo root (needs: npm i playwright)
 ```
-9 tests: every tab, Talk with no key, Claude (request shape, streaming, closing into a commitment) and
-Gemini with faked APIs, crisis help, PHQ-9 scoring, Self-Authoring import, the prompt library, and keys
+11 tests: every tab, Talk with no key, Claude (request shape, streaming, closing into a commitment),
+Gemini, Groq and OpenRouter with faked APIs, falling back when one hits its limit, crisis help, PHQ-9 scoring, Self-Authoring import, the prompt library, and keys
 kept out of backups.
 
 ## Install

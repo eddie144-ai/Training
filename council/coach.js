@@ -41,18 +41,28 @@ const cui = () => (ui.coach ||= { mode: 'talk', chatId: null, run: null, author:
 // ---------------------------------------------------------------------------
 // AI engines. Keys are shared with Deliberation Council (same site, same storage keys) and stay on the phone.
 // ---------------------------------------------------------------------------
-const AI_KEYS = { claude: 'anthropic_api_key', gemini: 'gemini_api_key', provider: 'council.provider', geminiModel: 'council.geminiModel' };
+// Four engines. Claude is paid; Gemini, Groq and OpenRouter have free tiers. If the chosen one fails
+// (rate limit, network, bad key), the next one with a key answers instead.
+const PROVIDERS = {
+  claude: { name: 'Claude', host: 'Anthropic', keyLs: 'anthropic_api_key', ph: 'sk-ant-…', help: 'console.anthropic.com → API keys. Paid, the best replies. Set a monthly spend limit.' },
+  gemini: { name: 'Gemini', host: 'Google', keyLs: 'gemini_api_key', modelLs: 'council.geminiModel', model: 'gemini-3.8-flash', ph: 'AIza…', help: 'aistudio.google.com/apikey. Free: a few requests a minute, a few hundred a day (gemini-3.8-flash-lite allows more). Google may use free-tier chats to improve its products.' },
+  groq: { name: 'Groq', host: 'Groq', keyLs: 'groq_api_key', modelLs: 'council.groqModel', model: 'openai/gpt-oss-120b', ph: 'gsk_…', url: 'https://api.groq.com/openai/v1/chat/completions', help: 'console.groq.com/keys. Free plan, no card: about 30 a minute and 1,000 a day. Open models, very fast.' },
+  openrouter: { name: 'OpenRouter', host: 'OpenRouter', keyLs: 'openrouter_api_key', modelLs: 'council.openrouterModel', model: 'openrouter/free', ph: 'sk-or-…', url: 'https://openrouter.ai/api/v1/chat/completions', help: 'openrouter.ai/keys. Free models (ids ending :free; openrouter/free picks one for you): 20 a minute, 50 a day.' },
+};
+const PROVIDER_ORDER = ['claude', 'gemini', 'groq', 'openrouter'];
+const CHOICE_LS = 'council.coachProvider';
 const CLAUDE_MODEL = 'claude-opus-5-5';
 const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* blocked */ } };
 function aiConfig() {
-  const claude = lsGet(AI_KEYS.claude), gemini = lsGet(AI_KEYS.gemini);
-  let provider = lsGet(AI_KEYS.provider);
-  if (provider !== 'claude' && provider !== 'gemini') provider = claude ? 'claude' : 'gemini';
-  const key = provider === 'claude' ? claude : gemini;
-  return { provider, key, claude, gemini, geminiModel: lsGet(AI_KEYS.geminiModel) || 'gemini-3.8-flash', ready: !!key };
+  const keys = {}, models = {};
+  for (const id of PROVIDER_ORDER) { keys[id] = lsGet(PROVIDERS[id].keyLs); models[id] = PROVIDERS[id].modelLs ? lsGet(PROVIDERS[id].modelLs) || PROVIDERS[id].model : CLAUDE_MODEL; }
+  let provider = lsGet(CHOICE_LS) || lsGet('council.provider');
+  if (!PROVIDERS[provider]) provider = PROVIDER_ORDER.find((id) => keys[id]) || 'gemini';
+  const order = [provider, ...PROVIDER_ORDER.filter((id) => id !== provider)].filter((id) => keys[id]);
+  return { provider, keys, models, order, key: keys[provider], ready: order.length > 0 };
 }
-const engineName = (cfg) => (cfg.provider === 'claude' ? 'Claude Opus 5.5' : `Gemini (${cfg.geminiModel})`);
+const engineName = (cfg, id = cfg.provider) => (id === 'claude' ? 'Claude Opus 5.5' : `${PROVIDERS[id].name} (${cfg.models[id]})`);
 
 // Streams the reply into onText; resolves with the full text.
 async function callClaude(key, system, messages, onText, signal) {
@@ -119,10 +129,66 @@ async function callGemini(key, model, system, messages, onText, signal) {
   onText(text);
   return text;
 }
-function callAI(system, messages, onText, signal) {
+// Groq and OpenRouter speak the OpenAI chat format; both stream server-sent events.
+async function callOpenAICompat(id, key, model, system, messages, onText, signal) {
+  const P = PROVIDERS[id];
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${key}` };
+  if (id === 'openrouter') { headers['HTTP-Referer'] = location.origin; headers['X-Title'] = 'Council'; }
+  const res = await fetch(P.url, {
+    method: 'POST', signal, headers,
+    body: JSON.stringify({ model, stream: true, max_tokens: 4096, messages: [{ role: 'system', content: system }, ...messages] }),
+  });
+  if (!res.ok) {
+    let msg = ''; try { const j = await res.json(); msg = j.error?.message || j.message || ''; } catch { /* not JSON */ }
+    const e = new Error(res.status === 429 ? `${P.name} limit reached` : res.status === 401 ? `${P.name} rejected the key` : `${P.name} error ${res.status}${msg ? `: ${msg}` : ''}`);
+    e.status = res.status; throw e;
+  }
+  let full = '', buf = '';
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  const handle = (ev) => {
+    for (const line of ev.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+      let j; try { j = JSON.parse(data); } catch { continue; }
+      if (j.error) throw new Error(`${P.name}: ${j.error.message || 'stream error'}`);
+      const t = j.choices?.[0]?.delta?.content;
+      if (t) { full += t; onText(full); }
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    let cut;
+    while ((cut = buf.indexOf('\n\n')) !== -1) { handle(buf.slice(0, cut)); buf = buf.slice(cut + 2); }
+  }
+  if (buf.trim()) handle(buf);
+  if (!full.trim()) throw new Error(`${P.name} returned nothing`);
+  return full.trim();
+}
+function callOne(id, cfg, system, messages, onText, signal) {
+  const key = cfg.keys[id], model = cfg.models[id];
+  if (id === 'claude') return callClaude(key, system, messages, onText, signal);
+  if (id === 'gemini') return callGemini(key, model, system, messages, onText, signal);
+  return callOpenAICompat(id, key, model, system, messages, onText, signal);
+}
+// Tries the chosen engine, then each other engine that has a key.
+async function callAI(system, messages, onText, signal) {
   const cfg = aiConfig();
-  if (!cfg.ready) return Promise.reject(new Error('No AI key yet. Add one in Coach settings, or use Copy for Claude.'));
-  return cfg.provider === 'claude' ? callClaude(cfg.key, system, messages, onText, signal) : callGemini(cfg.key, cfg.geminiModel, system, messages, onText, signal);
+  if (!cfg.ready) throw new Error('No AI key yet. Add one in Coach settings, or use Copy for Claude.');
+  let lastErr = null;
+  for (const [i, id] of cfg.order.entries()) {
+    try {
+      const out = await callOne(id, cfg, system, messages, onText, signal);
+      cui().note = i > 0 ? `${lastErr?.message || 'The first engine failed'}, so ${PROVIDERS[id].name} answered.` : null;
+      return out;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +322,7 @@ function renderTalk() {
       ${crisisIn(chat.messages) ? crisisCard() : ''}
       <div class="chat">${chat.messages.length ? chat.messages.map((m) => `<div class="msg ${m.role}"${m.live ? ' id="live-msg"' : ''}>${m.live && !m.text ? '<span class="muted">Thinking…</span>' : fmtMsg(m.text)}</div>`).join('') : `<p class="small muted">${esc(mode.tag)}. Say what's on your mind, or say "start".</p>`}</div>
       ${u.error ? `<p class="small danger">${esc(u.error)}</p>` : ''}
+      ${u.note && !u.busy ? `<p class="small muted">${esc(u.note)}</p>` : ''}
       ${cfg.ready ? '' : '<p class="small warn-text">No AI key on this phone, so the coach can\'t reply here. Tap <b>Copy for Claude</b> and paste into the Claude app, or add a key in Coach settings below.</p>'}
       <label class="field"><span class="sr">Message</span><textarea id="co-input" data-co="draft" rows="3" placeholder="Type, or use the keyboard's microphone">${esc(ui.coachDraft || '')}</textarea></label>
       <div class="btns">
@@ -280,14 +347,16 @@ function renderTalk() {
 }
 
 function renderCoachSettings(cfg) {
+  const P = PROVIDERS[cfg.provider];
+  const backups = cfg.order.filter((id) => id !== cfg.provider);
   return `<section class="card"><details ${cfg.ready ? '' : 'open'}><summary><b>Coach settings</b> <span class="small muted">· ${cfg.ready ? `using ${esc(engineName(cfg))}` : 'no AI key yet'}</span></summary>
-    <div class="row between"><span>Engine</span>${seg([['claude', 'Claude'], ['gemini', 'Gemini (free)']], cfg.provider, 'co-engine')}</div>
-    ${cfg.provider === 'claude'
-      ? `<label class="field">Claude API key <span class="small muted">console.anthropic.com → API keys. Set a monthly spend limit.</span><input type="password" autocomplete="off" data-co="key-claude" value="${cfg.claude ? '••••••••' : ''}" placeholder="sk-ant-…"></label>`
-      : `<label class="field">Gemini API key <span class="small muted">aistudio.google.com/apikey. Free tier: a few requests a minute; Google may use free-tier prompts for training.</span><input type="password" autocomplete="off" data-co="key-gemini" value="${cfg.gemini ? '••••••••' : ''}" placeholder="AIza…"></label>
-         <label class="field">Gemini model<input data-co="gemini-model" value="${esc(cfg.geminiModel)}"></label>`}
+    <div class="row between wrap"><span>Engine</span>${seg([['claude', 'Claude'], ['gemini', 'Gemini'], ['groq', 'Groq'], ['openrouter', 'OpenRouter']], cfg.provider, 'co-engine')}</div>
+    <label class="field">${esc(P.name)} API key <span class="small muted">${esc(P.help)}</span><input type="password" autocomplete="off" data-co="key-${cfg.provider}" value="${cfg.keys[cfg.provider] ? '••••••••' : ''}" placeholder="${esc(P.ph)}"></label>
+    ${P.modelLs ? `<label class="field">${esc(P.name)} model<input data-co="model-${cfg.provider}" value="${esc(cfg.models[cfg.provider])}"></label>` : ''}
+    <p class="small">${PROVIDER_ORDER.map((id) => `${cfg.keys[id] ? '✓' : '·'} ${esc(PROVIDERS[id].name)}`).join(' &nbsp; ')}</p>
+    <p class="small muted">${backups.length ? `If ${esc(P.name)} fails or hits its limit, ${esc(backups.map((id) => PROVIDERS[id].name).join(', then '))} answer${backups.length === 1 ? 's' : ''} instead.` : 'Add a second free key (Gemini, Groq or OpenRouter) as a backup for when one hits its daily limit.'}</p>
     <div class="row between"><span>Share my Council data with the coach</span>${seg([['on', 'On'], ['off', 'Off']], C().share ? 'on' : 'off', 'co-share')}</div>
-    <p class="small muted">Keys and sessions stay on this phone (shared with Deliberation Council on this site, never in backups). When you send a message, it goes straight from the phone to ${esc(cfg.provider === 'claude' ? 'Anthropic' : 'Google')} with your key${C().share ? ', with your profile, Self-Authoring, interviews and last 14 days' : ''}. ${cfg.claude || cfg.gemini ? '<button class="linkish inline small" data-act="co-forget">Remove saved keys</button>' : ''}</p>
+    <p class="small muted">Keys and sessions stay on this phone (Claude and Gemini keys are shared with Deliberation Council on this site; none go into backups). A message goes straight from the phone to the engine's company with your key${C().share ? ', with your profile, Self-Authoring, interviews and last 14 days' : ''}. ${PROVIDER_ORDER.some((id) => cfg.keys[id]) ? '<button class="linkish inline small" data-act="co-forget">Remove saved keys</button>' : ''}</p>
   </details></section>`;
 }
 
@@ -467,9 +536,9 @@ function handleCoach(el) {
     case 'co-end': endChat(); return true;
     case 'co-commit': { const c = chatById(id); if (!c?.action) return true; const when = c.when || 'today'; addCommit({ text: c.action, date: when === 'tomorrow' ? addDays(today(), 1) : today(), domain: 'mind' }); c.committed = true; commit(); toast('Added to your commitments.'); return true; }
     case 'co-dismiss': u.chatId = null; render(); return true;
-    case 'co-engine': lsSet(AI_KEYS.provider, v); render(); return true;
+    case 'co-engine': lsSet(CHOICE_LS, v); render(); return true;
     case 'co-share': C().share = v === 'on'; commit(); return true;
-    case 'co-forget': ask('Remove the saved AI keys from this phone? Deliberation Council uses the same keys.', [{ label: 'Cancel' }, { label: 'Remove', cls: 'danger', fn: () => { lsSet(AI_KEYS.claude, ''); lsSet(AI_KEYS.gemini, ''); render(); } }]); return true;
+    case 'co-forget': ask('Remove the saved AI keys from this phone? Deliberation Council uses the same keys.', [{ label: 'Cancel' }, { label: 'Remove', cls: 'danger', fn: () => { for (const id of PROVIDER_ORDER) lsSet(PROVIDERS[id].keyLs, ''); render(); } }]); return true;
     // Interviews
     case 'iv-start': {
       const open = C().runs.find((r) => r.iid === v && !r.done);
@@ -536,15 +605,15 @@ function onCoachField(el) {
   else if (k === 'new-item') ui.coachNewItem = el.value;
   else if (k === 'new-domain') ui.coachNewDomain = el.value;
   else if (k === 'iv-answer') { const r = C().runs.find((x) => x.id === cui().run); if (r) r.answers[r.i || 0] = el.value; }
-  else if (k === 'gemini-model') lsSet(AI_KEYS.geminiModel, el.value.trim());
-  else if (k === 'key-claude' || k === 'key-gemini') { if (!el.value.includes('•')) lsSet(k === 'key-claude' ? AI_KEYS.claude : AI_KEYS.gemini, el.value.trim()); return true; }
+  else if (k.startsWith('model-') && PROVIDERS[k.slice(6)]?.modelLs) lsSet(PROVIDERS[k.slice(6)].modelLs, el.value.trim());
+  else if (k.startsWith('key-') && PROVIDERS[k.slice(4)]) { if (!el.value.includes('•')) lsSet(PROVIDERS[k.slice(4)].keyLs, el.value.trim()); return true; }
   else if (k.startsWith('a:')) setPath(k.slice(2), el.value);
   clearTimeout(coachSaveTimer); coachSaveTimer = setTimeout(save, 400);
   return true;
 }
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.dataset?.co === 'key-claude' || t.dataset?.co === 'key-gemini') { render(); toast(t.value ? 'Key saved on this phone.' : 'Key removed.'); return; }
+  if (t.dataset?.co?.startsWith('key-')) { render(); toast(t.value ? 'Key saved on this phone.' : 'Key removed.'); return; }
   if (t.dataset?.co === 'new-domain') { ui.coachNewDomain = t.value; return; }
   if (t.id !== 'au-import') return;
   const file = t.files?.[0];

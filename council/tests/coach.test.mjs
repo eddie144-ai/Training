@@ -37,7 +37,7 @@ function sse(text) {
     ...text.match(/.{1,12}/gs).map((t) => ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } })),
     ev({ type: 'content_block_stop', index: 0 }), ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }), ev({ type: 'message_stop' })].join('');
 }
-async function open({ keys = {}, replies = [] } = {}) {
+async function open({ keys = {}, replies = [], fail = [] } = {}) {
   const ctx = await browser.newContext({ timezoneId: 'Europe/London', serviceWorkers: 'block', acceptDownloads: true });
   const calls = [];
   await ctx.route('https://api.anthropic.com/**', (route) => {
@@ -49,6 +49,15 @@ async function open({ keys = {}, replies = [] } = {}) {
     calls.push({ gemini: true, url: route.request().url(), body: JSON.parse(route.request().postData()) });
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ content: { parts: [{ text: replies.shift() || 'Gemini says hi.' }] }, finishReason: 'STOP' }] }) });
   });
+  const oai = (t) => `data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant' } }] })}\n\n` + t.match(/.{1,10}/gs).map((x) => `data: ${JSON.stringify({ choices: [{ delta: { content: x } }] })}\n\n`).join('') + 'data: [DONE]\n\n';
+  for (const host of ['https://api.groq.com/**', 'https://openrouter.ai/**']) {
+    await ctx.route(host, (route) => {
+      const req = route.request();
+      calls.push({ oai: true, url: req.url(), headers: req.headers(), body: JSON.parse(req.postData()) });
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: oai(replies.shift() || 'From an open model.') });
+    });
+  }
+  if (fail.includes('gemini')) await ctx.route('https://generativelanguage.googleapis.com/**', (route) => { calls.push({ gemini: true, failed: true }); route.fulfill({ status: 429, contentType: 'application/json', body: '{"error":{"message":"quota"}}' }); });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -117,6 +126,37 @@ await test('Gemini engine works the same way', async () => {
   await page.click('[data-act="co-send"]');
   await page.waitForSelector('.msg.assistant >> text=Tell me more.');
   assert(calls[0].gemini && calls[0].url.includes('gemini-3.8-flash') && calls[0].body.contents[0].parts[0].text === 'Rough day.', 'Gemini request');
+  await ctx.close();
+});
+
+await test('Groq and OpenRouter: OpenAI-format requests with the system brief, streamed replies', async () => {
+  const g = await open({ keys: { groq_api_key: 'gsk-test', 'council.coachProvider': 'groq' }, replies: ['Groq here.'] });
+  await g.page.click('[data-act="co-start"][data-v="coach"]');
+  await g.page.fill('#co-input', 'Plan my week.');
+  await g.page.click('[data-act="co-send"]');
+  await g.page.waitForSelector('.msg.assistant >> text=Groq here.');
+  const c = g.calls[0];
+  eq([c.url, c.headers.authorization, c.body.model, c.body.stream, c.body.messages[0].role, c.body.messages[1]], ['https://api.groq.com/openai/v1/chat/completions', 'Bearer gsk-test', 'openai/gpt-oss-120b', true, 'system', { role: 'user', content: 'Plan my week.' }], 'Groq request');
+  assert(c.body.messages[0].content.includes('Mode: COACH'), 'system brief');
+  await g.ctx.close();
+  const o = await open({ keys: { openrouter_api_key: 'sk-or-test', 'council.coachProvider': 'openrouter' }, replies: ['OpenRouter here.'] });
+  await o.page.click('[data-act="co-start"][data-v="therapist"]');
+  await o.page.fill('#co-input', 'Hello.');
+  await o.page.click('[data-act="co-send"]');
+  await o.page.waitForSelector('.msg.assistant >> text=OpenRouter here.');
+  eq([o.calls[0].url, o.calls[0].body.model, o.calls[0].headers['x-title']], ['https://openrouter.ai/api/v1/chat/completions', 'openrouter/free', 'Council'], 'OpenRouter request');
+  await o.ctx.close();
+});
+
+await test('Fallback: Gemini at its limit, Groq answers and the chat says so', async () => {
+  const { ctx, page, calls, errors } = await open({ keys: { gemini_api_key: 'g', groq_api_key: 'q', 'council.coachProvider': 'gemini' }, fail: ['gemini'], replies: ['Backup answer.'] });
+  await page.click('[data-act="co-start"][data-v="therapist"]');
+  await page.fill('#co-input', 'Hi.');
+  await page.click('[data-act="co-send"]');
+  await page.waitForSelector('.msg.assistant >> text=Backup answer.');
+  eq(calls.map((c) => (c.gemini ? 'gemini' : 'groq')), ['gemini', 'groq'], 'tried Gemini, then Groq');
+  assert(await page.locator('text=/Groq answered/').count(), 'note shown');
+  eq(errors, [], 'errors');
   await ctx.close();
 });
 
