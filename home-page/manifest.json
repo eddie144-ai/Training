@@ -1,0 +1,15 @@
+{
+  "name": "Iron & Eggs",
+  "short_name": "Iron & Eggs",
+  "description": "Today across every app, every chain, and each app one tap away.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121211",
+  "theme_color": "#121211",
+  "icons": [
+    { "src": "/Training/shredded-trainer/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/Training/shredded-trainer/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/Training/shredded-trainer/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
