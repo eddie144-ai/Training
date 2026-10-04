@@ -1,0 +1,29 @@
+id,name,kcal,protein_g,fat_g,carbs_g,fibre_g,satfat_g,unit_g,unit,notes
+egg_whole,Whole egg,143,12.6,9.5,0.7,0,3.1,50,egg,1 large egg is about 50 g edible. Always cooked.
+egg_white,Egg whites (pasteurised carton),52,10.9,0.2,0.7,0,0,,,Pasteurised cartons are safe; never raw shell eggs.
+pork_patty,Lidl pork patty,224,17.4,16.7,1.2,0,6.5,75,patty,Back-calculated from your Trainer meal macros (933 kcal for 6 eggs + 3 patties); assumes 75 g each. Check the pack.
+beef_mince_5,Beef mince 5% fat (raw),124,21.5,4.5,0,0,2,,,Make into patties. Leaner swap for pork patties.
+sirloin,Sirloin steak (raw),201,22,12.7,0,0,5.4,,,Matches your Trainer Meal 2 macros.
+rump_lean,Rump steak trimmed (raw),125,22,4,0,0,1.7,,,Leaner swap for sirloin.
+chicken_breast,Chicken breast (raw),106,24,1.1,0,0,0.3,,,
+cod,Cod or white fish (raw),80,18,0.7,0,0,0.1,,,
+salmon,Salmon (raw),208,20,13.4,0,0,2.5,,,Oily fish once or twice a week.
+greek_yogurt_0,Greek yogurt 0% fat,54,10.3,0.2,3,0,0.1,,,
+cottage_cheese,Cottage cheese 1.5%,72,12.4,1.5,3.1,0,0.9,,,
+whey,Whey protein,400,80,6,8,0,3,30,scoop,
+spinach,Spinach,23,2.9,0.4,1.6,2.2,0.1,,,
+mushrooms,Mushrooms,22,3.1,0.3,0.4,1.1,0,,,
+broccoli,Broccoli,34,2.8,0.4,2.8,2.6,0.1,,,
+green_beans,Green beans,31,1.8,0.2,4.7,2.7,0,,,
+asparagus,Asparagus,20,2.2,0.1,1.9,2.1,0,,,
+mixed_salad,Mixed salad leaves + cucumber,17,1,0.2,2,1.5,0,,,
+berries,Mixed berries,40,0.7,0.3,7,3,0,,,
+psyllium,Psyllium husk,180,1.5,0.6,4,80,0.1,5,tsp,Take with a large glass of water.
+olive_oil,Olive oil,884,0,100,0,0,14,10,tbsp (10 g),
+butter,Butter,744,0.6,82,0.6,0,52,,,
+almonds,Almonds,612,21,55.8,6.9,7.4,4.4,,,
+oats,Porridge oats (dry),375,11,8,60,9,1.5,,,
+potato,Potatoes (boiled),77,1.8,0.1,17,1.2,0,,,
+rice_cooked,White rice (cooked),130,2.7,0.3,28,0.4,0.1,,,
+sweet_potato,Sweet potato (baked),90,2,0.2,20.7,3.3,0,,,
+banana,Banana,81,1.2,0.1,20.3,1.4,0,120,banana,
