@@ -1809,11 +1809,6 @@ function viewToday(P) {
   ${todaysPlanCard(d)}
   ${planTomorrowPrompt(d)}
   <section class="card">
-    <h2>Daily quests</h2>
-    ${questsFor(d).map((k) => questRow(d, k)).join('')}
-    ${planKind(d) === 'rest' || planKind(d) === 'fast' ? `<p class="muted small">${planKind(d) === 'fast' ? 'Fast day' : 'Rest day'}: no training quest today.</p>` : ''}
-  </section>
-  <section class="card">
     <h2>Fluids <span class="right">${(fl / 1000).toFixed(2)} / ${(fg / 1000).toFixed(2)} L</span></h2>
     ${bar(fl, fg, fl >= fg ? 'good' : '')}
     <div class="grid4">${[250, 500, 750, 1000].map((ml) => `<button data-act="fluid-add" data-ml="${ml}">+${ml}</button>`).join('')}</div>
@@ -1824,10 +1819,6 @@ function viewToday(P) {
     <h2>Stoic of the day</h2>
     <p class="quote">“${esc(q[0])}”</p>
     <p class="muted">— ${esc(q[1])}</p>
-  </section>
-  <section class="card">
-    <h2>Daily rhythm</h2>
-    <div class="rhythm">${rhythm().map(([t, l]) => `<b>${esc(t)}</b><span>${esc(l)}</span>`).join('')}</div>
   </section>
   ${storageOk ? '' : '<section class="card"><p class="danger">This browser is blocking storage (private mode?). Your data will not be saved.</p></section>'}`;
 }
@@ -2548,6 +2539,10 @@ function viewBodyGuide() {
     <div class="grid2"><a class="btn" href="${DOCS}/full-guide.pdf" target="_blank" rel="noopener">Full guide (PDF)</a><a class="btn" href="${DOCS}/research-report.pdf" target="_blank" rel="noopener">Research report (PDF)</a></div>
   </section>
   <section class="card">
+    <h2>Daily rhythm</h2>
+    <div class="rhythm">${rhythm().map(([t, l]) => `<b>${esc(t)}</b><span>${esc(l)}</span>`).join('')}</div>
+  </section>
+  <section class="card">
     <h2>Training on a cut</h2>
     <div class="list">
       ${rule('Weeks 1–2: strength base, 6–8 reps', 'Keep the weights from your best sessions. Stop compounds 1 rep short of failure; isolation work can go to failure. Holding your numbers in a deficit is a win.')}
@@ -2681,7 +2676,7 @@ function viewHeroCharacter(P) {
     <h2>How XP works</h2>
     <div class="list small">
       <div>Chains, per day kept: ${allChains().map((c) => `${c.name} +${c.pts}`).join(' · ')}</div>
-      <div>Daily quests +${QUEST_BASE} · sweat-suit bonus +${PTS.sweat} · weekly step target +${PTS.stepsWeek}</div>
+      <div>Daily tasks done (steps, training, protein, fluids, sleep, plan, journal) +${QUEST_BASE} each · sweat-suit bonus +${PTS.sweat} · weekly step target +${PTS.stepsWeek}</div>
       <div>Daily goal +${PTS.goal1} each · all daily goals done +${PTS.goalAll} · weekly goal reached +${PTS.goalWeek}</div>
       <div>Training session +${PTS.session} · personal record +${PTS.pr}</div>
       <div>Extended fast +${PTS.fastDay} per full 24 hours</div>

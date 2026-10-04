@@ -87,6 +87,14 @@
   .app i { grid-row: 1 / span 2; grid-column: 2; font-style: normal; color: var(--brass); font-size: 22px; }
   .app:hover { background: rgba(50, 47, 42, .95); }
   a { color: var(--brass); }
+  h3.sub { margin: 6px 0 0; font: 800 16px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+  details.older summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 8px 0; min-height: 44px; display: flex; align-items: center; }
+  details.older .apps { opacity: .8; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .act { all: unset; box-sizing: border-box; cursor: pointer; text-align: center; min-height: 48px; display: flex; align-items: center; justify-content: center; padding: 10px; border-radius: 10px; background: var(--raised); font-weight: 700; }
+  .act.primary { background: var(--oxblood); color: #fff; }
+  .act:focus-visible, .act:focus-within { outline: 3px solid var(--brass); outline-offset: 2px; }
+  .note.warn { border-left: 3px solid var(--brass); }
   footer { color: var(--muted); font-size: 12.5px; }
   footer p { margin: 0 0 6px; }
   /* App view: the bar sits above the app, which fills the rest of the screen. */
@@ -128,10 +136,22 @@
   <section aria-labelledby="apps-h">
     <h2 id="apps-h">Apps<span class="right">open inside Iron &amp; Eggs</span></h2>
     <div class="apps" id="apps"></div>
+    <h3 class="sub">Tools</h3>
+    <div class="apps" id="tools"></div>
+    <details class="older"><summary>Older apps · being merged, off this list after 1 November</summary><div class="apps" id="old"></div></details>
+  </section>
+
+  <section aria-labelledby="backup-h">
+    <h2 id="backup-h">Backup<span class="right" id="backup-when"></span></h2>
+    <p class="note" id="backup-note"></p>
+    <div class="row2">
+      <button class="act primary" id="backup-btn">Back up everything</button>
+      <label class="act">Restore from a file<input type="file" id="restore-file" accept="application/json,.json" hidden></label>
+    </div>
   </section>
 
   <footer>
-    <p>Everything here is read from the apps on this phone, in this browser. Nothing leaves it, and this page never changes their data.</p>
+    <p>Everything here is read from the apps on this phone, in this browser. Nothing leaves it. This page only changes the apps' data when you restore a backup.</p>
     <p>Install it: Chrome menu → <b>Add to Home screen</b>.</p>
     <p>Background: Vince Gironda, <i>Tomorrow's Man</i>, June 1953, Irvin Johnson Health Studio. Public domain, via <a href="https://commons.wikimedia.org/wiki/File:Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg">Wikimedia Commons</a>.</p>
   </footer>
@@ -150,13 +170,14 @@
 <script>
   'use strict';
   var APPS = [
-    { id: 'shtrainer', name: 'Shredded Trainer', path: '/Training/shredded-trainer/', desc: 'Programme, Gironda cut, chains and carb-ups. Log here.', main: true },
-    { id: 'system', name: 'Shredded System', path: '/Training/shredded-system/app/', desc: 'Meal templates, macros and the weekly decision.' },
-    { id: 'liferpg', name: 'Life RPG', path: '/Training/liferpg/', desc: 'The 4 pillars as one-tap quests.' },
-    { id: 'council', name: 'Council', path: '/Training/council/', desc: 'Commitments, goals and Council sessions.' },
-    { id: 'deliberation', name: 'Deliberation Council', path: '/Training/deliberation/', desc: 'Decisions, argued out.' },
-    { id: 'massa', name: 'MASSA', path: '/Training/massa/', desc: 'Value betting engine and bankroll.' },
-    { id: 'trainer', name: 'Trainer', path: '/Training/', desc: 'The original app.' },
+    // daily: the two apps to use every day. tools: now and then. old: being merged in, off the list after 1 Nov.
+    { id: 'shtrainer', group: 'daily', name: 'Shredded Trainer', path: '/Training/shredded-trainer/', desc: 'Body: diet, fasting, training, chains, goals, YouTube. Log here.', main: true },
+    { id: 'council', group: 'daily', name: 'Council', path: '/Training/council/', desc: 'Mind, money, projects, family: commitments and the One Thing.' },
+    { id: 'deliberation', group: 'tools', name: 'Deliberation Council', path: '/Training/deliberation/', desc: 'Big decisions, argued out by four seats.' },
+    { id: 'massa', group: 'tools', name: 'MASSA', path: '/Training/massa/', desc: 'Value betting. Paper only during the cut.' },
+    { id: 'liferpg', group: 'old', name: 'Life RPG', path: '/Training/liferpg/', desc: 'Merging into Shredded Trainer.' },
+    { id: 'system', group: 'old', name: 'Shredded System', path: '/Training/shredded-system/app/', desc: 'Now inside Shredded Trainer. Guide PDFs stay.' },
+    { id: 'trainer', group: 'old', name: 'Trainer', path: '/Training/', desc: 'The original app. Kept as a fallback.' },
   ];
   var byId = function (id) { for (var i = 0; i < APPS.length; i++) if (APPS[i].id === id) return APPS[i]; return null; };
 
@@ -292,12 +313,6 @@
       var nextV = vids.sort(function (a, b) { return String(a.date || '9') < String(b.date || '9') ? -1 : 1; })[0];
       out.push(tile({ app: 'shtrainer', k: 'YouTube', v: vids.length + '<small>in progress</small>', s: nextV ? 'Next: ' + esc(nextV.title || 'untitled') : 'No video planned yet' }));
     }
-    var L = read('liferpg.v1');
-    if (L) {
-      var log = obj(obj(L.log)[t]);
-      var q = Object.keys(log).filter(function (k) { return log[k] === true || (typeof log[k] === 'number' && log[k] > 0); }).length;
-      out.push(tile({ app: 'liferpg', k: 'Life RPG', v: q + '<small>quests</small>', s: q ? 'Done today' : 'Nothing ticked yet today', cls: q ? 'good' : '' }));
-    }
     var C = read('council.v1');
     if (C) {
       var cs = arr(C.commits).filter(function (c) { return c && typeof c.date === 'string'; });
@@ -306,25 +321,68 @@
       var overdue = cs.filter(function (c) { return c.status === 'open' && c.date < t; }).length;
       out.push(tile({ app: 'council', k: 'Council', v: kept + '<small>/ ' + todayC.length + ' kept</small>', s: overdue ? overdue + ' to resolve from earlier days' : todayC.length ? 'Commitments today' : 'No commitments today', cls: overdue ? 'warn' : todayC.length && kept === todayC.length ? 'good' : '' }));
     }
-    var M = read('massa.v1');
-    if (M) {
-      var open = arr(M.bets).filter(function (b) { return b && (b.status === 'open' || b.status === 'pending'); }).length;
-      var cash = num(obj(obj(M.accounts).paper).cash);
-      out.push(tile({ app: 'massa', k: 'MASSA', v: open + '<small>open bets</small>', s: cash != null ? 'Paper bankroll £' + cash.toFixed(2) : 'Bankroll in the app' }));
-    }
-    document.getElementById('else').innerHTML = out.length ? out.join('') : '<p class="note">Life RPG, Council and MASSA show here once you\'ve used them on this phone.</p>';
+    document.getElementById('else').innerHTML = out.length ? out.join('') : '<p class="note">Council shows here once you\'ve used it on this phone.</p>';
   }
 
   function renderHQ() {
     var now = new Date(), t = iso(now);
     document.getElementById('today').textContent = DOW[now.getDay()] + ' ' + now.getDate() + ' ' + MON[now.getMonth()];
-    todayTiles(t); chains(t); everythingElse(t);
+    todayTiles(t); chains(t); everythingElse(t); renderBackup();
   }
 
-  document.getElementById('apps').innerHTML = APPS.map(function (a) {
-    return '<button class="app ' + (a.main ? 'main' : '') + '" data-open="' + a.id + '"><b>' + esc(a.name) + '</b><span>' + esc(a.desc) + '</span><i aria-hidden="true">→</i></button>';
-  }).join('');
+  var appCard = function (a) { return '<button class="app ' + (a.main ? 'main' : '') + '" data-open="' + a.id + '"><b>' + esc(a.name) + '</b><span>' + esc(a.desc) + '</span><i aria-hidden="true">→</i></button>'; };
+  [['apps', 'daily'], ['tools', 'tools'], ['old', 'old']].forEach(function (g) {
+    document.getElementById(g[0]).innerHTML = APPS.filter(function (a) { return a.group === g[1]; }).map(appCard).join('');
+  });
   document.getElementById('switch').innerHTML = APPS.map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
+
+  // ---- Backup: every app's saved data in one file ------------------------
+  // Only these keys, so nothing secret is ever exported (Deliberation Council's API keys stay on the phone).
+  // Photos live in IndexedDB and aren't included: they're too big for a backup file.
+  var BACKUP_KEYS = ['shtrainer.v1', 'shtrainer.chains', 'shtrainer.drafts', 'council.v1', 'council.sessions.v1', 'liferpg.v1', 'shredded.v1', 'trainer.v1', 'massa.v1', 'trainer.v2-backup', 'shtrainer.v2-backup'];
+  var LAST_KEY = 'hq.lastBackup';
+  var NAMES = { 'shtrainer.v1': 'Shredded Trainer', 'council.v1': 'Council', 'council.sessions.v1': 'Deliberation audits', 'liferpg.v1': 'Life RPG', 'shredded.v1': 'Shredded System', 'trainer.v1': 'Trainer', 'massa.v1': 'MASSA' };
+  var getRaw = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  function renderBackup() {
+    var last = getRaw(LAST_KEY), t = iso(new Date());
+    var have = BACKUP_KEYS.filter(function (k) { return NAMES[k] && getRaw(k) != null; }).map(function (k) { return NAMES[k]; });
+    var days = last ? Math.round((new Date(t) - new Date(last.slice(0, 10))) / 86400000) : null;
+    var due = have.length && (days == null || days >= 7);
+    document.getElementById('backup-when').textContent = last ? 'last ' + (days === 0 ? 'today' : fmt(last.slice(0, 10))) : 'never';
+    var note = document.getElementById('backup-note');
+    note.className = 'note' + (due ? ' warn' : '');
+    note.innerHTML = (due ? '<b>Back up now.</b> ' : '') + 'Everything lives only in this browser on this phone. One tap saves ' +
+      (have.length ? esc(have.join(', ')) : 'every app') + ' to a file in Downloads. Keep a copy in Google Drive. Do it every Sunday. Progress photos aren\'t included.';
+  }
+  document.getElementById('backup-btn').addEventListener('click', function () {
+    var keys = {};
+    BACKUP_KEYS.forEach(function (k) { var v = getRaw(k); if (v != null) keys[k] = v; });
+    var at = new Date().toISOString();
+    var blob = new Blob([JSON.stringify({ kind: 'iron-eggs-backup', v: 1, at: at, keys: keys })], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'iron-eggs-backup-' + iso(new Date()) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    try { localStorage.setItem(LAST_KEY, at); } catch (e) { /* storage blocked */ }
+    renderBackup();
+  });
+  document.getElementById('restore-file').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    f.text().then(function (txt) {
+      var data = null;
+      try { data = JSON.parse(txt); } catch (err) { data = null; }
+      if (!data || data.kind !== 'iron-eggs-backup' || !data.keys || typeof data.keys !== 'object') { alert('That isn\'t an Iron & Eggs backup file.'); return; }
+      var ks = Object.keys(data.keys).filter(function (k) { return BACKUP_KEYS.indexOf(k) >= 0 && typeof data.keys[k] === 'string'; });
+      if (!ks.length) { alert('That backup has nothing to restore.'); return; }
+      var when = typeof data.at === 'string' ? data.at.slice(0, 10) : 'an unknown date';
+      if (!confirm('Restore the backup from ' + when + '?\n\nThis replaces the current data in: ' + ks.map(function (k) { return NAMES[k] || k; }).join(', ') + '.')) return;
+      try { ks.forEach(function (k) { localStorage.setItem(k, data.keys[k]); }); } catch (err) { alert('Couldn\'t restore: storage is full or blocked.'); return; }
+      alert('Restored. Each app opens with the restored data.');
+      location.reload();
+    });
+  });
 
   // ---- The app shell: #/app/<id> opens that app inside Iron & Eggs --------
   var hq = document.getElementById('hq'), shell = document.getElementById('shell'), frame = document.getElementById('frame');

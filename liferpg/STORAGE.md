@@ -15,7 +15,7 @@ Life RPG stores no passwords, tokens or account details. It can hold personal da
 
 ## What Life RPG reads from Trainer
 
-Only through `trainer-adapter.js`. It calls `localStorage.getItem('trainer.v1')` and nothing else: no enumeration of keys, no other apps' data. It never writes to Trainer.
+Only through `trainer-adapter.js`. It calls `localStorage.getItem('shtrainer.v1')` (Shredded Trainer, the daily log since 5 October 2026) and, only if that is missing, `localStorage.getItem('trainer.v1')` (the original Trainer). Nothing else: no enumeration of keys, no other apps' data. It never writes to either. Both use the same field names, so the table below applies to whichever is read.
 
 | Trainer field | Expected type | Used for | Validation |
 |---|---|---|---|
@@ -31,7 +31,7 @@ Only through `trainer-adapter.js`. It calls `localStorage.getItem('trainer.v1')`
 
 Units: kg and steps. Dates are local calendar dates as Trainer writes them.
 
-If `trainer.v1` is missing, unparseable or not an object, the adapter returns an error code (`missing`, `corrupt`, `shape`, `unavailable`) and Life RPG behaves as if Trainer weren't there. Setup shows which.
+If neither key is present (or the one read is unparseable or not an object), the adapter returns an error code (`missing`, `corrupt`, `shape`, `unavailable`) and Life RPG behaves as if Trainer weren't there. Setup shows which.
 
 ## Precedence
 

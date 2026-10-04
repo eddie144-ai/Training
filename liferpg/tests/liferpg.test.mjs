@@ -83,7 +83,7 @@ await test('Storage: writes only liferpg.* keys and never changes trainer.v1', a
   await ctx.close();
 });
 
-await test('Storage: adapter reads only trainer.v1', async () => {
+await test('Storage: adapter only reads (shtrainer.v1, then trainer.v1)', async () => {
   const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const src = strip(fs.readFileSync(path.join(ROOT, 'liferpg/trainer-adapter.js'), 'utf8'));
   assert(!/setItem|removeItem|clear\(|\.key\(|Object\.keys\(localStorage|for \(.* in localStorage/.test(src), 'adapter must not write or enumerate storage');
@@ -92,6 +92,14 @@ await test('Storage: adapter reads only trainer.v1', async () => {
   const setKeys = [...app.matchAll(/(setItem|removeItem)\(([^,)]+)/g)].map((m) => m[2].trim());
   for (const k of setKeys) assert(['STORE_KEY', 'CORRUPT_KEY'].includes(k), `app.js writes ${k}`);
   assert(!/localStorage\.clear\(/.test(app), 'app.js must not clear storage');
+});
+
+await test('Shredded Trainer data wins over the original Trainer', async () => {
+  const { ctx, page } = await open({ state: st(), trainer: { workouts: [] } });
+  await page.evaluate(() => { localStorage.setItem('shtrainer.v1', JSON.stringify({ workouts: [{ date: '2026-10-08', entries: [] }] })); invalidate(); });
+  eq(await status(page, 'workout', '2026-10-08'), 'done', 'workout from Shredded Trainer');
+  eq(await page.evaluate(() => trainer().source), 'Shredded Trainer', 'source named');
+  await ctx.close();
 });
 
 await test('Override: your tap wins, badge shows, "Use Trainer" reverts, Trainer untouched', async () => {

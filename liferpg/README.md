@@ -40,7 +40,7 @@ editing a past day can never leave XP or HP wrong. Every change you make is appe
 (Hero), which only **Delete all** removes.
 
 ## Trainer link
-Read-only, through `trainer-adapter.js`, which reads only `trainer.v1` and validates every field
+Read-only, through `trainer-adapter.js`, which reads only `shtrainer.v1` (Shredded Trainer), falling back to `trainer.v1`, and validates every field
 (STORAGE.md has the full contract). It fills in: training sessions and Trainer's train/rest/fast plan,
 lifting volume (kg × reps), steps (including Garmin entries), Gironda meal 1 and meal 2 (Trainer's
 `gironda1`/`gironda2` meals; fast days are neutral) and, if you turn the rule on, coffee check-ins.

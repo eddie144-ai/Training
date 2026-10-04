@@ -9,8 +9,9 @@ setup as Trainer: offline-first, no build step, data in `localStorage` on the ph
 The profile's central finding is intellect at the 93rd percentile with conscientiousness at the 9th:
 designing systems is easy, running them daily is the bottleneck, and system design itself can become
 procrastination. So the app keeps daily input to about three minutes and puts the structure outside
-your head. Trainer keeps the body (training, diet, fasting). Council covers mind, money, projects,
-fatherhood and relationships, and reads Trainer's sleep, steps and training when both are installed
+your head. Shredded Trainer keeps the body (training, diet, fasting). Council covers mind, money, projects,
+fatherhood and relationships, and reads Shredded Trainer's sleep, steps and training (or the original
+Trainer's, if that's all there is) when both are installed
 from the same site.
 
 ## Tabs

@@ -184,6 +184,7 @@ function trainer() {
   if (trainerMemo) return trainerMemo;
   const res = S.settings.trainer ? TrainerAdapter.read(localStorage) : { ok: false, error: 'off' };
   const t = res.ok ? res.data : null;
+  const source = res.ok && res.source === TrainerAdapter.KEYS[0] ? 'Shredded Trainer' : 'Trainer';
   const wByDate = new Map();
   for (const w of t?.workouts || []) { if (!wByDate.has(w.date)) wByDate.set(w.date, []); wByDate.get(w.date).push(w); }
   const mByDate = new Map();
@@ -198,7 +199,7 @@ function trainer() {
     return null;
   };
   trainerMemo = {
-    ok: !!t, error: res.error || null,
+    ok: !!t, error: res.error || null, source,
     plan: (d) => (t ? t.plans[d] || null : null),
     trained: (d) => (t ? wByDate.has(d) : null),
     workout: (d) => (t ? (wByDate.has(d) ? true : null) : null),
@@ -603,7 +604,7 @@ function viewSetup() {
   const st = S.settings;
   const T = trainer();
   const open = S.pauses.find((p) => !p.to || p.to >= today());
-  const trainerMsg = { off: 'Off.', missing: 'No Trainer data on this phone yet. Trainer has to be opened on this same site.', corrupt: 'Trainer\'s data couldn\'t be read, so it\'s being ignored. Nothing was changed.', shape: 'Trainer\'s data isn\'t in the expected format, so it\'s being ignored.', unavailable: 'Browser storage is blocked.' };
+  const trainerMsg = { off: 'Off.', missing: 'No Shredded Trainer or Trainer data on this phone yet. Open Shredded Trainer on this same site.', corrupt: 'Trainer\'s data couldn\'t be read, so it\'s being ignored. Nothing was changed.', shape: 'Trainer\'s data isn\'t in the expected format, so it\'s being ignored.', unavailable: 'Browser storage is blocked.' };
   return `
   <section class="card"><h2>Training schedule</h2>
     <div style="display:grid;gap:6px"><span class="small muted">Training days (Trainer's plan wins on days it covers)</span>
@@ -626,7 +627,7 @@ function viewSetup() {
     <label class="field">Game starts<input type="date" id="start" value="${S.start}" max="${today()}"></label></section>
   <section class="card"><h2>Trainer link</h2>
     ${seg('trainer', [['off', 'Off'], ['on', 'On']], st.trainer ? 'on' : 'off', 'Read Trainer data')}
-    <p class="muted small">${T.ok ? '✓ Reading Trainer: workouts, plans, lifting volume, steps, the two Gironda meals and coffee check-ins. Read-only; Trainer is never changed.' : esc(trainerMsg[T.error] || 'Not available.')}</p></section>
+    <p class="muted small">${T.ok ? `✓ Reading ${T.source}: workouts, plans, lifting volume, steps, the two Gironda meals and coffee check-ins. Read-only; ${T.source} is never changed.` : esc(trainerMsg[T.error] || 'Not available.')}</p></section>
   <section class="card"><h2>Display</h2>${seg('contrast-set', [['off', 'Normal'], ['on', 'High contrast']], st.highContrast ? 'on' : 'off', 'Contrast')}</section>
   <section class="card"><h2>Backup</h2>
     <p class="muted small">Your data lives only on this phone${storageOk ? '' : ' <b class="bad-text">and saving is failing right now</b>'}. Keep a copy.</p>
@@ -947,7 +948,7 @@ document.addEventListener('change', (e) => {
 });
 
 // Trainer may change in another tab; a new day may begin while the app is open.
-window.addEventListener('storage', (e) => { if (e.key === TrainerAdapter.KEY || e.key === STORE_KEY) { if (e.key === STORE_KEY) S = load(); invalidate(); render(); } });
+window.addEventListener('storage', (e) => { if (TrainerAdapter.KEYS.includes(e.key) || e.key === STORE_KEY) { if (e.key === STORE_KEY) S = load(); invalidate(); render(); } });
 let lastDay = today();
 function dayCheck() {
   if (today() === lastDay) return;
