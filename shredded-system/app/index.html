@@ -164,6 +164,14 @@
   @keyframes pop { from { opacity: 0; transform: translate(-50%, 10px); } }
   @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .bar i { transition: none; } button:active { transform: none; } }
   @media (max-width: 380px) { .glance { grid-template-columns: repeat(2, 1fr); } .mrow { grid-template-columns: 54px 1fr 92px; } .g3 { grid-template-columns: 1fr 1fr; } }
+  #scan-video { width: 100%; max-height: 260px; border-radius: 10px; background: #000; object-fit: cover; }
+  .photo-grid { display: grid; gap: 12px; }
+  .photo-row { display: grid; gap: 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+  .pair img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--raised); }
+  .pair figcaption { display: flex; justify-content: space-between; align-items: center; font: 600 12px var(--mono); color: var(--muted); }
+  .pair figcaption button { min-height: 32px; padding: 2px 8px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -172,6 +180,10 @@
 <main id="view" aria-live="polite"></main>
 <nav id="nav" aria-label="Sections"></nav>
 <script src="data.js"></script>
+<script src="trainer-adapter.js"></script>
+<script src="photos.js"></script>
+<script src="scan.js"></script>
+<script src="reminders.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

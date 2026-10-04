@@ -163,6 +163,14 @@
   @keyframes pop { from { opacity: 0; transform: translate(-50%, 10px); } }
   @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .bar i { transition: none; } button:active { transform: none; } }
   @media (max-width: 380px) { .glance { grid-template-columns: repeat(2, 1fr); } .mrow { grid-template-columns: 54px 1fr 92px; } .g3 { grid-template-columns: 1fr 1fr; } }
+  #scan-video { width: 100%; max-height: 260px; border-radius: 10px; background: #000; object-fit: cover; }
+  .photo-grid { display: grid; gap: 12px; }
+  .photo-row { display: grid; gap: 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+  .pair img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--raised); }
+  .pair figcaption { display: flex; justify-content: space-between; align-items: center; font: 600 12px var(--mono); color: var(--muted); }
+  .pair figcaption button { min-height: 32px; padding: 2px 8px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -180,6 +188,229 @@ const RULES = {"version":1,"about":"Weekly decision rules for the cut. Evaluated
 </script>
 <script>
 'use strict';
+/* Read-only adapter for Trainer's data. This is the only code in Shredded System that touches Trainer's storage.
+   Same design as liferpg/trainer-adapter.js, plus weights and sleep.
+   Contract (see STORAGE.md):
+   - Reads exactly one key, `trainer.v1`, with getItem. Never calls setItem, removeItem or clear.
+   - Never enumerates localStorage.
+   - Everything is validated: wrong types are dropped, never coerced. Numbers must be finite and >= 0;
+     numeric strings ("12000") are ignored. Dates must be YYYY-MM-DD.
+   - Returns a frozen, sanitised copy. Callers can't reach Trainer's original object. */
+const TrainerAdapter = (() => {
+  const KEY = 'trainer.v1';
+  const DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const PLAN_KINDS = new Set(['train', 'rest', 'fast']);
+  const MAX_STEPS = 200000;
+  const MAX_KG = 1000;
+  const MAX_REPS = 500;
+  const MIN_WEIGHT = 30, MAX_WEIGHT = 300;
+  const MAX_SLEEP = 16;
+
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const nonneg = (v, max) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : null);
+  const bool = (v) => (v === true || v === false ? v : null);
+  const dated = (o) => (isObj(o) ? Object.entries(o).filter(([d, v]) => DATE.test(d) && isObj(v)) : []);
+
+  function sanitise(t) {
+    const workouts = arr(t.workouts).filter((w) => isObj(w) && typeof w.date === 'string' && DATE.test(w.date)).map((w) => ({
+      date: w.date,
+      sets: arr(w.entries).flatMap((e) => (isObj(e) ? arr(e.sets) : []))
+        .map((s) => (isObj(s) ? { kg: nonneg(s.kg, MAX_KG), reps: nonneg(s.reps, MAX_REPS) } : { kg: null, reps: null }))
+        .filter((s) => s.kg != null && s.reps != null),
+    }));
+    const meals = arr(t.meals).filter((m) => isObj(m) && typeof m.date === 'string' && DATE.test(m.date) && typeof m.ref === 'string')
+      .map((m) => ({ date: m.date, ref: m.ref }));
+    const days = {};
+    for (const [d, v] of dated(t.days)) {
+      const ch = isObj(v.chains) ? v.chains : {};
+      days[d] = { steps: nonneg(v.steps, MAX_STEPS), cut: bool(ch.cut), coffee: bool(ch.coffee), fast: v.fast === true };
+    }
+    const garminSteps = {};
+    for (const [d, v] of dated(t.garmin)) { const s = nonneg(v.steps, MAX_STEPS); if (s != null) garminSteps[d] = s; }
+    const plans = {};
+    for (const [d, v] of dated(t.plans)) if (PLAN_KINDS.has(v.kind)) plans[d] = v.kind;
+    const inRange = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
+    const weights = {};
+    for (const w of arr(t.weights)) if (isObj(w) && typeof w.date === 'string' && DATE.test(w.date) && inRange(w.kg, MIN_WEIGHT, MAX_WEIGHT) != null) weights[w.date] = w.kg;
+    const sleep = {};
+    for (const s of arr(t.sleep)) if (isObj(s) && typeof s.date === 'string' && DATE.test(s.date) && nonneg(s.hours, MAX_SLEEP) != null) sleep[s.date] = s.hours;
+    return Object.freeze({ workouts, meals, days, garminSteps, plans, weights, sleep });
+  }
+
+  // Returns { ok: true, data } or { ok: false, error: 'off' | 'missing' | 'unavailable' | 'corrupt' | 'shape' }.
+  function read(storage) {
+    let raw;
+    try { raw = storage.getItem(KEY); } catch { return { ok: false, error: 'unavailable' }; }
+    if (raw == null) return { ok: false, error: 'missing' };
+    let t;
+    try { t = JSON.parse(raw); } catch { return { ok: false, error: 'corrupt' }; }
+    if (!isObj(t)) return { ok: false, error: 'shape' };
+    return { ok: true, data: sanitise(t) };
+  }
+
+  return Object.freeze({ KEY, read, sanitise });
+})();
+</script>
+<script>
+'use strict';
+/* Progress photos, stored only in this browser (IndexedDB database `shredded-photos`).
+   Photos are shrunk to 1080 px on the long side as JPEG before saving. They are not in JSON backups (too big);
+   delete them from the Progress tab or with "Reset everything". */
+const Photos = (() => {
+  const DB = 'shredded-photos', STORE = 'photos', MAX = 1080;
+  let dbp = null;
+  function db() {
+    if (dbp) return dbp;
+    dbp = new Promise((resolve, reject) => {
+      if (!('indexedDB' in self)) { reject(new Error('unavailable')); return; }
+      const req = indexedDB.open(DB, 1);
+      req.onupgradeneeded = () => { const s = req.result.createObjectStore(STORE, { keyPath: 'id' }); s.createIndex('date', 'date'); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    dbp.catch(() => { dbp = null; });
+    return dbp;
+  }
+  async function tx(mode, fn) {
+    const d = await db();
+    return new Promise((resolve, reject) => {
+      const t = d.transaction(STORE, mode);
+      const out = fn(t.objectStore(STORE));
+      t.oncomplete = () => resolve(out?.result ?? out);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error('aborted'));
+    });
+  }
+  // Downscale with a canvas. Falls back to the original file if decoding isn't possible.
+  async function shrink(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close?.();
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+      return blob || file;
+    } catch { return file; }
+  }
+  return {
+    async add(date, pose, file) {
+      const blob = await shrink(file);
+      const rec = { id: `${date}-${pose}-${Date.now().toString(36)}`, date, pose, blob, type: blob.type || 'image/jpeg', at: new Date().toISOString() };
+      await tx('readwrite', (s) => s.put(rec));
+      return rec;
+    },
+    async all() { return (await tx('readonly', (s) => s.getAll())) || []; },
+    async remove(id) { await tx('readwrite', (s) => s.delete(id)); },
+    async clear() { await tx('readwrite', (s) => s.clear()); },
+  };
+})();
+</script>
+<script>
+'use strict';
+/* Barcode scanning and food lookup.
+   - Camera scanning uses the browser's BarcodeDetector (Chrome on Android). Elsewhere you type the number.
+   - Lookup uses Open Food Facts (free, no account): only the barcode is sent. Results are saved in your
+     foods so the same product works offline next time. */
+const Scan = (() => {
+  const API = 'https://world.openfoodfacts.org/api/v2/product/';
+  const FIELDS = 'product_name,brands,nutriments,serving_quantity';
+  const validCode = (c) => /^\d{8,14}$/.test(String(c || '').trim());
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+
+  // Per-100 g values from an Open Food Facts product, or null if it has no usable energy value.
+  function parse(code, p) {
+    const nu = p?.nutriments || {};
+    let kcal = n(nu['energy-kcal_100g']);
+    if (kcal == null && n(nu.energy_100g) != null) kcal = n(nu.energy_100g) / 4.184; // kJ
+    if (kcal == null || kcal > 950) return null;
+    const name = [p.product_name, p.brands].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(' · ').slice(0, 80) || `Product ${code}`;
+    return {
+      code, name,
+      kcal: Math.round(kcal), p: n(nu.proteins_100g) ?? 0, f: n(nu.fat_100g) ?? 0, c: n(nu.carbohydrates_100g) ?? 0,
+      fib: n(nu.fiber_100g) ?? 0, sat: n(nu['saturated-fat_100g']) ?? 0,
+      serving: n(p.serving_quantity),
+    };
+  }
+  async function lookup(code) {
+    if (!validCode(code)) return { ok: false, error: 'That doesn\'t look like a barcode (8 to 14 digits).' };
+    let res;
+    try { res = await fetch(`${API}${encodeURIComponent(code)}.json?fields=${FIELDS}`, { headers: { Accept: 'application/json' } }); }
+    catch { return { ok: false, error: 'Couldn\'t reach Open Food Facts. Check your connection, or enter the food by hand.' }; }
+    if (res.status === 404) return { ok: false, error: 'Not in Open Food Facts. Enter it by hand below.' };
+    if (!res.ok) return { ok: false, error: `Open Food Facts didn't answer (error ${res.status}). Try again later.` };
+    let j; try { j = await res.json(); } catch { return { ok: false, error: 'Open Food Facts sent something unreadable.' }; }
+    if (j.status === 0 || !j.product) return { ok: false, error: 'Not in Open Food Facts. Enter it by hand below.' };
+    const food = parse(code, j.product);
+    return food ? { ok: true, food } : { ok: false, error: 'That product has no calorie information. Enter it by hand below.' };
+  }
+
+  const canScan = () => 'BarcodeDetector' in self && !!navigator.mediaDevices?.getUserMedia;
+  let stream = null, timer = null;
+  async function start(video, onCode) {
+    const formats = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    const det = new BarcodeDetector({ formats: (await BarcodeDetector.getSupportedFormats?.())?.filter((f) => formats.includes(f)) || formats });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    const tick = async () => {
+      if (!stream) return;
+      try { const codes = await det.detect(video); const hit = codes.find((c) => validCode(c.rawValue)); if (hit) { stop(); onCode(hit.rawValue); return; } } catch { /* frame not ready */ }
+      timer = setTimeout(tick, 250);
+    };
+    tick();
+  }
+  function stop() {
+    clearTimeout(timer); timer = null;
+    if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
+  }
+  return { lookup, parse, validCode, canScan, start, stop };
+})();
+</script>
+<script>
+'use strict';
+/* Reminders as a calendar file (.ics). An offline web app can't wake your phone on a schedule without a push
+   server, so the reliable route is your calendar: import the file once (Google Calendar: Settings → Import)
+   and the phone reminds you. Re-download it after changing the carb-up interval or training days. */
+const Reminders = (() => {
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+  const local = (date, hhmm) => `${date.replace(/-/g, '')}T${hhmm.replace(':', '')}00`;
+  const escText = (s) => String(s).replace(/\\/g, '\\\\').replace(/[,;]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+  const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  // Lines over 75 octets must be folded (RFC 5545).
+  const fold = (line) => { const out = []; let s = line; while (s.length > 74) { out.push(s.slice(0, 74)); s = ` ${s.slice(74)}`; } out.push(s); return out.join('\r\n'); };
+
+  function event({ uid, date, time, minutes = 10, title, desc, rrule, alarm = 0 }) {
+    const [h, m] = time.split(':').map(Number);
+    const end = `${pad(Math.floor((h * 60 + m + minutes) / 60) % 24)}:${pad((h * 60 + m + minutes) % 60)}`;
+    return [
+      'BEGIN:VEVENT', `UID:${uid}@shredded-system`, `DTSTAMP:${stamp(new Date())}`,
+      `DTSTART;TZID=Europe/London:${local(date, time)}`, `DTEND;TZID=Europe/London:${local(date, end)}`,
+      `SUMMARY:${escText(title)}`, `DESCRIPTION:${escText(desc)}`, ...(rrule ? [`RRULE:${rrule}`] : []),
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escText(title)}`, `TRIGGER:-PT${alarm}M`, 'END:VALARM', 'END:VEVENT',
+    ];
+  }
+  // opts: { from, weighTime, carbupDates: [date], trainDays: [0-6], trainTime }
+  function build(opts) {
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Shredded System//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Shredded System',
+      'BEGIN:VTIMEZONE', 'TZID:Europe/London',
+      'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0000', 'TZOFFSETTO:+0100', 'TZNAME:BST', 'DTSTART:19700329T010000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+      'BEGIN:STANDARD', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0000', 'TZNAME:GMT', 'DTSTART:19701025T020000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+      'END:VTIMEZONE'];
+    lines.push(...event({ uid: 'weigh-in', date: opts.from, time: opts.weighTime, title: 'Weigh in (Shredded System)', desc: 'After the toilet, before food or drink. Enter it on Today.', rrule: 'FREQ=DAILY' }));
+    for (const d of opts.carbupDates) lines.push(...event({ uid: `carbup-${d}`, date: d, time: '08:00', title: 'Carb-up day', desc: 'Maintenance calories, protein the same, fat 40-50 g, carbs 200-300 g. Planned, not a cheat day.' }));
+    if (opts.trainDays.length) lines.push(...event({ uid: 'training', date: opts.from, time: opts.trainTime, minutes: 45, alarm: 30, title: 'Training session', desc: 'Full Body A or B. Stop 1-2 reps short of failure on compounds.', rrule: `FREQ=WEEKLY;BYDAY=${opts.trainDays.map((n) => BYDAY[n]).join(',')}` }));
+    lines.push('END:VCALENDAR');
+    return `${lines.map(fold).join('\r\n')}\r\n`;
+  }
+  return { build };
+})();
+</script>
+<script>
+'use strict';
 /* Shredded System: the Gironda Cut as an app.
    Day templates, carb-up clock, macro totals, weight trend and the weekly decision rules.
    Content comes from data.js (generated from ../data/). Everything you log stays in this browser. */
@@ -188,7 +419,6 @@ const RULES = {"version":1,"about":"Weekly decision rules for the cut. Evaluated
 // Constants
 // ===========================================================================
 const STORE_KEY = 'shredded.v1';
-const TRAINER_KEY = 'trainer.v1';
 const REPO = 'https://github.com/eddie144-ai/Training/blob/main/shredded-system';
 const DAY_TYPES = [
   ['cut', 'Cut', 'Gironda Cut: meat, eggs and greens'],
@@ -250,6 +480,10 @@ function freshState() {
     days: {}, // date → { type, meals: {n: true}, extra: [{id, name, kcal, p, f, c, fib}], weight, waist, water, steps, sleep, veg, alcohol, hunger, energy, symptoms: [], med, note }
     workouts: [], // { id, date, tpl, sets: [[{kg, reps, rir}]] }
     plan: { cut: 4, modern: 2, carbup: 1, strict: 0 },
+    useTrainer: true, // read Trainer's weights, steps and sleep (read-only)
+    myFoods: [], // scanned products: { code, name, kcal, p, f, c, fib, sat, serving } per 100 g
+    reminders: { weighTime: '07:00', trainTime: '18:00' },
+    lastPhoto: null, // date of the latest progress photo
     notice: 'welcome',
   };
 }
@@ -260,6 +494,8 @@ function normalise(s) {
   if (!out.days || typeof out.days !== 'object' || Array.isArray(out.days)) out.days = {};
   if (!Array.isArray(out.workouts)) out.workouts = [];
   if (!Array.isArray(out.trainDays)) out.trainDays = d.trainDays;
+  if (!Array.isArray(out.myFoods)) out.myFoods = [];
+  out.reminders = { ...d.reminders, ...(s.reminders && typeof s.reminders === 'object' ? s.reminders : {}) };
   return out;
 }
 let storageOk = true;
@@ -270,6 +506,20 @@ let S = load();
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); storageOk = true; } catch { storageOk = false; } }
 const dayRec = (d) => (S.days[d] ||= {});
 const peek = (d) => S.days[d] || {};
+
+// ===========================================================================
+// Trainer (read-only, through trainer-adapter.js). Your own entries always win.
+// ===========================================================================
+let trainerMemo = null;
+function trainer() {
+  if (trainerMemo) return trainerMemo;
+  const res = S.useTrainer && typeof TrainerAdapter !== 'undefined' ? TrainerAdapter.read(localStorage) : { ok: false, error: 'off' };
+  trainerMemo = res.ok ? { ok: true, ...res.data } : { ok: false, error: res.error, weights: {}, sleep: {}, days: {}, garminSteps: {} };
+  return trainerMemo;
+}
+const weightOf = (d) => peek(d).weight ?? trainer().weights[d] ?? null;
+const stepsOf = (d) => peek(d).steps ?? trainer().days[d]?.steps ?? trainer().garminSteps[d] ?? null;
+const sleepOf = (d) => peek(d).sleep ?? trainer().sleep[d] ?? null;
 
 // ===========================================================================
 // Food and templates
@@ -357,7 +607,7 @@ function onPlan(d) {
   if (d === today() && !broke && !all) return null;
   return all && !broke;
 }
-const complete = (d) => peek(d).weight != null && logged(d);
+const complete = (d) => weightOf(d) != null && logged(d);
 
 // Carb-up clock: hours since the last carb-up day (or the start date).
 function lastCarbup(before = today()) {
@@ -383,7 +633,8 @@ function suggestType(d) {
 // Weight, trend and the weekly decision
 // ===========================================================================
 function weights() {
-  return Object.keys(S.days).filter((d) => S.days[d].weight != null).sort().map((d) => ({ date: d, kg: S.days[d].weight }));
+  const dates = new Set([...Object.keys(S.days).filter((d) => S.days[d].weight != null), ...Object.keys(trainer().weights)]);
+  return [...dates].sort().map((d) => ({ date: d, kg: weightOf(d), trainer: peek(d).weight == null }));
 }
 function avgBetween(from, to) { const w = weights().filter((x) => x.date >= from && x.date <= to).map((x) => x.kg); return w.length ? { kg: mean(w), n: w.length } : null; }
 function trend(end = today()) {
@@ -480,10 +731,12 @@ function renderNav() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>${label}</button>`).join('');
 }
 function render() {
+  trainerMemo = null;
   renderTop();
   renderNav();
   const view = ui.setup ? viewSetup : { today: viewToday, food: viewFood, train: viewTrain, progress: viewProgress, guide: viewGuide }[ui.tab];
   $('view').innerHTML = view();
+  if (ui.tab === 'progress' && !ui.setup) fillPhotos();
   renderSheet();
 }
 
@@ -534,6 +787,9 @@ function viewToday() {
       <p class="small">The cut starts ${fmtDate(S.profile.startDate)}. Until then, weigh in each morning and log what you normally eat, so the app can measure your real maintenance calories. Do the shop and the first prep (guide section 6).</p></section>`);
   }
 
+  if (d === t && d >= S.profile.startDate && (!S.lastPhoto || daysBetween(S.lastPhoto, t) >= 28)) {
+    out.push(`<section class="panel note"><div class="row between"><p class="small grow"><b>Photo day.</b> ${S.lastPhoto ? `Last photos ${fmtShort(S.lastPhoto)}.` : 'No progress photos yet.'} Front, side and back, same light and place.</p><button class="small" data-act="go-photos">Take them</button></div></section>`);
+  }
   out.push(`<section class="panel">
     <div class="row between"><button class="icon" data-act="day" data-v="-1" aria-label="Previous day">◀</button><h2 style="justify-content:center">${esc(relDay(d))}</h2><button class="icon" data-act="day" data-v="1" ${d >= t ? 'disabled' : ''} aria-label="Next day">▶</button></div>
     <div class="seg type" role="group" aria-label="Day type">${DAY_TYPES.map(([id, l]) => `<button data-act="type" data-v="${id}" ${pressed(type === id)}>${l}</button>`).join('')}</div>
@@ -570,10 +826,11 @@ function viewToday() {
   // Check-in
   const sc = (k, v) => `<div class="seg" role="group" aria-label="${k}">${[1, 2, 3, 4, 5].map((n) => `<button data-act="scale" data-k="${k}" data-v="${n}" ${pressed(v === n)}>${n}</button>`).join('')}</div>`;
   out.push(`<section class="panel"><h2>Check-in</h2>
-    <div class="g2"><label class="f">Weight (kg, morning)<input id="in-weight" data-k="weight" inputmode="decimal" value="${r.weight ?? ''}" placeholder="${r1(latestWeight())}"></label>
+    <div class="g2"><label class="f">Weight (kg, morning)<input id="in-weight" data-k="weight" inputmode="decimal" value="${r.weight ?? ''}" placeholder="${trainer().weights[d] != null ? `Trainer: ${trainer().weights[d]}` : r1(latestWeight())}"></label>
       <label class="f">Waist (cm${parseDate(d).getDay() === 1 ? ', Monday' : ''})<input id="in-waist" data-k="waist" inputmode="decimal" value="${r.waist ?? ''}"></label></div>
-    <div class="g2"><label class="f">Steps<input id="in-steps" data-k="steps" inputmode="numeric" value="${r.steps ?? ''}"></label>
-      <label class="f">Sleep (hours)<input id="in-sleep" data-k="sleep" inputmode="decimal" value="${r.sleep ?? ''}"></label></div>
+    <div class="g2"><label class="f">Steps<input id="in-steps" data-k="steps" inputmode="numeric" value="${r.steps ?? ''}" placeholder="${r.steps == null && stepsOf(d) != null ? `Trainer: ${fmtN(stepsOf(d))}` : ''}"></label>
+      <label class="f">Sleep (hours)<input id="in-sleep" data-k="sleep" inputmode="decimal" value="${r.sleep ?? ''}" placeholder="${r.sleep == null && sleepOf(d) != null ? `Trainer: ${sleepOf(d)}` : ''}"></label></div>
+    ${trainer().ok && (r.weight == null && trainer().weights[d] != null || r.steps == null && stepsOf(d) != null || r.sleep == null && sleepOf(d) != null) ? '<p class="muted small">Grey values come from Trainer and count until you type your own.</p>' : ''}
     <div class="row between"><span class="small">Water</span><div class="stepper" style="width:180px"><button data-act="water" data-v="-0.25" aria-label="Less water">−</button><b>${r1(r.water || 0)} l</b><button data-act="water" data-v="0.25" aria-label="More water">+</button></div></div>
     <div class="chips"><button class="chip" data-act="flag" data-k="veg" ${pressed(r.veg)}>Ate the greens</button><button class="chip red" data-act="flag" data-k="alcohol" ${pressed(r.alcohol)}>Had alcohol</button></div>
     <div class="g2"><div class="f" style="display:grid;gap:5px"><span class="small muted">Hunger (1 low – 5 high)</span>${sc('hunger', r.hunger)}</div>
@@ -704,6 +961,10 @@ function viewProgress() {
     ${goals.map((g) => proj.marks[g] ? `<tr${g === S.profile.goalHigh || g === S.profile.goalLow ? ' style="font-weight:700"' : ''}><td>${g} kg</td><td class="n">${proj.marks[g].weeks}</td><td class="n">${fmtMonth(proj.marks[g].date)}</td></tr>` : '').join('')}
     </tbody></table></div><p class="muted small">Add 2 weeks for each diet break (every 8–12 weeks). Uses your measured rate once there are 2 weeks of weigh-ins.</p></section>`);
 
+  out.push(`<section class="panel" id="photos-panel"><h2>Photos<span class="right">every 4 weeks</span></h2>
+    <p class="small">Same light, same place. Photos stay in this browser only.</p>
+    <div class="btns">${['front', 'side', 'back'].map((pose) => `<label class="btn" style="cursor:pointer">+ ${pose[0].toUpperCase() + pose.slice(1)}<input type="file" accept="image/*" capture="environment" class="sr photo-in" data-pose="${pose}"></label>`).join('')}</div>
+    <div id="photo-grid" class="photo-grid"><p class="muted small">Loading…</p></div></section>`);
   const bf = S.profile.bf;
   const lbm = bf ? cur * (1 - bf / 100) : null;
   out.push(`<section class="panel"><h2>Is 70 kg right for you?</h2>
@@ -720,6 +981,53 @@ function viewProgress() {
     </tbody></table></div></section>`);
   }
   return out.join('');
+}
+
+// First and latest photo of each pose, side by side.
+let photoUrls = [];
+async function fillPhotos() {
+  const grid = $('photo-grid');
+  if (!grid) return;
+  let all;
+  try { all = await Photos.all(); } catch { grid.innerHTML = '<p class="muted small">Photos aren\'t available in this browser.</p>'; return; }
+  if (!$('photo-grid')) return;
+  for (const u of photoUrls) URL.revokeObjectURL(u);
+  photoUrls = [];
+  if (!all.length) { grid.innerHTML = '<p class="muted small">No photos yet. Take a front, side and back photo today; the app compares your first and latest.</p>'; return; }
+  const img = (p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return `<figure><img src="${u}" alt="${p.pose} photo, ${fmtDate(p.date)}"><figcaption>${fmtShort(p.date)} <button class="small ghost" data-act="photo-del" data-id="${esc(p.id)}" aria-label="Delete ${p.pose} photo from ${fmtDate(p.date)}">✕</button></figcaption></figure>`; };
+  const rows = ['front', 'side', 'back'].map((pose) => {
+    const ps = all.filter((p) => p.pose === pose).sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
+    if (!ps.length) return '';
+    const first = ps[0], last = ps[ps.length - 1];
+    return `<div class="photo-row"><h3>${pose[0].toUpperCase() + pose.slice(1)}${ps.length > 1 ? ` <span class="muted small">${daysBetween(first.date, last.date)} days apart</span>` : ''}</h3><div class="pair">${img(first)}${first !== last ? img(last) : ''}</div></div>`;
+  }).join('');
+  grid.innerHTML = `${rows}<p class="muted small">${all.length} photo${all.length === 1 ? '' : 's'} saved.</p>`;
+}
+async function addPhoto(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    await Photos.add(today(), input.dataset.pose, file);
+    S.lastPhoto = today(); save();
+    toast('Photo saved.');
+  } catch { toast('Couldn\'t save the photo. The browser may be out of space.'); }
+  render();
+}
+function downloadText(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function carbupDatesAhead(weeks = 12) {
+  const clk = carbupClock();
+  const step = Math.max(1, Math.round(S.carbupHours / 24));
+  let d = clk.due ? today() : clk.nextDate;
+  if (d < S.profile.startDate) d = addDays(S.profile.startDate, step - 1);
+  const out = [], end = addDays(today(), weeks * 7);
+  for (; d <= end; d = addDays(d, step)) out.push(d);
+  return out;
 }
 
 // ===========================================================================
@@ -749,8 +1057,9 @@ function viewGuide() {
 function viewSetup() {
   const p = S.profile, tg = targets('cut');
   const sel = (id, opts, v) => `<select id="${id}">${opts.map(([val, l]) => `<option value="${val}" ${String(v) === String(val) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  let trainerFound = false;
-  try { trainerFound = !!localStorage.getItem(TRAINER_KEY); } catch { trainerFound = false; }
+  const T = trainer();
+  const tMsg = { off: 'Off.', missing: 'No Trainer data in this browser. Trainer must be opened on this same site.', corrupt: 'Trainer\'s data couldn\'t be read, so it\'s ignored.', shape: 'Trainer\'s data isn\'t in the expected format, so it\'s ignored.', unavailable: 'Browser storage is blocked.' };
+  const rm = S.reminders;
   return `<section class="panel"><div class="row between"><h2>Setup</h2><button class="small" data-act="setup-close">Done</button></div>
     <div class="g2"><label class="f">Sex (for the calorie formula)${sel('p-sex', [['male', 'Male'], ['female', 'Female']], p.sex)}</label><label class="f">Age<input id="p-age" inputmode="numeric" value="${p.age ?? ''}"></label></div>
     <div class="g2"><label class="f">Height (cm)<input id="p-height" inputmode="decimal" value="${p.height ?? ''}"></label><label class="f">Activity${sel('p-activity', [[1.2, 'Mostly sitting'], [1.375, 'Light (8–10k steps)'], [1.55, 'Moderate (12–15k + training)'], [1.725, 'Very active']], p.activity)}</label></div>
@@ -767,13 +1076,21 @@ function viewSetup() {
     <label class="f">Carb-up every${sel('t-carbup', [[72, '72 hours (Gironda)'], [96, '96 hours'], [120, '120 hours']], S.carbupHours)}</label>
     <div style="display:grid;gap:6px"><span class="small muted">Training days</span><div class="chips">${[1, 2, 3, 4, 5, 6, 0].map((n) => `<button class="chip" data-act="trainday" data-v="${n}" ${pressed(S.trainDays.includes(n))}>${DOW[n]}</button>`).join('')}</div></div>
   </section>
+  <section class="panel"><h2>Trainer link</h2>
+    <div class="seg" role="group" aria-label="Read Trainer data"><button data-act="use-trainer" data-v="0" ${pressed(!S.useTrainer)}>Off</button><button data-act="use-trainer" data-v="1" ${pressed(S.useTrainer)}>On</button></div>
+    <p class="muted small">${T.ok ? `✓ Reading Trainer: ${Object.keys(T.weights).length} weigh-ins, steps (including Garmin entries) and sleep. Read-only; Trainer is never changed. Anything you type here wins.` : esc(tMsg[T.error] || 'Not available.')}</p></section>
+  <section class="panel"><h2>Reminders</h2>
+    <p class="small">A calendar file with a daily weigh-in, your carb-up days for the next 12 weeks and your training days. Import it into Google Calendar (Settings → Import) and your phone does the reminding, even offline.</p>
+    <div class="g2"><label class="f">Weigh-in time<input id="rm-weighTime" type="time" value="${esc(rm.weighTime)}"></label><label class="f">Training time<input id="rm-trainTime" type="time" value="${esc(rm.trainTime)}"></label></div>
+    <button data-act="ics">Download calendar file</button>
+    <p class="muted small">Download it again after changing the carb-up interval or training days.</p></section>
   <section class="panel"><h2>Your data</h2>
     <p class="muted small">Everything stays in this browser${storageOk ? '' : ' <b class="bad-t">and saving is failing right now</b>'}. Copy a backup now and then.</p>
-    ${trainerFound ? '<button class="ghost" data-act="trainer">Import weights, steps and sleep from Trainer</button>' : ''}
     <div class="btns"><button data-act="export" data-v="json">Backup (JSON)</button><button data-act="export" data-v="daily">Daily log (CSV)</button><button data-act="export" data-v="workouts">Workouts (CSV)</button></div>
     ${ui.out ? `<textarea id="out" readonly aria-label="Export">${esc(ui.out)}</textarea><button data-act="copy">Copy</button>` : ''}
     <label class="f">Restore: paste a JSON backup<textarea id="restore" placeholder='{"v":1, ...}'></textarea></label>
     <button data-act="restore">Restore</button>
+    <p class="muted small">Progress photos stay in this browser and aren't in backups. Reset deletes them too.</p>
     <button class="ghost" data-act="reset" style="color:var(--bad)">Reset everything</button>
   </section>`;
 }
@@ -788,20 +1105,55 @@ function renderSheet() {
   wrap.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${ui.sheet.html()}</div>`;
   if (!ui.sheet.focused) { wrap.querySelector('input, select')?.focus(); ui.sheet.focused = true; }
 }
-function closeSheet() { ui.sheet = null; renderSheet(); }
+function closeSheet() { if (ui.sheet?.scan) Scan.stop(); ui.sheet = null; renderSheet(); }
 function extraSheet() {
-  ui.sheet = {
-    html: () => `<h2>Off plan or extra</h2>
-      <form id="extra-food" style="display:grid;gap:10px"><p class="small muted">From the food list:</p>
-        <div class="g2"><label class="f">Food<select id="x-food">${FOODS.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></label><label class="f">Grams<input id="x-g" inputmode="numeric" required></label></div>
-        <button class="primary" type="submit">Add</button></form>
-      <form id="extra-free" style="display:grid;gap:10px"><p class="small muted">Or anything else, roughly:</p>
-        <label class="f">What<input id="x-name" required placeholder="e.g. 2 slices of pizza"></label>
-        <div class="g3"><label class="f">kcal<input id="x-kcal" inputmode="numeric" required></label><label class="f">Protein g<input id="x-p" inputmode="numeric"></label><label class="f">Carbs g<input id="x-c" inputmode="numeric"></label></div>
-        <div class="btns"><button type="button" data-act="close">Cancel</button><button class="primary" type="submit">Add</button></div></form>`,
-  };
+  ui.sheet = { scan: { status: 'idle', food: null, msg: '' }, html: extraHtml };
   renderSheet();
 }
+function extraHtml() {
+  const sc = ui.sheet.scan;
+  const f = sc.food;
+  const recent = S.myFoods.slice(0, 6);
+  return `<h2>Off plan or extra</h2>
+    <section style="display:grid;gap:10px"><p class="small muted">Packaged food: scan or type the barcode.</p>
+      ${sc.status === 'camera' ? '<video id="scan-video" playsinline muted aria-label="Camera view for scanning"></video><button type="button" data-act="scan-stop">Stop camera</button>' : ''}
+      <form id="scan-form" class="row" style="gap:8px">${Scan.canScan() && sc.status !== 'camera' ? '<button type="button" data-act="scan-cam" aria-label="Scan with the camera">Scan</button>' : ''}<input id="x-code" inputmode="numeric" placeholder="Barcode number" aria-label="Barcode number" value="${esc(sc.code || '')}"><button type="submit" style="white-space:nowrap" ${sc.status === 'loading' ? 'disabled' : ''}>${sc.status === 'loading' ? '…' : 'Look up'}</button></form>
+      ${sc.msg ? `<p class="small ${sc.status === 'error' ? 'warn-t' : 'muted'}">${esc(sc.msg)}</p>` : ''}
+      ${f ? `<form id="scan-add" style="display:grid;gap:8px"><p class="small"><b>${esc(f.name)}</b><br><span class="mono muted">per 100 g: ${f.kcal} kcal · P ${r1(f.p)} · F ${r1(f.f)} · C ${r1(f.c)} · fibre ${r1(f.fib)}</span></p>
+        <div class="g2"><label class="f">Grams eaten<input id="x-sg" inputmode="decimal" required value="${f.serving || ''}"></label><button class="primary" type="submit" style="align-self:end">Add</button></div></form>` : ''}
+      ${recent.length && !f ? `<div class="chips">${recent.map((x) => `<button type="button" class="chip" data-act="my-food" data-v="${esc(x.code)}">${esc(x.name.split(' · ')[0])}</button>`).join('')}</div>` : ''}
+    </section>
+    <form id="extra-food" style="display:grid;gap:10px"><p class="small muted">From the food list:</p>
+      <div class="g2"><label class="f">Food<select id="x-food">${FOODS.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><label class="f">Grams<input id="x-g" inputmode="numeric" required></label></div>
+      <button class="primary" type="submit">Add</button></form>
+    <form id="extra-free" style="display:grid;gap:10px"><p class="small muted">Or anything else, roughly:</p>
+      <label class="f">What<input id="x-name" required placeholder="e.g. 2 slices of pizza"></label>
+      <div class="g3"><label class="f">kcal<input id="x-kcal" inputmode="numeric" required></label><label class="f">Protein g<input id="x-p" inputmode="numeric"></label><label class="f">Carbs g<input id="x-c" inputmode="numeric"></label></div>
+      <div class="btns"><button type="button" data-act="close">Cancel</button><button class="primary" type="submit">Add</button></div></form>`;
+}
+async function lookupCode(code) {
+  const sc = ui.sheet?.scan;
+  if (!sc) return;
+  sc.code = code;
+  const known = S.myFoods.find((x) => x.code === code);
+  if (known) { Object.assign(sc, { status: 'found', food: known, msg: 'Saved earlier, works offline.' }); renderSheet(); return; }
+  Object.assign(sc, { status: 'loading', food: null, msg: 'Looking it up…' }); renderSheet();
+  const res = await Scan.lookup(code);
+  if (ui.sheet?.scan !== sc) return; // sheet closed meanwhile
+  if (res.ok) {
+    S.myFoods = [res.food, ...S.myFoods.filter((x) => x.code !== code)].slice(0, 50);
+    save();
+    Object.assign(sc, { status: 'found', food: res.food, msg: 'From Open Food Facts. Check it against the pack.' });
+  } else Object.assign(sc, { status: 'error', food: null, msg: res.error });
+  renderSheet();
+}
+async function startCamera() {
+  const sc = ui.sheet.scan;
+  sc.status = 'camera'; sc.msg = 'Point the camera at the barcode.'; renderSheet();
+  try { await Scan.start($('scan-video'), (code) => lookupCode(code)); }
+  catch { Scan.stop(); Object.assign(sc, { status: 'error', msg: 'The camera isn\'t available. Type the number instead.' }); renderSheet(); }
+}
+
 function ask(text, label, fn) {
   ui.sheet = { html: () => `<p>${esc(text)}</p><div class="btns"><button data-act="close">Cancel</button><button class="primary" data-act="ask-ok">${esc(label)}</button></div>`, fn, focused: true };
   renderSheet();
@@ -820,11 +1172,11 @@ function commit() { save(); render(); }
 const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 function exportDaily() {
   const head = 'date,weight_kg,waist_cm,day_type,meal1,meal2,meal3,on_plan,kcal,protein_g,fat_g,carbs_g,fibre_g,veg_serves,water_l,steps,sleep_h,trained,alcohol,hunger_1_5,energy_1_5,symptoms,medication_note,notes';
-  const rows = Object.keys(S.days).sort().map((d) => {
-    const r = S.days[d], m = eaten(d), op = onPlan(d);
+  const rows = [...new Set([...Object.keys(S.days), ...Object.keys(trainer().weights)])].sort().map((d) => {
+    const r = S.days[d] || {}, m = eaten(d), op = onPlan(d);
     const tw = S.workouts.find((w) => w.date === d);
-    return [d, r.weight, r.waist, typeOf(d), r.meals?.[1] ? 'yes' : 'no', r.meals?.[2] ? 'yes' : 'no', r.meals?.[3] ? 'yes' : 'no', op == null ? '' : op ? 'yes' : 'no',
-      r0(m.kcal), r0(m.p), r0(m.f), r0(m.c), r0(m.fib), r.veg ? 'yes' : '', r.water, r.steps, r.sleep, tw ? tw.tpl : '', r.alcohol ? 'yes' : 'no', r.hunger, r.energy, (r.symptoms || []).join(' '), r.med, r.note].map(csvCell).join(',');
+    return [d, weightOf(d), r.waist, typeOf(d), r.meals?.[1] ? 'yes' : 'no', r.meals?.[2] ? 'yes' : 'no', r.meals?.[3] ? 'yes' : 'no', op == null ? '' : op ? 'yes' : 'no',
+      r0(m.kcal), r0(m.p), r0(m.f), r0(m.c), r0(m.fib), r.veg ? 'yes' : '', r.water, stepsOf(d), sleepOf(d), tw ? tw.tpl : '', r.alcohol ? 'yes' : 'no', r.hunger, r.energy, (r.symptoms || []).join(' '), r.med, r.note].map(csvCell).join(',');
   });
   return [head, ...rows].join('\n');
 }
@@ -849,6 +1201,18 @@ document.addEventListener('click', (e) => {
   const r = () => dayRec(ui.day);
   switch (el.dataset.act) {
     case 'dismiss': S.notice = null; commit(); return;
+    case 'use-trainer': S.useTrainer = v === '1'; commit(); return;
+    case 'go-photos': ui.tab = 'progress'; ui.setup = false; render(); $('photos-panel')?.scrollIntoView(); return;
+    case 'photo-del': ask('Delete this photo?', 'Delete', () => { Photos.remove(el.dataset.id).then(() => render(), () => toast('Couldn\'t delete it.')); }); return;
+    case 'ics': {
+      const from = today() > S.profile.startDate ? today() : S.profile.startDate;
+      downloadText('shredded-system-reminders.ics', Reminders.build({ from, weighTime: S.reminders.weighTime, trainTime: S.reminders.trainTime, trainDays: S.trainDays, carbupDates: carbupDatesAhead() }), 'text/calendar');
+      toast('Calendar file downloaded. Import it into your calendar.');
+      return;
+    }
+    case 'scan-cam': startCamera(); return;
+    case 'scan-stop': Scan.stop(); Object.assign(ui.sheet.scan, { status: 'idle', msg: '' }); renderSheet(); return;
+    case 'my-food': lookupCode(v); return;
     case 'setup': ui.setup = true; ui.out = ''; render(); window.scrollTo(0, 0); return;
     case 'setup-close': ui.setup = false; render(); return;
     case 'day': { const n = addDays(ui.day, Number(v)); if (n <= today()) ui.day = n; render(); return; }
@@ -879,18 +1243,7 @@ document.addEventListener('click', (e) => {
       ask('Replace everything here with the backup?', 'Restore', () => { S = normalise(data); toast('Restored.'); });
       return;
     }
-    case 'trainer': {
-      let t; try { t = JSON.parse(localStorage.getItem(TRAINER_KEY)); } catch { t = null; }
-      if (!t) { toast('No Trainer data found.'); return; }
-      let n = 0;
-      for (const w of t.weights || []) if (w.date && w.kg && dayRec(w.date).weight == null) { dayRec(w.date).weight = Number(w.kg); n++; }
-      for (const [d, x] of Object.entries(t.days || {})) if (x?.steps && dayRec(d).steps == null) dayRec(d).steps = x.steps;
-      for (const s of t.sleep || []) if (s.date && s.hours && dayRec(s.date).sleep == null) dayRec(s.date).sleep = Number(s.hours);
-      for (const d of Object.keys(S.days)) if (!Object.keys(S.days[d]).length) delete S.days[d];
-      commit(); toast(`Imported ${n} weigh-in${n === 1 ? '' : 's'} from Trainer.`);
-      return;
-    }
-    case 'reset': ask('Delete everything in Shredded System on this device?', 'Reset', () => { S = freshState(); ui.day = today(); }); return;
+    case 'reset': ask('Delete everything in Shredded System on this device, including photos?', 'Reset', () => { S = freshState(); ui.day = today(); Photos.clear().catch(() => {}); }); return;
     case 'close': closeSheet(); return;
     case 'ask-ok': { const fn = ui.sheet.fn; closeSheet(); fn(); commit(); return; }
   }
@@ -900,6 +1253,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   const id = el.id || '';
+  if (el.classList?.contains('photo-in')) { addPhoto(el); return; }
+  if (id.startsWith('rm-')) { if (/^\d{2}:\d{2}$/.test(el.value)) { S.reminders[id.slice(3)] = el.value; commit(); } return; }
   if (id.startsWith('in-')) {
     const k = el.dataset.k || id.slice(3);
     if (k === 'bf') { const n = num(el.value); S.profile.bf = n == null ? null : clamp(n, 3, 60); commit(); return; }
@@ -935,6 +1290,14 @@ document.addEventListener('change', (e) => {
 document.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.target;
+  if (f.id === 'scan-form') { lookupCode($('x-code').value.trim()); return; }
+  if (f.id === 'scan-add') {
+    const food = ui.sheet.scan.food, g = num($('x-sg').value);
+    if (!g || g <= 0 || g > 3000) { toast('Enter the grams you ate.'); return; }
+    const m = {}; for (const k of ['kcal', 'p', 'f', 'c', 'fib', 'sat']) m[k] = (food[k] || 0) * g / 100;
+    (dayRec(ui.day).extra ||= []).push({ id: uid(), name: `${r1(g)} g ${food.name.split(' · ')[0]}`, ...m });
+    closeSheet(); commit(); return;
+  }
   if (f.id === 'extra-food') {
     const food = FOOD[$('x-food').value], g = num($('x-g').value);
     if (!g) return;
@@ -962,7 +1325,15 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
 
 render();
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.hostname.endsWith('claude.ai') && !location.hostname.endsWith('claudeusercontent.com')) navigator.serviceWorker.register('sw.js').catch(() => {});
+// Offline support on the real site (and localhost for tests); not inside a claude.ai artifact, which can't run one.
+const embedded = /(^|\.)(claude\.ai|claudeusercontent\.com)$/.test(location.hostname);
+if ('serviceWorker' in navigator && !embedded && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloading && hadController && !ui.sheet) { reloading = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+navigator.storage?.persist?.().catch?.(() => {});
 </script>
 </body>
 </html>
