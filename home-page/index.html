@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Training HQ</title>
+<meta name="description" content="Eddie's training home: every chain and streak at a glance, and links to all the apps.">
+<meta name="theme-color" content="#121211">
+<link rel="icon" href="/Training/shredded-trainer/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/Training/shredded-trainer/icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: a poster header over the Gironda photo, then the chain board, then the apps. One column on a phone,
+     two on wider screens. Look: an old-school iron gym; bone text, brass for streaks, oxblood for the brand. */
+  :root {
+    --bg: #121211;
+    --card: rgba(35, 35, 34, .9);
+    --raised: #2d2b27;
+    --line: #3d3830;
+    --text: #efe6d8;
+    --text-2: #cbbfac;
+    --muted: #9a8e7c;
+    --brass: #e2a63c;
+    --oxblood: #cf4a30;
+    --good: #7dbb6d;
+    --bad: #ef5a4f;
+    --display: "Big Shoulders Display", "Oswald", "Arial Narrow", Impact, sans-serif;
+    --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--text); font: 16px/1.5 var(--body); min-height: 100vh; }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -2;
+    background: url("https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg") center 10% / cover no-repeat;
+    filter: grayscale(.5) sepia(.4) contrast(1.1) brightness(.85); opacity: .5;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0; z-index: -1;
+    background: linear-gradient(180deg, rgba(18,18,17,.2) 0%, rgba(18,18,17,.7) 32%, rgba(18,18,17,.94) 62%, #121211 100%);
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top, 0px)) 16px calc(40px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 28px; }
+  header { display: grid; gap: 6px; padding-top: 18vh; }
+  .eyebrow { font: 700 13px/1 var(--body); letter-spacing: 3px; text-transform: uppercase; color: var(--brass); }
+  h1 { margin: 0; font: 900 clamp(56px, 16vw, 112px)/.86 var(--display); letter-spacing: 1px; text-transform: uppercase; text-wrap: balance; }
+  h1 span { color: var(--oxblood); }
+  .lede { margin: 6px 0 0; max-width: 34em; color: var(--text-2); font-size: 17px; }
+  h2 { margin: 0; font: 800 22px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; display: flex; align-items: baseline; gap: 10px; }
+  h2 .right { margin-left: auto; font: 600 13px var(--body); letter-spacing: 0; text-transform: none; color: var(--muted); }
+  section { display: grid; gap: 12px; }
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .chain { background: var(--card); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px; border-top: 3px solid var(--raised); min-width: 0; }
+  .chain.done { border-top-color: var(--good); }
+  .chain.miss { border-top-color: var(--bad); }
+  .chain.pending { border-top-color: var(--brass); }
+  .chain .name { font-weight: 700; font-size: 14px; color: var(--text-2); overflow-wrap: anywhere; }
+  .chain .days { font: 900 46px/1 var(--display); font-variant-numeric: tabular-nums; }
+  .chain .days small { font: 700 13px var(--body); color: var(--muted); margin-left: 4px; }
+  .chain .meta { font-size: 12.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .chain .state { font-weight: 700; }
+  .done .state { color: var(--good); } .miss .state { color: var(--bad); } .pending .state { color: var(--brass); }
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill { background: var(--card); border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 600; }
+  .pill b { font-family: var(--display); font-size: 18px; color: var(--brass); margin-right: 4px; }
+  .note { background: var(--card); border-radius: 12px; padding: 14px; color: var(--text-2); }
+  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  a.app { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; background: var(--card); border-radius: 12px; padding: 14px; color: var(--text); text-decoration: none; border-left: 3px solid var(--line); min-width: 0; }
+  a.app.main { border-left-color: var(--oxblood); }
+  a.app b { font: 800 20px/1.1 var(--display); letter-spacing: 1px; text-transform: uppercase; }
+  a.app span { grid-column: 1; color: var(--muted); font-size: 14px; }
+  a.app i { grid-row: 1 / span 2; grid-column: 2; font-style: normal; color: var(--brass); font-size: 22px; }
+  a.app:hover, a.app:focus-visible { background: rgba(50, 47, 42, .95); }
+  a { color: var(--brass); }
+  :focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
+  footer { color: var(--muted); font-size: 12.5px; }
+  @media (prefers-reduced-transparency: reduce) { .chain, .note, .pill, a.app { background: #232322; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow" id="today">Training HQ</span>
+    <h1>Iron <span>&amp;</span> Eggs</h1>
+    <p class="lede">The Gironda cut and the 4-week programme. Every chain in one place, every app one tap away.</p>
+  </header>
+
+  <section aria-labelledby="chains-h">
+    <h2 id="chains-h">Chains<span class="right" id="chains-when"></span></h2>
+    <div class="summary" id="summary"></div>
+    <div class="board" id="board"></div>
+  </section>
+
+  <section aria-labelledby="apps-h">
+    <h2 id="apps-h">Apps</h2>
+    <div class="apps">
+      <a class="app main" href="/Training/shredded-trainer/"><b>Shredded Trainer</b><span>Programme, Gironda cut, chains and carb-ups. Log here.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/shredded-system/app/"><b>Shredded System</b><span>Meal templates, macros and the weekly decision.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/liferpg/"><b>Life RPG</b><span>The 4 pillars as one-tap quests.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/"><b>Trainer</b><span>The original app.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/council/"><b>Council</b><span>Commitments, goals and Council sessions.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/deliberation/"><b>Deliberation Council</b><span>Decisions, argued out.</span><i aria-hidden="true">→</i></a>
+      <a class="app" href="/Training/massa/"><b>MASSA</b><span>Value betting engine and bankroll.</span><i aria-hidden="true">→</i></a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Chains come from Shredded Trainer on this phone and never leave it. Background: Vince Gironda, <i>Tomorrow's Man</i>, June 1953, Irvin Johnson Health Studio. Public domain, via <a href="https://commons.wikimedia.org/wiki/File:Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg">Wikimedia Commons</a>.</p>
+  </footer>
+</div>
+<script>
+  'use strict';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  var now = new Date();
+  var todayIso = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  var DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var fmt = function (iso) { var p = iso.split('-').map(Number); var d = new Date(p[0], p[1] - 1, p[2]); return DOW[d.getDay()].slice(0, 3) + ' ' + d.getDate() + ' ' + MON[d.getMonth()]; };
+  document.getElementById('today').textContent = DOW[now.getDay()] + ' ' + now.getDate() + ' ' + MON[now.getMonth()];
+
+  // Shredded Trainer writes this summary (only these fields) each time its chains change. Read-only here.
+  var data = null;
+  try { data = JSON.parse(localStorage.getItem('shtrainer.chains')); } catch (e) { data = null; }
+  var valid = data && Array.isArray(data.chains) && typeof data.date === 'string';
+  var board = document.getElementById('board');
+  if (!valid) {
+    board.outerHTML = '<p class="note">Open <a href="/Training/shredded-trainer/">Shredded Trainer</a> once and your chains appear here, with today\'s status and your best streaks.</p>';
+  } else {
+    var fresh = data.date === todayIso;
+    var label = { done: 'Kept', miss: 'Broken', pending: 'Open', off: 'Not started' };
+    var chains = data.chains.filter(function (c) { return c && typeof c.name === 'string'; });
+    board.innerHTML = chains.map(function (c) {
+      var st = fresh ? (c.today || 'off') : 'off';
+      var unit = c.unit === 'wk' ? (c.day === 1 ? 'week' : 'weeks') : (c.day === 1 ? 'day' : 'days');
+      return '<article class="chain ' + esc(st) + '"><span class="name">' + esc(c.name) + '</span>' +
+        '<span class="days">' + esc(Number(c.day) || 0) + '<small>' + unit + '</small></span>' +
+        '<span class="meta"><span class="state">' + (fresh ? esc(label[st] || '') : '') + '</span><span>best ' + esc(Number(c.best) || 0) + '</span></span></article>';
+    }).join('');
+    var kept = chains.filter(function (c) { return c.today === 'done'; }).length;
+    var live = chains.reduce(function (n, c) { return n + (Number(c.day) || 0); }, 0);
+    var longest = chains.reduce(function (a, c) { return (Number(c.day) || 0) > (Number(a.day) || 0) ? c : a; }, chains[0] || {});
+    document.getElementById('summary').innerHTML = (fresh ? '<span class="pill"><b>' + kept + '/' + chains.length + '</b>kept today</span>' : '') +
+      '<span class="pill"><b>' + live + '</b>chain days running</span>' +
+      (longest.name && Number(longest.day) > 0 ? '<span class="pill"><b>' + esc(longest.day) + '</b>longest · ' + esc(longest.name) + '</span>' : '');
+    document.getElementById('chains-when').textContent = fresh ? 'updated today' : 'as of ' + fmt(data.date) + ' · open Shredded Trainer to update';
+  }
+</script>
+</body>
+</html>
