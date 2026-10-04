@@ -27,7 +27,19 @@ shopping list, goals, journal, dreams, channel, Garmin entries, XP and achieveme
 | Body → Tape | **Progress photos** (front, side, back), first vs latest, stored only on the phone. |
 | Body → Guide | How the programme and the Gironda diet fit together on a cut, the carb-up rules, safety and links to the PDFs. |
 | Body → Setup | Carb-up interval, lowest goal, and a **calendar file** of reminders: daily weigh-in, carb-up days for 12 weeks, training days (from Plan → Week, or Mon/Tue/Thu/Fri). |
+| Body → Setup | **Look:** the Gironda background (default), your own photo (kept only on the phone) or plain. **From Trainer:** copy just your chains (your own "No ___" chains, their check-ins and the no-coffee start) or everything, any time. |
 | Fuel → Log | **Scan a barcode** (camera on Chrome for Android, or type it). Open Food Facts lookup, added by grams, remembered offline. |
+
+## Home page
+Shredded Trainer saves a small summary of your chains (`shtrainer.chains`: name, current and best streak,
+today's status) whenever they change. The home page at **https://eddie144-ai.github.io/** (repository
+`eddie144-ai.github.io`) reads it to show every chain at a glance. It never leaves the phone.
+
+## Background photo
+Vince Gironda, *Tomorrow's Man*, June 1953, Irvin Johnson Health Studio. Public domain in the US
+(published 1931–63, copyright not renewed), loaded from
+[Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg)
+and cached by the service worker for offline use.
 
 ## Files
 `index.html`, `data.js` (Trainer's programmes, recipes and content), `app.js` (Trainer plus the cut
@@ -39,6 +51,7 @@ module), `photos.js`, `scan.js`, `reminders.js` (shared with Shredded System), `
 npm i playwright          # once
 node shredded-trainer/tests/app.test.mjs
 ```
-11 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
+14 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
 programme by week, the carb-up clock and chains, red flags and check-in, the weekly decision and the
-calorie floor, barcode logging, photos, the calendar file, every tab rendering, and offline use.
+calorie floor, barcode logging, photos, the calendar file, the chain summary, copying chains from Trainer, the background, every tab rendering,
+and offline use.

@@ -233,6 +233,52 @@ await test('Every tab and sub-tab renders with no errors or broken text', async 
   await ctx.close();
 });
 
+await test('Chain summary for the home page: every chain with streaks, rewritten only on change', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own });
+  const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')));
+  eq([sum.v, sum.date, sum.chains.map((c) => c.id)], [1, '2026-10-08', ['coffee', 'diet', 'cut', 'training', 'steps', 'sleep', 'plan']], 'summary');
+  assert(sum.chains.every((c) => typeof c.day === 'number' && typeof c.best === 'number' && typeof c.name === 'string'), 'fields');
+  await page.evaluate(() => { window.__writes = []; });
+  await page.click('nav [data-tab="plan"]'); await page.click('nav [data-tab="today"]');
+  eq((await page.evaluate(() => window.__writes)).filter(([, k]) => k === 'shtrainer.chains').length, 0, 'not rewritten when nothing changed');
+  await ctx.close();
+});
+
+await test('Copy my chains from Trainer: custom chains and check-ins added, nothing else replaced, Trainer untouched', async () => {
+  const trainer = { ...TRAINER, settings: { ...TRAINER.settings, coffeeStart: '2026-09-28' }, customChains: [{ id: 'cc1', name: 'No sugar', since: '2026-09-20', created: '2026-10-01' }], days: { '2026-10-06': { chains: { cc1: true, coffee: false } } } };
+  const own = await seeded((s) => { s.weights.push({ date: '2026-10-07', kg: 94 }); });
+  const { ctx, page } = await open({ own, trainer });
+  const before = await page.evaluate(() => localStorage.getItem('trainer.v1'));
+  await page.click('nav [data-tab="body"]'); await page.click('.subtabs [data-v="settings"]');
+  await page.click('[data-act="trainer-chains"]');
+  const r = await page.evaluate(() => ({ cc: S.customChains.map((c) => c.name), mark: S.days['2026-10-06']?.chains, coffee: S.settings.coffeeStart, w: S.weights.length, chains: JSON.parse(localStorage.getItem('shtrainer.chains')).chains.map((c) => c.name) }));
+  eq([r.cc, r.mark, r.coffee, r.w], [['No sugar'], { cc1: true, coffee: false }, '2026-09-28', 1], 'copied');
+  assert(r.chains.includes('No sugar'), 'on the home page summary');
+  await page.click('[data-act="trainer-chains"]');
+  eq(await page.evaluate(() => S.customChains.length), 1, 'no duplicates');
+  eq(await page.evaluate(() => localStorage.getItem('trainer.v1')), before, 'Trainer unchanged');
+  await ctx.close();
+});
+
+await test('Look: Gironda background by default, plain option, own photo kept in the photos database', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGP8z8DAwMDAxMDAwAAAGwABBmvXaQAAAABJRU5ErkJggg==', 'base64');
+  const own = await seeded(() => {});
+  const { ctx, page, errors } = await open({ own });
+  eq(await page.evaluate(() => [document.documentElement.dataset.bg, getComputedStyle(document.documentElement).getPropertyValue('--bg-photo').includes('Vince_Gironda')]), ['photo', true], 'default');
+  await page.click('nav [data-tab="body"]'); await page.click('.subtabs [data-v="settings"]');
+  await page.click('[data-act="bg"][data-v="none"]');
+  eq(await page.evaluate(() => document.documentElement.dataset.bg), 'none', 'plain');
+  await page.setInputFiles('#bg-file', { name: 'me.png', mimeType: 'image/png', buffer: png });
+  await page.waitForFunction(() => S.settings.background === 'mine' && document.documentElement.dataset.bg === 'photo');
+  assert(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg-photo').includes('blob:')), 'own photo');
+  await page.click('nav [data-tab="body"]'); await page.click('.subtabs [data-v="measure"]');
+  await page.waitForSelector('#photo-grid p');
+  eq(await page.locator('#photo-grid img').count(), 0, 'background photo not in progress photos');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
 await test('Offline after the first load, and a deploy is picked up', async () => {
   const ctx = await browser.newContext({ timezoneId: 'Europe/London' });
   const page = await ctx.newPage();

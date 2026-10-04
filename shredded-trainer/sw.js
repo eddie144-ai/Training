@@ -1,8 +1,10 @@
 // Offline cache for the Shredded Trainer app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load and a missed
 // VERSION bump can't leave anyone on an old shell; the cache is only the offline fallback.
-// Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'shtrainer-v1.0';
+// Open Food Facts lookups (another origin) are never touched; the background photo is cached.
+const VERSION = 'shtrainer-v1.1';
+// The background photo lives on Wikimedia Commons; it's cached on first view so it works offline.
+const PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
 const FILES = ['./', './index.html', './data.js', './photos.js', './scan.js', './reminders.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -19,6 +21,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  if (req.method === 'GET' && req.url === PHOTO) {
+    e.respondWith(caches.match(PHOTO).then((hit) => hit || fetch(req).then((res) => { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(PHOTO, copy)); return res; })));
+    return;
+  }
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
     fetch(req, { cache: 'no-cache' })
