@@ -1,10 +1,16 @@
-# Shredded Trainer
+# Iron & Eggs (Shredded Trainer)
 
 Trainer and Shredded System in one app, set up for the cut: **My 4-Week Program** (your modified
 "10 lbs of muscle in 4 weeks") paired with the **Gironda diet**, from 95 kg toward 70–75 kg.
 
-Open **https://eddie144-ai.github.io/Training/shredded-trainer/** (capital T) and install it from Chrome's
-menu. It's a copy of Trainer with its own data (`shtrainer.*` keys), so Trainer keeps working as it is.
+Open **https://eddie144-ai.github.io/** and install it from Chrome's menu. That's the main copy, built from
+this folder by `home-page/build.mjs`. The same app still runs at `/Training/shredded-trainer/` with the same
+data (one origin, one `shtrainer.*` store) and a note pointing to the main address.
+
+Hero → **Apps** lists the other apps (Council daily; Deliberation Council and MASSA as tools; older apps
+folded away) and has **Back up everything**: one file with every app's data (a fixed key list, so API keys
+never leave the phone; photos aren't included), plus Restore. Today nudges when there's been no backup for
+a week.
 
 ## First open
 You choose to **bring over your Trainer data** (weigh-ins, sessions and exercise weights, meals,
@@ -77,9 +83,9 @@ module), `photos.js`, `scan.js`, `reminders.js` (shared with Shredded System), `
 npm i playwright          # once
 node shredded-trainer/tests/app.test.mjs
 ```
-21 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
+22 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
 programme by week, the carb-up clock and chains, red flags and check-in, the weekly decision and the
 calorie floor, barcode logging, photos, the calendar file, the new chains, the quick log, goal-pack import, the chain summary, copying chains from Trainer, the background, built-in previous weights,
-eating modes and auto-kept chains, the workout log (extra sets, feel, surviving a reload), the Mentzer switch,
+eating modes and auto-kept chains, the all-apps backup and restore, the workout log (extra sets, feel, surviving a reload), the Mentzer switch,
 every tab rendering,
 and offline use.
