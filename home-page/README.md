@@ -3,7 +3,7 @@
 The main training and diet app, live at **https://eddie144-ai.github.io/**: Today · Plan · Train · Fuel ·
 Body · Hero across the bottom, with Hero → **Apps** for the other apps and a one-tap backup of all of them.
 
-It's the app in [`shredded-trainer/`](../shredded-trainer), copied here by `build.mjs`. Both copies use the
+It's the app in [`Training/shredded-trainer/`](https://github.com/eddie144-ai/Training/tree/main/shredded-trainer), copied here by `build.mjs`. Both copies use the
 same saved data (`shtrainer.v1`; GitHub Pages serves both from one origin), so nothing moves when you switch.
 The copy at `/Training/shredded-trainer/` shows a note pointing here.
 
