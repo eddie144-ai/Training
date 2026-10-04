@@ -135,6 +135,8 @@ then tap **⋮ → Install app**. It works offline after the first load.
 - `n8n/`: workflows.
 - `liferpg/`: Life RPG, the 4 pillars (health, wealth, family, tech) as one-tap quests with stats,
   HP and streaks. It reads Trainer's workouts, steps and Gironda meals (see its README).
+- `shredded-system/`: Shredded System, the Gironda Cut from 95 kg to 70–75 kg: research report and full
+  guide (PDF), app spec, datasets, log templates and the app at `shredded-system/app/` (see its README).
 - `massa/`: MASSA, a multi-sport value betting engine (Dixon-Coles football, a darts leg model, points, goals, tennis and Elo models) with automated paper trading, bankroll rules
   (profit sweep, stop-loss, exposure caps) and a validation gate before real money. Served at
   `<site>/massa/`; `massa/run.mjs` runs the same cycle from cron or n8n. See its README.

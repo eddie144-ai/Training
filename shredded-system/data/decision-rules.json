@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "about": "Weekly decision rules for the cut. Evaluated in order; the first match wins. Change one variable at a time.",
+  "inputs": {
+    "records_14d": "Complete daily records in the last 14 days (a weigh-in plus the day's food marked on or off plan).",
+    "rate_pct_week": "Weekly loss as % of bodyweight: (mean of previous 7 weigh-ins - mean of last 7) / previous mean * 100.",
+    "adherence_pct": "Share of the last 14 logged days that were on plan.",
+    "waist_change_cm": "Latest waist minus the waist 14 days earlier (negative = smaller).",
+    "strength_down": "The top set fell in two comparable sessions in a row.",
+    "fatigue": "Average energy 2 or lower out of 5 over the last 7 days, or you flagged fatigue."
+  },
+  "minimum_records": 12,
+  "rules": [
+    { "id": "need_data", "when": "records_14d < 12", "decision": "Keep logging", "action": "No change yet. The app needs 12 complete days in the last 14 before it suggests anything.", "change": null },
+    { "id": "strength_drop", "when": "strength_down", "decision": "Review recovery", "action": "Check sleep, deficit and stress. If the deficit is already large, add 100-150 kcal. Consider a deload week (half the sets, same weights).", "change": { "kcal": 150 } },
+    { "id": "too_fast_tired", "when": "rate_pct_week > 1.0 && fatigue", "decision": "Slow down", "action": "Add 100-200 kcal (mostly carbs on training days) or cut one cardio session.", "change": { "kcal": 150 } },
+    { "id": "too_fast_ok", "when": "rate_pct_week > 1.0", "decision": "Fast but fine", "action": "No change while strength and energy hold. Early weeks include water loss. Re-check next week.", "change": null },
+    { "id": "on_track", "when": "rate_pct_week >= 0.5", "decision": "On track", "action": "No change.", "change": null },
+    { "id": "slow_ok", "when": "rate_pct_week >= 0.3", "decision": "Slow but acceptable", "action": "No change. Losses slow as you get leaner; 0.3-0.5% is normal later in the cut.", "change": null },
+    { "id": "stall_waist_down", "when": "rate_pct_week < 0.3 && waist_change_cm <= -0.5", "decision": "Hold", "action": "Weight is stuck but your waist is shrinking. Hold for another week.", "change": null },
+    { "id": "stall_poor_adherence", "when": "rate_pct_week < 0.3 && adherence_pct < 85", "decision": "Tighten execution", "action": "Do not cut calories. Hit the plan on 6 of 7 days first.", "change": null },
+    { "id": "stall", "when": "rate_pct_week < 0.3", "decision": "Small cut", "action": "Remove 100-150 kcal (take it from fat or the carb-up) or add about 1,500 steps a day. One change only.", "change": { "kcal": -125 } }
+  ],
+  "guardrails": {
+    "kcal_floor": { "male": 1500, "female": 1200, "note": "The app will not suggest a target below this. Going lower needs a clinician." },
+    "protein_floor_g": 140,
+    "max_loss_pct_week_sustained": 1.0,
+    "bmi_floor": 20,
+    "diet_break": "Every 8-12 weeks, 1-2 weeks at maintenance calories with protein unchanged.",
+    "never": [
+      "Dehydration, water loading or sodium manipulation",
+      "Raw eggs, raw meat or unpasteurised milk",
+      "Diuretics or laxatives for weight",
+      "Dosing, escalation or sourcing advice for any medication, including investigational drugs such as retatrutide",
+      "Fasts longer than 24 hours while taking appetite-suppressing medication, unless a clinician has agreed"
+    ]
+  },
+  "red_flags": [
+    { "symptom": "Severe or persistent abdominal pain (may spread to the back)", "advice": "Stop and get urgent medical help (NHS 111, or 999 if severe)." },
+    { "symptom": "Repeated vomiting or unable to keep fluids down", "advice": "Get medical advice today (NHS 111)." },
+    { "symptom": "Fainting, chest pain or a racing or irregular heartbeat", "advice": "Call 999." },
+    { "symptom": "Yellow skin or eyes, or pain under the right ribs after fatty meals", "advice": "See a GP promptly (possible gallbladder problem)." },
+    { "symptom": "Dizziness on standing, very dark urine or not passing urine", "advice": "Rehydrate and get medical advice." },
+    { "symptom": "No bowel movement for 4+ days with pain or bloating", "advice": "Speak to a pharmacist or GP." }
+  ]
+}

@@ -1,0 +1,14 @@
+template_id,template_name,order,exercise,sets,rep_low,rep_high,target_rir,notes
+A,Full Body A,1,Leg press or safety-bar squat,2,6,10,1-2,Stop 1-2 reps short of failure.
+A,Full Body A,2,Incline machine or dumbbell press,2,6,10,1-2,
+A,Full Body A,3,Neutral or underhand pulldown,2,6,10,1-2,
+A,Full Body A,4,Seated leg curl,2,8,12,0-1,Machine: technical failure allowed occasionally.
+A,Full Body A,5,Lateral raise,2,10,15,0-1,
+A,Full Body A,6,Calf raise,2,10,15,0-1,
+B,Full Body B,1,Romanian deadlift or machine hip hinge,2,6,10,2,Never to failure on free-weight hinges.
+B,Full Body B,2,Chest-supported row,2,6,10,1-2,
+B,Full Body B,3,Machine chest press or assisted dip,2,6,10,1-2,
+B,Full Body B,4,Split squat or leg extension,2,8,12,1,
+B,Full Body B,5,Curl,1,8,12,0-1,
+B,Full Body B,6,Pressdown,1,8,12,0-1,
+B,Full Body B,7,Cable crunch or plank,2,10,15,1,Plank: 30-60 s holds.

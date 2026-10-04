@@ -1,0 +1,2 @@
+date,weight_kg,waist_cm,day_type,meal1,meal2,meal3,on_plan,kcal,protein_g,fat_g,carbs_g,fibre_g,veg_serves,water_l,steps,sleep_h,trained,alcohol,hunger_1_5,energy_1_5,symptoms,medication_note,notes
+2026-10-05,95.0,,cut,yes,yes,yes,yes,1752,186,77,34,18,4,3.0,9000,7.5,A,no,3,4,,,Example row - delete

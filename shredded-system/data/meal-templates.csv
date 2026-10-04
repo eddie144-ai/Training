@@ -1,0 +1,43 @@
+template_id,template_name,day_type,meal,meal_name,food_id,grams
+strict,Strict Gironda (your current two meals),strict,1,Meal 1: 6 eggs + 3 pork patties,egg_whole,300
+strict,Strict Gironda (your current two meals),strict,1,Meal 1: 6 eggs + 3 pork patties,pork_patty,225
+strict,Strict Gironda (your current two meals),strict,2,Meal 2: 6 eggs + steak,egg_whole,300
+strict,Strict Gironda (your current two meals),strict,2,Meal 2: 6 eggs + steak,sirloin,250
+cut,Gironda Cut (recommended low day),cut,1,Meal 1: eggs + beef patties + greens,egg_whole,200
+cut,Gironda Cut (recommended low day),cut,1,Meal 1: eggs + beef patties + greens,beef_mince_5,250
+cut,Gironda Cut (recommended low day),cut,1,Meal 1: eggs + beef patties + greens,spinach,100
+cut,Gironda Cut (recommended low day),cut,1,Meal 1: eggs + beef patties + greens,mushrooms,100
+cut,Gironda Cut (recommended low day),cut,1,Meal 1: eggs + beef patties + greens,butter,5
+cut,Gironda Cut (recommended low day),cut,2,Meal 2: steak + eggs + green veg,rump_lean,250
+cut,Gironda Cut (recommended low day),cut,2,Meal 2: steak + eggs + green veg,egg_whole,100
+cut,Gironda Cut (recommended low day),cut,2,Meal 2: steak + eggs + green veg,broccoli,250
+cut,Gironda Cut (recommended low day),cut,2,Meal 2: steak + eggs + green veg,mixed_salad,100
+cut,Gironda Cut (recommended low day),cut,2,Meal 2: steak + eggs + green veg,olive_oil,15
+cut,Gironda Cut (recommended low day),cut,3,Top-up: yogurt + berries + almonds,greek_yogurt_0,200
+cut,Gironda Cut (recommended low day),cut,3,Top-up: yogurt + berries + almonds,berries,100
+cut,Gironda Cut (recommended low day),cut,3,Top-up: yogurt + berries + almonds,almonds,25
+cut,Gironda Cut (recommended low day),cut,3,Top-up: yogurt + berries + almonds,psyllium,5
+carbup,Carb-up day (every 72-96 h),carbup,1,Meal 1: eggs + oats + fruit,egg_whole,150
+carbup,Carb-up day (every 72-96 h),carbup,1,Meal 1: eggs + oats + fruit,egg_white,200
+carbup,Carb-up day (every 72-96 h),carbup,1,Meal 1: eggs + oats + fruit,oats,80
+carbup,Carb-up day (every 72-96 h),carbup,1,Meal 1: eggs + oats + fruit,banana,120
+carbup,Carb-up day (every 72-96 h),carbup,1,Meal 1: eggs + oats + fruit,berries,100
+carbup,Carb-up day (every 72-96 h),carbup,2,Meal 2: steak + rice + green beans,rump_lean,250
+carbup,Carb-up day (every 72-96 h),carbup,2,Meal 2: steak + rice + green beans,rice_cooked,350
+carbup,Carb-up day (every 72-96 h),carbup,2,Meal 2: steak + rice + green beans,green_beans,200
+carbup,Carb-up day (every 72-96 h),carbup,3,Meal 3: chicken + sweet potato + broccoli,chicken_breast,200
+carbup,Carb-up day (every 72-96 h),carbup,3,Meal 3: chicken + sweet potato + broccoli,sweet_potato,350
+carbup,Carb-up day (every 72-96 h),carbup,3,Meal 3: chicken + sweet potato + broccoli,broccoli,200
+carbup,Carb-up day (every 72-96 h),carbup,3,Meal 3: chicken + sweet potato + broccoli,olive_oil,5
+modern,Modern Gironda (training day),modern,1,Meal 1: eggs + whites + oats + fruit,egg_whole,150
+modern,Modern Gironda (training day),modern,1,Meal 1: eggs + whites + oats + fruit,egg_white,200
+modern,Modern Gironda (training day),modern,1,Meal 1: eggs + whites + oats + fruit,spinach,100
+modern,Modern Gironda (training day),modern,1,Meal 1: eggs + whites + oats + fruit,oats,60
+modern,Modern Gironda (training day),modern,1,Meal 1: eggs + whites + oats + fruit,berries,100
+modern,Modern Gironda (training day),modern,2,Meal 2: steak + potatoes + veg (after training),rump_lean,250
+modern,Modern Gironda (training day),modern,2,Meal 2: steak + potatoes + veg (after training),potato,400
+modern,Modern Gironda (training day),modern,2,Meal 2: steak + potatoes + veg (after training),broccoli,200
+modern,Modern Gironda (training day),modern,2,Meal 2: steak + potatoes + veg (after training),mixed_salad,100
+modern,Modern Gironda (training day),modern,2,Meal 2: steak + potatoes + veg (after training),olive_oil,10
+modern,Modern Gironda (training day),modern,3,Top-up: yogurt + whey,greek_yogurt_0,200
+modern,Modern Gironda (training day),modern,3,Top-up: yogurt + whey,whey,30
