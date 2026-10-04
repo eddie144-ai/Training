@@ -11,6 +11,11 @@
 const STORE_KEY = 'shtrainer.v1';
 const OLD_KEY = 'shtrainer.v2-backup';
 const TRAINER_KEY = 'trainer.v1'; // read once, on request, to copy your Trainer history in
+const CHAINS_KEY = 'shtrainer.chains'; // a small summary of your chains, read by the home page at eddie144-ai.github.io
+// Background: Vince Gironda in Tomorrow's Man, June 1953 (Irvin Johnson Health Studio). Public domain in the US
+// (published 1931-63, copyright not renewed). Loaded from Wikimedia Commons and cached by the service worker.
+const GIRONDA_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
+const GIRONDA_CREDIT = 'Vince Gironda, Tomorrow\'s Man, June 1953. Irvin Johnson Health Studio. Public domain, via Wikimedia Commons.';
 
 // Chains: strict day-by-day streaks. pts = XP per day kept.
 const CHAINS = [
@@ -117,7 +122,7 @@ function freshState() {
     v: 3,
     settings: {
       proteinGoal: 170, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000, sleepGoal: 7.5, refeedWeeks: 6, protein170: true,
-      carbupHours: 96, goalLow: 70, weighTime: '07:00', trainTime: '18:00',
+      carbupHours: 96, goalLow: 70, weighTime: '07:00', trainTime: '18:00', background: 'gironda', bgPhotoId: null,
       startWeight: 95, startFixed: true, target: 75, heightCm: null, cycleStart: '2026-10-05', cycleFixed: true, mondayStart: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-05', coffeeStart: '2026-10-01',
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
@@ -1324,7 +1329,7 @@ async function fillPhotos() {
   const grid = document.getElementById('photo-grid');
   if (!grid) return;
   let all;
-  try { all = await Photos.all(); } catch { grid.innerHTML = '<p class="muted small">Photos aren\'t available in this browser.</p>'; return; }
+  try { all = (await Photos.all()).filter((p) => p.pose !== 'background'); } catch { grid.innerHTML = '<p class="muted small">Photos aren\'t available in this browser.</p>'; return; }
   if (!document.getElementById('photo-grid')) return;
   for (const u of photoUrls) URL.revokeObjectURL(u);
   photoUrls = [];
@@ -1373,6 +1378,50 @@ async function scanLookup(code) {
     Object.assign(sc, { status: 'found', food: res.food, msg: 'From Open Food Facts. Check it against the pack.' });
   } else Object.assign(sc, { status: 'error', msg: res.error });
   drawScan();
+}
+
+// Copy all of Trainer's data in, keeping the cut set-up.
+function bringTrainer() {
+  let t = null;
+  try { t = JSON.parse(localStorage.getItem(TRAINER_KEY)); } catch { t = null; }
+  if (!t || typeof t !== 'object' || !t.settings) { toast('No Trainer data found in this browser'); return; }
+  const keep = { background: S.settings.background, bgPhotoId: S.settings.bgPhotoId };
+  const n = normalise(JSON.parse(JSON.stringify(t)));
+  Object.assign(n.settings, keep, { family: 'cycle', active: { ...n.settings.active, cycle: 'my4week' }, target: Math.min(Number(n.settings.target) || 75, 75), goalLow: 70, carbupHours: n.settings.carbupHours || 96 });
+  n.notice = null;
+  S = n;
+  toast(`Brought over ${S.weights.length} weigh-ins, ${S.workouts.length} sessions and ${S.meals.length} meals. Trainer is unchanged.`);
+}
+
+// Chain summary for the home page (eddie144-ai.github.io). Written only when it changes.
+let lastSummary = '';
+function writeChainSummary() {
+  if (today() < cleanStart()) return;
+  const chains = allChains().map((c) => { const st = chainStreak(c.id); return { id: c.id, name: c.name, day: c.weekly ? st.cur : dayNumber(st), best: st.best, today: st.today, unit: c.weekly ? 'wk' : 'day' }; });
+  const body = JSON.stringify(chains);
+  if (body === lastSummary) return;
+  lastSummary = body;
+  try { localStorage.setItem(CHAINS_KEY, JSON.stringify({ v: 1, at: new Date().toISOString(), date: today(), chains })); } catch { /* storage full or blocked */ }
+}
+
+// Background photo: Gironda (default), your own photo (kept in the photos database on this phone) or none.
+let bgUrl = null, bgFor = null;
+async function applyBackground() {
+  const st = S.settings;
+  const key = `${st.background}:${st.bgPhotoId || ''}`;
+  if (key === bgFor) return;
+  bgFor = key;
+  const root = document.documentElement;
+  if (bgUrl) { URL.revokeObjectURL(bgUrl); bgUrl = null; }
+  if (st.background === 'gironda') { root.style.setProperty('--bg-photo', `url("${GIRONDA_PHOTO}")`); root.dataset.bg = 'photo'; return; }
+  if (st.background === 'mine' && st.bgPhotoId) {
+    try {
+      const p = (await Photos.all()).find((x) => x.id === st.bgPhotoId);
+      if (p && bgFor === key) { bgUrl = URL.createObjectURL(p.blob); root.style.setProperty('--bg-photo', `url("${bgUrl}")`); root.dataset.bg = 'photo'; return; }
+    } catch { /* fall through */ }
+  }
+  root.style.removeProperty('--bg-photo');
+  root.dataset.bg = 'none';
 }
 
 // Calendar file: daily weigh-in, carb-ups for 12 weeks, training days.
@@ -2366,6 +2415,18 @@ function viewBodySettings() {
     <p class="muted small">The diet chain needs every meal inside the window and calories at or under target.</p>
   </section>
   <section class="card">
+    <h2>Look</h2>
+    ${segmented('bg', [['gironda', 'Gironda'], ['mine', 'My photo'], ['none', 'Plain']], st.background, 'Background')}
+    <label class="btn">Choose my own background photo<input type="file" accept="image/*" class="sr" id="bg-file"></label>
+    <p class="muted small">${st.background === 'gironda' ? esc(GIRONDA_CREDIT) : st.background === 'mine' ? (st.bgPhotoId ? 'Your photo, kept only on this phone.' : 'Choose a photo above.') : 'No background photo.'} Your own photo (Mentzer, or anyone) stays on this phone and is never uploaded.</p>
+  </section>
+  <section class="card">
+    <h2>From Trainer</h2>
+    <p class="small">Copy from the Trainer app in this browser. Trainer itself is never changed.</p>
+    <div class="grid2"><button data-act="trainer-chains">Copy my chains</button><button data-act="trainer-all">Copy everything…</button></div>
+    <p class="muted small"><b>Chains</b> adds your own "No ___" chains, their check-ins and your no-coffee start, and keeps everything else here. <b>Everything</b> replaces this app's data with Trainer's.</p>
+  </section>
+  <section class="card">
     <h2>Reminders</h2>
     <p class="small">A calendar file with a daily weigh-in, your carb-up days for the next 12 weeks and your training days. Import it into Google Calendar (Settings → Import) and the phone reminds you, even offline.</p>
     <div class="grid2"><label class="field">Weigh-in time<input id="rm-weighTime" type="time" value="${esc(st.weighTime)}"></label><label class="field">Training time<input id="rm-trainTime" type="time" value="${esc(st.trainTime)}"></label></div>
@@ -3004,6 +3065,8 @@ function render(opts = {}) {
     `<button data-tab="${k}" ${ui.tab === k ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg><span>${label}</span></button>`).join('');
   if (opts.scrollTop) window.scrollTo(0, 0);
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
+  writeChainSummary();
+  applyBackground();
   rememberUi();
   celebrate(P);
 }
@@ -3236,19 +3299,27 @@ document.addEventListener('click', (e) => {
       toast('Calendar file downloaded: import it into your calendar');
       return;
     }
-    case 'bring-trainer': {
+    case 'bg': S.settings.background = el.dataset.v; break;
+    case 'trainer-all': ask('Replace everything in Shredded Trainer with a copy of your Trainer data? Trainer isn\'t changed.', 'Copy everything', () => bringTrainer()); return;
+    case 'trainer-chains': {
       let t = null;
       try { t = JSON.parse(localStorage.getItem(TRAINER_KEY)); } catch { t = null; }
-      if (!t || typeof t !== 'object' || !t.settings) { toast('No Trainer data found in this browser'); return; }
-      const n = normalise(JSON.parse(JSON.stringify(t)));
-      // Your history comes across; the cut set-up stays: the 4-week programme, carb-ups and the 70-75 kg goal.
-      Object.assign(n.settings, { family: 'cycle', active: { ...n.settings.active, cycle: 'my4week' }, target: Math.min(Number(n.settings.target) || 75, 75), goalLow: 70, carbupHours: n.settings.carbupHours || 96 });
-      n.notice = null;
-      S = n;
-      closeSheet();
-      toast(`Brought over ${S.weights.length} weigh-ins, ${S.workouts.length} sessions and ${S.meals.length} meals. Trainer is unchanged.`);
+      if (!t || typeof t !== 'object') { toast('No Trainer data found in this browser'); return; }
+      let added = 0, marks = 0;
+      for (const c of Array.isArray(t.customChains) ? t.customChains : []) {
+        if (!c || typeof c.name !== 'string') continue;
+        if (!S.customChains.some((x) => x.id === c.id || x.name.toLowerCase() === c.name.toLowerCase())) { S.customChains.push({ ...c }); added++; }
+      }
+      // Chain check-ins (kept / slipped) for days this app hasn't set itself.
+      for (const [d, r] of Object.entries(t.days && typeof t.days === 'object' ? t.days : {})) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !r?.chains || typeof r.chains !== 'object') continue;
+        for (const [id, v] of Object.entries(r.chains)) if ((v === true || v === false) && dayRec(d).chains?.[id] === undefined) { (dayRec(d).chains ||= {})[id] = v; marks++; }
+      }
+      if (t.settings?.coffeeStart && /^\d{4}-\d{2}-\d{2}$/.test(t.settings.coffeeStart)) S.settings.coffeeStart = t.settings.coffeeStart;
+      toast(`Copied ${added} chain${added === 1 ? '' : 's'} and ${marks} check-in${marks === 1 ? '' : 's'} from Trainer`);
       break;
     }
+    case 'bring-trainer': bringTrainer(); closeSheet(); break;
     case 'go-plan': ui.tab = 'plan'; ui.sub.plan = 'tomorrow'; ui.planDate = addDays(today(), 1); rememberUi(); render({ scrollTop: true }); return;
     case 'clean': {
       const c = (dayRec(today()).chains ||= {});
@@ -3613,6 +3684,11 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.id === 'bg-file') {
+    const file = t.files?.[0];
+    if (file) Photos.add(today(), 'background', file).then((p) => { const old = S.settings.bgPhotoId; S.settings.bgPhotoId = p.id; S.settings.background = 'mine'; if (old) Photos.remove(old).catch(() => {}); commit(); toast('Background set'); }, () => toast('Couldn\'t save the photo'));
+    return;
+  }
   if (t.id === 'cut-med') { const r = dayRec(t.dataset.date || today()); const v = t.value.trim(); if (v) r.med = v; else delete r.med; commit(); return; }
   if (t.id?.startsWith('rm-')) { if (/^\d{2}:\d{2}$/.test(t.value)) { S.settings[t.id.slice(3)] = t.value; commit(); } return; }
   if (t.classList?.contains('photo-in')) {

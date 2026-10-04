@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#121211">
 <meta name="description" content="Shredded Trainer: your 4-week programme, the Gironda cut, chains, carb-up clock and weekly decisions for 95 kg to 70–75 kg.">
 <link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Barlow:wght@400;500;600;700&display=swap">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Shredded Trainer</title>
@@ -341,6 +343,32 @@
   .prevbadge small { font-size: 10px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
   .prevbadge.base { box-shadow: inset 0 0 0 2.5px var(--xp); }
   .prevbadge.none { box-shadow: inset 0 0 0 2px var(--border); color: var(--muted); }
+  /* Look: an old-school iron gym. A photo behind everything (Gironda by default), faded into the dark so text
+     stays readable, translucent cards, and a condensed poster face for headings. */
+  :root { --bg-photo: none; --display: "Big Shoulders Display", "Oswald", "Arial Narrow", Impact, sans-serif; }
+  body { font-family: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  :root[data-bg="photo"] body { background: transparent; }
+  :root[data-bg="photo"] body::before {
+    content: ''; position: fixed; inset: 0; z-index: -2;
+    background: var(--bg-photo) center 12% / cover no-repeat;
+    filter: grayscale(.55) sepia(.35) contrast(1.08) brightness(.9);
+    opacity: .42;
+  }
+  :root[data-bg="photo"] body::after {
+    content: ''; position: fixed; inset: 0; z-index: -1;
+    background: linear-gradient(180deg, rgba(18,18,17,.35) 0%, rgba(18,18,17,.82) 38%, rgba(18,18,17,.95) 70%, #121211 100%);
+  }
+  :root[data-bg="photo"] .card { background: rgba(35, 35, 34, .88); }
+  :root[data-bg="photo"] header { background: rgba(26, 26, 25, .82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  :root[data-bg="photo"] nav { background: rgba(26, 26, 25, .94); }
+  :root[data-contrast="high"] body::before, :root[data-contrast="high"] body::after { display: none; }
+  :root[data-contrast="high"] body { background: var(--bg); }
+  header h1 { font-family: var(--display); font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+  .card h2 { font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: 1.4px; }
+  .card h2 .right { font-family: "Barlow", system-ui, sans-serif; font-size: 12px; }
+  .card.hero-card { box-shadow: inset 0 3px 0 var(--brass); }
+  .card.refeed { border-left-color: var(--brass); }
+  @media (prefers-reduced-transparency: reduce) { :root[data-bg="photo"] .card { background: var(--card); } }
   /* Shredded Trainer additions */
   .card.alert { border-left: 4px solid var(--bad); }
   .good-t { color: var(--good); } .bad-t { color: var(--bad); } .warn-t { color: var(--warn); }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redirecting…</title>
+<script>
+  // Old or mistyped links: /training/... (any letter case) goes to /Training/..., keeping the rest of the address.
+  // GitHub Pages paths are case-sensitive and the repository is "Training", so lowercase links land here.
+  (function () {
+    var parts = location.pathname.split('/');
+    if (parts[1] && parts[1].toLowerCase() === 'training' && parts[1] !== 'Training') {
+      parts[1] = 'Training';
+      location.replace(parts.join('/') + location.search + location.hash);
+    }
+  })();
+</script>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #121211; color: #efe6d8; font: 16px/1.5 system-ui, sans-serif; padding: 24px; text-align: center; }
+  a { color: #e2a63c; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Not here</h1>
+  <p>That page doesn't exist. <a href="/">Go to the home page</a>.</p>
+</main>
+</body>
+</html>
