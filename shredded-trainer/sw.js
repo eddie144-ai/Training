@@ -2,7 +2,7 @@
 // Network first for every same-origin file, so a deploy is picked up on the next online load and a missed
 // VERSION bump can't leave anyone on an old shell; the cache is only the offline fallback.
 // Open Food Facts lookups (another origin) are never touched; the background photo is cached.
-const VERSION = 'v1.5';
+const VERSION = 'v1.7';
 // One origin, two copies (the site root and /Training/shredded-trainer/): each keeps its own cache.
 const ROOT = !self.registration.scope.includes('/Training/');
 const PREFIX = ROOT ? 'ironeggs-' : 'shtrainer-';

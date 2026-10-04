@@ -448,6 +448,22 @@ await test('Iron & Eggs: Apps tab backs up every app in one file and restores it
   await ctx.close();
 });
 
+await test('Fast timer from midnight: one tap starts it at 00:00 today', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page, errors } = await open({ own, time: '2026-10-08T10:30:00+01:00' });
+  await page.click('[data-act="fast-midnight"]');
+  const f = await page.evaluate(() => { const x = activeFast(); return { start: new Date(x.start).toString(), goal: x.goalH, h: Math.round(fastHours(x) * 10) / 10 }; });
+  assert(f.start.includes('Oct 08 2026 00:00:00'), `starts at local midnight (${f.start})`);
+  eq([f.goal, f.h], [24, 10.5], 'goal 24 h, 10.5 h in');
+  assert(await page.locator('h2:has-text("Fast timer")').count(), 'timer card on Today');
+  eq(await page.locator('[data-act="fast-midnight"]').count(), 0, 'button hidden while a timer runs');
+  await page.click('[data-act="fast-goal"]');
+  await page.click('[data-act="fast-goal-set"][data-h="18"]');
+  eq(await page.evaluate(() => activeFast().goalH), 18, 'goal changed to 18 h');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
 await test('Offline after the first load, and a deploy is picked up', async () => {
   const ctx = await browser.newContext({ timezoneId: 'Europe/London' });
   const page = await ctx.newPage();
