@@ -13,6 +13,16 @@ never changed, and from then on the two apps keep separate data. Either way the 
 the 4-week cycle as the active programme, a 75 kg target with 70 kg as the lowest goal, and a carb-up every
 96 hours.
 
+## Chains
+No coffee, diet dialled in, cut day, **fasting window kept** (every meal inside the window, or a fast day),
+**protein hit**, training plan followed, **4 sessions this week** (Monday to Sunday, counted in weeks, +20 XP a
+week), steps (weekly), sleep 7.5 h+ and tomorrow planned, plus your own "No ___" chains. Your personal
+chains (such as No energy drinks) aren't in this public code: add them in Hero → Chains, copy them from
+Trainer (Body → Setup), or import them from a private goal-pack link, which can also carry starting weights
+for each exercise (a newer starting weight already on the phone is kept).
+
+**Log** on Today saves your weight and last night's sleep in one go.
+
 ## Everything from Trainer
 Chains (no coffee, diet, cut day, training, steps, sleep, planning, your own), both programme families
 (the 4-week cycles and Mentzer HIT), the eating window and extended fasts, Dolce recipes and the
@@ -51,7 +61,7 @@ module), `photos.js`, `scan.js`, `reminders.js` (shared with Shredded System), `
 npm i playwright          # once
 node shredded-trainer/tests/app.test.mjs
 ```
-14 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
+17 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
 programme by week, the carb-up clock and chains, red flags and check-in, the weekly decision and the
-calorie floor, barcode logging, photos, the calendar file, the chain summary, copying chains from Trainer, the background, every tab rendering,
+calorie floor, barcode logging, photos, the calendar file, the new chains, the quick log, goal-pack import, the chain summary, copying chains from Trainer, the background, every tab rendering,
 and offline use.

@@ -22,7 +22,10 @@ const CHAINS = [
   { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee. Tea is fine. Keeps counting unless you tap I had coffee.' },
   { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
   { id: 'cut', name: 'Cut day', stat: 'NUT', pts: 4, desc: 'Only the Gironda meals: 6 eggs + 3 patties, and 6 eggs + steak. Nothing else.' },
+  { id: 'fasting', name: 'Fasting window kept', stat: 'NUT', pts: 3, desc: 'Every meal inside your eating window, or a fast day.' },
+  { id: 'protein', name: 'Protein hit', stat: 'NUT', pts: 3, desc: 'Protein at or over your target, or a fast day.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
+  { id: 'sessions', name: '4 sessions this week', stat: 'STR', pts: 0, weekly: true, desc: 'Four training sessions Monday to Sunday: the 4-day split.' },
   { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
   { id: 'sleep', name: 'Sleep 7.5 h+', stat: 'VIT', pts: 3, desc: 'Log last night\'s sleep: 7.5 hours or more keeps it.' },
   { id: 'plan', name: 'Tomorrow planned', stat: 'MND', pts: 3, desc: 'Tomorrow\'s plan saved today.' },
@@ -56,7 +59,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { perfect: 10, dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { sessionsWeek: 20, perfect: 10, dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -407,6 +410,18 @@ function chainAuto(date, id) {
       return past ? 'miss' : 'pending';
     }
     case 'steps': return stepsOn(date) >= S.settings.stepGoal ? 'done' : past ? 'miss' : 'pending';
+    case 'sessions': return workoutsOn(date).length ? 'done' : 'off'; // the chain itself is judged by the week
+    case 'fasting': {
+      // Only the eating window: every meal inside it (calories don't matter here), or a fast day.
+      const meals = mealsOn(date);
+      if (!meals.length) return isFastDay(date) && passed(date, win().to) ? 'done' : past ? 'miss' : 'pending';
+      if (meals.some((m) => !inWindow(m.at))) return 'miss';
+      return passed(date, win().to) ? 'done' : 'pending';
+    }
+    case 'protein': {
+      if (isFastDay(date) && !mealsOn(date).length) return passed(date, win().to) ? 'done' : 'pending';
+      return macrosOn(date).p >= S.settings.proteinGoal ? 'done' : past ? 'miss' : 'pending';
+    }
     case 'cut': {
       // Only the two Gironda meals. A fast day or a planned refeed counts as on plan.
       const meals = mealsOn(date);
@@ -451,6 +466,19 @@ function stepsWeek(ws) {
   return { ws, count, total, needDays, needTotal, status: met ? 'done' : end < t ? 'miss' : 'pending' };
 }
 
+// Training sessions in a Monday-Sunday week: 4 for the 4-day split (pro-rated in a part week at the start).
+const SESSIONS_PER_WEEK = 4;
+function sessionsWeek(ws) {
+  const t = today();
+  const from = ws < chainStart() ? chainStart() : ws;
+  const end = addDays(ws, 6);
+  const need = Math.min(SESSIONS_PER_WEEK, Math.ceil(SESSIONS_PER_WEEK * (daysBetween(from, end) + 1) / 7));
+  let count = 0;
+  for (let d = from; d <= end && d <= t; d = addDays(d, 1)) if (workoutsOn(d).length) count++;
+  return { ws, count, need, status: count >= need ? 'done' : end < t ? 'miss' : 'pending' };
+}
+const weekResult = (id, ws) => (id === 'sessions' ? sessionsWeek(ws) : stepsWeek(ws));
+
 function chainStatus(date, id) {
   if (date > today()) return 'off';
   const def = chainDef(id);
@@ -478,7 +506,7 @@ function chainStreak(id) {
     if (t < chainStart()) return (chainMemo[id] = { cur, best, days, today: 'off', unit: 'wk' });
     let week = null;
     for (let ws = weekStart(chainStart()); ws <= t; ws = addDays(ws, 7)) {
-      week = stepsWeek(ws);
+      week = weekResult(id, ws);
       days += week.count;
       if (week.status === 'done') { cur++; best = Math.max(best, cur); } else if (week.status === 'miss') cur = 0;
     }
@@ -661,6 +689,7 @@ function computeXP() {
   }
   if (today() >= chainStart()) for (let ws = weekStart(chainStart()); ws <= today(); ws = addDays(ws, 7)) {
     if (stepsWeek(ws).status === 'done') add(ws, PTS.stepsWeek, 'Weekly step target', 'END');
+    if (sessionsWeek(ws).status === 'done') add(ws, PTS.sessionsWeek, '4 sessions in a week', 'STR');
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
   goalXP(add);
@@ -951,6 +980,9 @@ function applyPack(p) {
   }
   // Starting weights: [kg, reps] per set. They only show until you log that exercise yourself.
   for (const b of p.baselines || []) {
+    // Keep a newer starting weight you already have (e.g. brought over from Trainer).
+    const had = S.baselines[exKey(b.name)];
+    if (had?.date && b.date && had.date > b.date) continue;
     S.baselines[exKey(b.name)] = { name: b.name, date: b.date, note: b.note || '', sets: b.sets.map(([kg, reps]) => ({ kg: kg ?? null, reps: reps ?? null })) };
   }
   for (const c of p.chains || []) {
@@ -1062,7 +1094,7 @@ const dayBadge = (st) => { const n = dayNumber(st); return `<span class="daybadg
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
-  const action = { diet: 'go-fuel', cut: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
+  const action = { diet: 'go-fuel', cut: 'go-fuel', fasting: 'go-fuel', protein: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
   const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} ${st.unit === 'wk' ? 'week' : 'day'} chain">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span>`;
   if (c.id === 'steps') {
     const w = st.week, d = today(), n = stepsOn(d), sweat = !!S.days[d]?.sweat;
@@ -1073,6 +1105,14 @@ function chainRow(c) {
       ${bar(Math.max(w.count / w.needDays, w.total / w.needTotal) * 100, 100, s === 'done' ? 'good' : '')}
       <div class="grid2"><button data-act="steps-open" data-date="${d}">${n ? `Today ${fmt(n)}` : '+ Enter steps'}</button>
       <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
+  }
+  if (c.id === 'sessions') {
+    const w = st.week;
+    return `<div class="chain ${s}">
+      <div class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}Sessions this week</b><br>
+        <span class="muted small">${w.count}/${w.need} done${s === 'done' ? ' · week won' : ''} · best ${st.best} wk · +${PTS.sessionsWeek} XP a week</span></span>${flame}</div>
+      ${bar(w.count, w.need, s === 'done' ? 'good' : '')}
+      <button data-act="go-train">${workoutsOn(today()).length ? '✓ Trained today' : 'Go to today\'s session'}</button></div>`;
   }
   const sl = c.id === 'sleep' ? sleepOn(today()) : null;
   const cutNote = c.id === 'cut' && s === 'pending' ? CUT_REFS.map((r, i) => `Meal ${i + 1} ${mealsOn(today()).some((m) => m.ref === r) ? '✓' : '—'}`).join(' · ') : '';
@@ -1214,6 +1254,19 @@ function refeedCard(d) {
         : `<p><b>${Math.round(c.every - c.hours)} h</b> to the next carb-up (around ${fmtDate(c.next)}).</p><p class="muted small">Last: ${c.last ? fmtDate(c.last) : 'none yet'}. Flat in the gym, lifts down two sessions running or a stalled scale? Carb-up sooner.</p>`}
     </div></div>
     ${c.due ? `<button class="primary" data-act="refeed" data-date="${d}">Today is a carb-up day</button>` : `<button class="small-btn" data-act="refeed" data-date="${d}">Carb-up today instead</button>`}
+  </section>`;
+}
+
+// Weight and sleep in one place, straight from Today.
+function quickLogCard(d) {
+  const w = S.weights.find((x) => x.date === d), sl = sleepOn(d), lw = latestWeight();
+  return `<section class="card">
+    <h2>Log <span class="right">${w ? `✓ ${w.kg} kg` : 'weigh in'} · ${sl ? `✓ ${sl.hours} h sleep` : 'sleep'}</span></h2>
+    <form id="quick-log" class="grid2" autocomplete="off">
+      <label class="field">Weight (kg)<input name="kg" inputmode="decimal" placeholder="${lw ? lw.kg : ''}" value="${w ? w.kg : ''}"></label>
+      <label class="field">Sleep last night (h)<input name="hours" inputmode="decimal" placeholder="${S.settings.sleepGoal}" value="${sl ? sl.hours : ''}"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
+    </form>
   </section>`;
 }
 
@@ -1620,6 +1673,7 @@ function viewToday(P) {
       <p class="small">Diet, training, steps and planning chains start <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). Use the days before to plan the first week and do a shop.</p>` : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
       <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
   </section>
+  ${quickLogCard(d)}
   ${refeedCard(d)}
   ${cutCheckinCard(d)}
   ${d >= cleanStart() ? coffeeSupport() : ''}
@@ -2814,7 +2868,7 @@ function viewHeroCalendar() {
     const off = ds < cs || ds > t;
     let mark = '&nbsp;', cls = '';
     if (!off) {
-      if (sel === 'all') { const n = allChains().filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === allChains().length ? 'streak' : ''; }
+      if (sel === 'all') { const daily = allChains().filter((c) => c.id !== 'sessions'); const n = daily.filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === daily.length ? 'streak' : ''; }
       else { const s = chainStatus(ds, sel); mark = STATUS_ICON[s] || '·'; cls = s === 'done' ? 'streak' : s === 'miss' ? 'missday' : ''; }
     }
     cells.push(`<button class="${ds === d ? 'sel' : ''} ${off ? 'off' : ''} ${cls}" data-act="cal-date" data-date="${ds}" aria-label="${fmtDate(ds)}">${i}<span class="dots">${mark}</span></button>`);
@@ -2838,7 +2892,7 @@ function viewHeroCalendar() {
   </section>
   <section class="card">
     <h2>Streaks</h2>
-    <div class="list">${allChains().map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
+    <div class="list">${allChains().map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} ${c.id === 'sessions' ? 'sessions' : 'days'} ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : c.id === 'sessions' ? 'logged' : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
   </section>
   <section class="card">
     <h2>${MON[first.getMonth()]} ${first.getFullYear()}</h2>
@@ -3936,6 +3990,17 @@ document.addEventListener('submit', (e) => {
       if (data.food && p.food) S.meals.push({ id: uid(), date: d, at, name: `${p.name} (stack)`, kcal: p.food.kcal, p: p.food.p, c: p.food.c, f: p.food.f, servings: 1, ref: `stack:${p.id}`, kind: 'stack', slot: 'Snack' });
       closeSheet();
       toast(`${p.name} logged`);
+      break;
+    }
+    case 'quick-log': {
+      const d = today(), kg = num(data.kg), h = num(data.hours);
+      if (kg === null && h === null) return toast('Enter your weight or sleep');
+      if (kg !== null && (kg < 30 || kg > 250)) return toast('Enter a weight in kg');
+      if (h !== null && (h < 0 || h > 16)) return toast('Enter sleep in hours');
+      const done = [];
+      if (kg !== null) { S.weights = S.weights.filter((w) => w.date !== d); S.weights.push({ date: d, kg: round1(kg) }); done.push(`${round1(kg)} kg`); }
+      if (h !== null) { const prev = sleepOn(d); S.sleep = S.sleep.filter((x) => x.date !== d); S.sleep.push({ date: d, at: prev?.at || new Date().toISOString(), hours: round1(h), quality: prev?.quality ?? null, notes: prev?.notes || '' }); done.push(`${round1(h)} h sleep`); }
+      toast(`Saved: ${done.join(', ')}`);
       break;
     }
     case 'weight-form': {
