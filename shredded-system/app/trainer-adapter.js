@@ -2,13 +2,15 @@
 /* Read-only adapter for Trainer's data. This is the only code in Shredded System that touches Trainer's storage.
    Same design as liferpg/trainer-adapter.js, plus weights and sleep.
    Contract (see STORAGE.md):
-   - Reads exactly one key, `trainer.v1`, with getItem. Never calls setItem, removeItem or clear.
+   - Reads `shtrainer.v1` (Shredded Trainer, the daily log since 5 Oct 2026), or `trainer.v1` (the original
+     Trainer) when Shredded Trainer has no data. getItem only. Never calls setItem, removeItem or clear.
    - Never enumerates localStorage.
    - Everything is validated: wrong types are dropped, never coerced. Numbers must be finite and >= 0;
      numeric strings ("12000") are ignored. Dates must be YYYY-MM-DD.
    - Returns a frozen, sanitised copy. Callers can't reach Trainer's original object. */
 const TrainerAdapter = (() => {
-  const KEY = 'trainer.v1';
+  const KEYS = ['shtrainer.v1', 'trainer.v1']; // first one present wins
+  const KEY = KEYS[1];
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
   const PLAN_KINDS = new Set(['train', 'rest', 'fast']);
   const MAX_STEPS = 200000;
@@ -51,14 +53,16 @@ const TrainerAdapter = (() => {
 
   // Returns { ok: true, data } or { ok: false, error: 'off' | 'missing' | 'unavailable' | 'corrupt' | 'shape' }.
   function read(storage) {
-    let raw;
-    try { raw = storage.getItem(KEY); } catch { return { ok: false, error: 'unavailable' }; }
+    let raw = null, source = null;
+    try {
+      for (const k of KEYS) { raw = storage.getItem(k); if (raw != null) { source = k; break; } }
+    } catch { return { ok: false, error: 'unavailable' }; }
     if (raw == null) return { ok: false, error: 'missing' };
     let t;
     try { t = JSON.parse(raw); } catch { return { ok: false, error: 'corrupt' }; }
     if (!isObj(t)) return { ok: false, error: 'shape' };
-    return { ok: true, data: sanitise(t) };
+    return { ok: true, source, data: sanitise(t) };
   }
 
-  return Object.freeze({ KEY, read, sanitise });
+  return Object.freeze({ KEY, KEYS, read, sanitise });
 })();

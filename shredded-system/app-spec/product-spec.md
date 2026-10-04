@@ -15,7 +15,7 @@ Help one person cut from 95 kg to 70–75 kg using a Gironda-style diet, with Me
 
 - One user, on an Android phone, often offline.
 - Data stays on the device (localStorage in the reference build). Export to JSON and CSV.
-- Runs next to the Trainer app on the same site and can import its weights, steps and sleep (`localStorage['trainer.v1']`).
+- Runs next to the Trainer app on the same site and can import its weights, steps and sleep (`localStorage['shtrainer.v1']` from Shredded Trainer, or `['trainer.v1']` from the original Trainer).
 - UK units and spelling. Metric only.
 
 ## 3. Data sources (single source of truth)
@@ -111,7 +111,7 @@ type Day = {
 
 | Feature | Status | How |
 |---|---|---|
-| **Trainer data, live** | Built | `app/trainer-adapter.js` reads only `trainer.v1` (validated, never written). Trainer's weigh-ins, steps (including Garmin entries) and sleep count automatically; anything you type wins. Replaces the old one-off import. |
+| **Trainer data, live** | Built | `app/trainer-adapter.js` reads only `shtrainer.v1`, falling back to `trainer.v1` (validated, never written). Trainer's weigh-ins, steps (including Garmin entries) and sleep count automatically; anything you type wins. Replaces the old one-off import. |
 | **Photo log** | Built | `app/photos.js`: front, side and back photos stored in IndexedDB (`shredded-photos`), shrunk to 1080 px JPEG. Progress compares your first and latest of each pose. Today shows a "Photo day" nudge every 4 weeks. Not in JSON backups (size); Reset deletes them. |
 | **Barcode scanning** | Built | `app/scan.js`: camera scanning with the browser's BarcodeDetector (Chrome on Android), or type the number. Looks up Open Food Facts (only the barcode is sent), adds the food by grams, and saves it to `S.myFoods` so it works offline next time. |
 | **Reminders** | Built | `app/reminders.js`: a calendar file (.ics) with a daily weigh-in, the next 12 weeks of carb-up days and weekly training sessions, in Europe/London time. An offline web app can't wake the phone on a schedule without a push server, so the phone's calendar does the reminding. |

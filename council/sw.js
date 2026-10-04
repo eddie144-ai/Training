@@ -1,5 +1,5 @@
 // Offline cache for the Council app shell. Bump VERSION whenever a file below changes.
-const VERSION = 'council-v1.0';
+const VERSION = 'council-v1.1';
 const FILES = ['./', './index.html', './data.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {

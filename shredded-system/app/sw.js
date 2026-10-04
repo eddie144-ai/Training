@@ -2,7 +2,7 @@
 // Network first for every same-origin file, so a deploy is picked up on the next online load and a missed
 // VERSION bump can't leave anyone on an old shell; the cache is only the offline fallback.
 // Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'shredded-v1.1';
+const VERSION = 'shredded-v1.2';
 const FILES = ['./', './index.html', './data.js', './trainer-adapter.js', './photos.js', './scan.js', './reminders.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {

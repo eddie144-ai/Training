@@ -7,7 +7,8 @@
 // Constants
 // ===========================================================================
 const STORE_KEY = 'council.v1';
-const TRAINER_KEY = 'trainer.v1';
+// Shredded Trainer is the daily log since 5 Oct 2026; the original Trainer is the fallback. Read-only.
+const TRAINER_KEYS = ['shtrainer.v1', 'trainer.v1'];
 const START_MIN = 10; // The Start button's timer. Small on purpose: starting is the expensive part.
 
 const TABS = [
@@ -110,7 +111,7 @@ function trainer() {
   if (trainerCache) return trainerCache;
   let t = null;
   if (S.settings.trainer) {
-    try { const raw = localStorage.getItem(TRAINER_KEY); if (raw) t = JSON.parse(raw); } catch { t = null; }
+    try { for (const k of TRAINER_KEYS) { const raw = localStorage.getItem(k); if (raw) { t = JSON.parse(raw); break; } } } catch { t = null; }
   }
   const sleep = new Map((t?.sleep || []).map((x) => [x.date, Number(x.hours)]));
   const trained = new Set((t?.workouts || []).map((w) => w.date));
@@ -902,8 +903,8 @@ function renderMe() {
       <div class="row between"><span>Idea cooling-off</span>${seg([[3, '3d'], [7, '7d'], [14, '14d']], st.coolDays, 'set', 'data-k="coolDays"')}</div>
       <div class="row between"><span>Council timebox</span>${seg([[10, '10'], [15, '15'], [20, '20'], [30, '30']], st.councilMin, 'set', 'data-k="councilMin"')}</div>
       <div class="grid2"><label class="field">Worry window<input type="time" data-setk="worryAt" value="${esc(st.worryAt)}"></label><label class="field">Evening review<input type="time" data-setk="reviewAt" value="${esc(st.reviewAt)}"></label></div>
-      <div class="row between"><span>Read Trainer data</span>${seg([['off', 'Off'], ['on', 'On']], st.trainer ? 'on' : 'off', 'set-trainer')}</div>
-      <p class="small muted">${T.ok ? 'Trainer data found on this device: sleep, steps and training fill in automatically.' : 'No Trainer data found. It appears when both apps are installed from the same site.'}</p>
+      <div class="row between"><span>Read Shredded Trainer data</span>${seg([['off', 'Off'], ['on', 'On']], st.trainer ? 'on' : 'off', 'set-trainer')}</div>
+      <p class="small muted">${T.ok ? 'Shredded Trainer data found on this device (or the original Trainer if that is all there is): sleep, steps and training fill in automatically.' : 'No Shredded Trainer data found. Open Shredded Trainer once on this same site.'}</p>
     </section>
     <section class="card"><h2>Data</h2>
       <p class="small muted">Everything stays on this phone. Back up now and then.${storageOk ? '' : ' <b class="danger">Storage is failing on this device.</b>'}</p>

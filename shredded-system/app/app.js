@@ -666,7 +666,7 @@ function viewSetup() {
   </section>
   <section class="panel"><h2>Trainer link</h2>
     <div class="seg" role="group" aria-label="Read Trainer data"><button data-act="use-trainer" data-v="0" ${pressed(!S.useTrainer)}>Off</button><button data-act="use-trainer" data-v="1" ${pressed(S.useTrainer)}>On</button></div>
-    <p class="muted small">${T.ok ? `✓ Reading Trainer: ${Object.keys(T.weights).length} weigh-ins, steps (including Garmin entries) and sleep. Read-only; Trainer is never changed. Anything you type here wins.` : esc(tMsg[T.error] || 'Not available.')}</p></section>
+    <p class="muted small">${T.ok ? `✓ Reading ${T.source === 'shtrainer.v1' ? 'Shredded Trainer' : 'Trainer'}: ${Object.keys(T.weights).length} weigh-ins, steps (including Garmin entries) and sleep. Read-only; it is never changed. Anything you type here wins.` : esc(tMsg[T.error] || 'Not available.')}</p></section>
   <section class="panel"><h2>Reminders</h2>
     <p class="small">A calendar file with a daily weigh-in, your carb-up days for the next 12 weeks and your training days. Import it into Google Calendar (Settings → Import) and your phone does the reminding, even offline.</p>
     <div class="g2"><label class="f">Weigh-in time<input id="rm-weighTime" type="time" value="${esc(rm.weighTime)}"></label><label class="f">Training time<input id="rm-trainTime" type="time" value="${esc(rm.trainTime)}"></label></div>
