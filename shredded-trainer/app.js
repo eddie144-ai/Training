@@ -20,13 +20,53 @@ const GIRONDA_CREDIT = 'Vince Gironda, Tomorrow\'s Man, June 1953. Irvin Johnson
 // Chains: strict day-by-day streaks. pts = XP per day kept.
 const CHAINS = [
   { id: 'coffee', name: 'No coffee', stat: 'MND', pts: 5, desc: 'No coffee. Tea is fine. Keeps counting unless you tap I had coffee.' },
-  { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Every meal inside your eating window and calories under target, or a fast day.' },
+  { id: 'diet', name: 'Diet dialled in', stat: 'NUT', pts: 4, desc: 'Meals eaten the way the day is set (18:6, one meal or fast) and calories under target.' },
   { id: 'cut', name: 'Cut day', stat: 'NUT', pts: 4, desc: 'Only the Gironda meals: 6 eggs + 3 patties, and 6 eggs + steak. Nothing else.' },
+  { id: 'fasting', name: 'Fasting kept', stat: 'NUT', pts: 3, desc: 'Inside the 18:6 window, one meal in one sitting, or a fast day with nothing eaten.' },
+  { id: 'protein', name: 'Protein hit', stat: 'NUT', pts: 3, desc: 'Protein at or over your target on an 18:6 day. One-meal and fast days don\'t count against it.' },
   { id: 'training', name: 'Training plan followed', stat: 'STR', pts: 3, desc: 'Trained on a training day, or rested on a rest or fast day.' },
+  { id: 'sessions', name: '4 sessions this week', stat: 'STR', pts: 0, weekly: true, desc: 'Four training sessions Monday to Sunday: the 4-day split.' },
   { id: 'steps', name: 'Steps', stat: 'END', pts: 0, weekly: true, desc: '15,000 steps on 5 days a week, or 75,000 in the week.' },
   { id: 'sleep', name: 'Sleep 7.5 h+', stat: 'VIT', pts: 3, desc: 'Log last night\'s sleep: 7.5 hours or more keeps it.' },
   { id: 'plan', name: 'Tomorrow planned', stat: 'MND', pts: 3, desc: 'Tomorrow\'s plan saved today.' },
 ];
+
+// Your last logged weights from the Grok tracker (September 2026), built in so week 1 starts from real numbers.
+// [kg, reps] per set; null = bodyweight or not recorded. Anything you log yourself, or a newer weight, wins.
+const liftSets = (kg, sets, reps) => Array.from({ length: sets }, () => [kg, reps]);
+const SEED_LIFTS = [
+  ['Reverse Grip Bench Press', '2026-09-22', liftSets(25, 4, 8)],
+  ['V-Bar Dumbbell Chest Press', '2026-09-22', liftSets(25, 4, 8)],
+  ['2x Dumbbell Pullover into Chest Press', '2026-09-22', liftSets(22, 4, 8)],
+  ['Close Grip Bench Press', '2026-09-22', liftSets(25, 4, 8)],
+  ['Lying Tricep Zottman Curls', '2026-09-22', liftSets(20, 3, 8)],
+  ['Lat Machine Tricep Pulldown', '2026-09-22', liftSets(26.1, 3, 8)],
+  ['Barbell Squat', '2026-09-23', liftSets(110, 3, 8)],
+  ['Leg Press', '2026-09-23', liftSets(113, 5, 8)],
+  ['Romanian Deadlift', '2026-09-23', liftSets(70, 4, 8)],
+  ['Standing Calf Raise', '2026-09-23', liftSets(134, 4, 12)],
+  ['Leg Curl Machine for Lower Abs', '2026-09-23', liftSets(null, 3, 15), 'Bodyweight, 15 reps'],
+  ['Barbell Plate Lying Side Twists', '2026-09-23', liftSets(15, 3, 15), '15 kg plate, 15 a side'],
+  ['Straight Arm Shoulder Raises', '2026-09-24', liftSets(15, 4, 8)],
+  ['Arnold Press', '2026-09-24', liftSets(15, 4, 8)],
+  ['Barbell Upright Row', '2026-09-24', liftSets(40, 4, 8)],
+  ['Shrugs', '2026-09-24', [[60, 8], [75, 8], [90, 8]], 'Pyramid 60–90 kg (96 kg was too heavy)'],
+  ['Barbell Deadlift', '2026-09-18', [[50, 8], [70, 8], [80, 8]], 'Week 1: 50 / 70 / 80 kg'],
+  ['Barbell Bent-Over Row', '2026-09-18', liftSets(50, 4, 8), 'Week 1'],
+  ['Spider Curls', '2026-09-18', liftSets(10, 4, null), 'Week 1: 7–10 kg'],
+  ['Dumbbell Preacher Curls (Pinkie Inwards)', '2026-09-18', liftSets(9, 3, null), 'Week 1: 7–9 kg'],
+  ['Dumbbell Hammer Concentration Curls', '2026-09-25', liftSets(20, 3, 8)],
+  ['Seated Zottman Curls', '2026-09-18', liftSets(8, 3, null), 'Week 1: 7–8 kg'],
+];
+// Adds the built-in weights without overwriting a newer one you already have.
+function seedLifts(baselines) {
+  for (const [name, date, sets, note] of SEED_LIFTS) {
+    const k = exKey(name);
+    if (baselines[k]?.date && baselines[k].date >= date) continue;
+    baselines[k] = { name, date, note: note || 'Last logged weights (Grok tracker)', sets: sets.map(([kg, reps]) => ({ kg, reps })) };
+  }
+  return baselines;
+}
 
 // Your own "No ___" chains, checked in by hand like coffee. `since` carries in days clean before the app.
 const customChainDefs = () => (S.customChains || []).filter((c) => c.active !== false)
@@ -34,6 +74,17 @@ const customChainDefs = () => (S.customChains || []).filter((c) => c.active !== 
 // Coffee first, then your own clean-streak chains, then the rest.
 const allChains = () => [CHAINS[0], ...customChainDefs(), ...CHAINS.slice(1)];
 const chainDef = (id) => allChains().find((c) => c.id === id);
+// Today shows health first (diet, fasting, training, steps, sleep), then the clean chains and planning.
+const HEALTH_CHAINS = ['diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep'];
+const healthChains = () => HEALTH_CHAINS.map(chainDef);
+const otherChains = () => allChains().filter((c) => !HEALTH_CHAINS.includes(c.id));
+
+// Health and diet come first; these get "a little bit" each day: one tap when you've done something.
+const LIFE_AREAS = [
+  ['youtube', 'YouTube', 'An idea, a clip filmed, ten minutes of editing'],
+  ['wealth', 'Wealth', 'Money, work or a skill that pays'],
+  ['family', 'Family & the rest', 'A call, a hand with something, the house'],
+];
 
 const QUESTS = {
   steps:    { name: '15,000 Steps',      stat: 'END', note: 'Enter your Garmin total. A sweat-suit walk is a bonus.' },
@@ -56,7 +107,7 @@ const STATS = [
 ];
 const STAT_LEVEL_XP = 60;
 
-const PTS = { perfect: 10, dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10 };
+const PTS = { sessionsWeek: 20, perfect: 10, dream: 3, video: 15, garmin: 3, stepsWeek: 20, sweat: 5, goal1: 2, goalAll: 5, goalWeek: 15, session: 15, pr: 5, weigh: 2, measure: 5, author: 10, review: 20, week: 20, milestone: 15, goal: 50, ach: 25, fastDay: 10, life: 3 };
 
 const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
 const FLUID_TYPES = [['water', 'Water'], ['electrolytes', 'Electrolytes'], ['tea', 'Tea'], ['other', 'Other']];
@@ -122,13 +173,13 @@ function freshState() {
     v: 3,
     settings: {
       proteinGoal: 170, kcalGoal: 1900, carbGoal: 80, fatGoal: 90, fluidMl: 3500, walkExtraMl: 750, stepGoal: 15000, stepDays: 5, stepWeek: 75000, sleepGoal: 7.5, refeedWeeks: 6, protein170: true,
-      carbupHours: 96, goalLow: 70, weighTime: '07:00', trainTime: '18:00', background: 'gironda', bgPhotoId: null,
+      carbupHours: 96, goalLow: 70, seededLifts: true, weighTime: '07:00', trainTime: '18:00', background: 'gironda', bgPhotoId: null,
       startWeight: 95, startFixed: true, target: 75, heightCm: null, cycleStart: '2026-10-05', cycleFixed: true, mondayStart: true, highContrast: false,
       window: { from: '09:00', to: '15:00' }, chainStart: '2026-10-05', coffeeStart: '2026-10-01',
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' },
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
-    baselines: {},
+    baselines: seedLifts({}),
     days: {},
     plans: {},
     weekPlans: {},
@@ -230,6 +281,11 @@ function normalise(s) {
     out.settings.mondayStart = true;
     out.settings.cycleFixed = true;
   }
+  // One-time: your last tracker weights become the starting points (a newer one you already have is kept).
+  if (!s.settings?.seededLifts) {
+    out.baselines = seedLifts({ ...(out.baselines || {}) });
+    out.settings.seededLifts = true;
+  }
   // One-time: protein target matches the two Gironda meals (77 + 93 g).
   if (!s.settings?.protein170) {
     if (out.settings.proteinGoal === 180) out.settings.proteinGoal = 170;
@@ -277,7 +333,7 @@ function load() {
       return n;
     }
     const n = normalise(parsed);
-    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed || !parsed.settings?.mondayStart || !parsed.settings?.protein170) localStorage.setItem(STORE_KEY, JSON.stringify(n));
+    if (!parsed.settings?.cycleFixed || !parsed.settings?.startFixed || !parsed.settings?.mondayStart || !parsed.settings?.protein170 || !parsed.settings?.seededLifts) localStorage.setItem(STORE_KEY, JSON.stringify(n));
     return n;
   } catch {
     storageOk = false;
@@ -352,6 +408,22 @@ function fastCovers(date) {
 const planKind = (date) => S.plans[date]?.kind || null;
 const isFastDay = (date) => mealsOn(date).length === 0 && (planKind(date) === 'fast' || fastCovers(date) || !!S.days[date]?.fast);
 
+// How you're eating on a day: the 18:6 window (default), one meal in one sitting at any time, or a fast day.
+const EAT_MODES = [['window', '18:6 window'], ['omad', 'One meal'], ['fast', 'Fast day']];
+const OMAD_SITTING_MIN = 120;
+const eatMode = (date) => (S.days[date]?.fast || planKind(date) === 'fast' ? 'fast' : S.days[date]?.eat === 'omad' ? 'omad' : 'window');
+// Were the meals eaten the way the day was set up? Fast day: none. One meal: one sitting. Window: all inside it.
+function mealTimingOk(date) {
+  const meals = mealsOn(date);
+  if (!meals.length) return true;
+  const mode = eatMode(date);
+  if (mode === 'fast') return false;
+  if (mode === 'omad') { const first = new Date(meals[0].at); return meals.every((m) => (new Date(m.at) - first) / 60000 <= OMAD_SITTING_MIN); }
+  return meals.every((m) => inWindow(m.at));
+}
+// The day's eating is finished: the window has closed, the one meal is eaten, or the fast day's window has passed.
+const eatingDone = (date) => (eatMode(date) === 'omad' ? mealsOn(date).length > 0 : passed(date, win().to));
+
 function lastMealBefore(when) {
   const iso = when.toISOString();
   return S.meals.filter((m) => m.at <= iso).sort((a, b) => b.at.localeCompare(a.at))[0] || null;
@@ -388,15 +460,12 @@ function chainAuto(date, id) {
   // Clean chains run on their own: a past day counts as clean unless you reported a slip.
   if (chainDef(id)?.custom || id === 'coffee') return past ? 'done' : 'pending';
   switch (id) {
+    // Diet chains count as kept unless the log shows otherwise (or you tap I broke it): a past day with nothing logged is kept.
     case 'diet': {
       const meals = mealsOn(date);
-      if (!meals.length) {
-        if (isFastDay(date) && passed(date, win().to)) return 'done';
-        return past ? 'miss' : 'pending';
-      }
-      if (meals.some((m) => !inWindow(m.at))) return 'miss';
-      if (!isRefeed(date) && macrosOn(date).kcal > S.settings.kcalGoal) return 'miss';
-      return passed(date, win().to) ? 'done' : 'pending';
+      if (!mealTimingOk(date)) return 'miss';
+      if (meals.length && !isRefeed(date) && macrosOn(date).kcal > S.settings.kcalGoal) return 'miss';
+      return past || eatingDone(date) ? 'done' : 'pending';
     }
     case 'training': {
       const trained = workoutsOn(date).length > 0;
@@ -407,13 +476,29 @@ function chainAuto(date, id) {
       return past ? 'miss' : 'pending';
     }
     case 'steps': return stepsOn(date) >= S.settings.stepGoal ? 'done' : past ? 'miss' : 'pending';
+    case 'sessions': return workoutsOn(date).length ? 'done' : 'off'; // the chain itself is judged by the week
+    case 'fasting': {
+      // Only the timing: inside the window, one sitting on a one-meal day, nothing on a fast day.
+      if (!mealTimingOk(date)) return 'miss';
+      return past || eatingDone(date) ? 'done' : 'pending';
+    }
+    case 'protein': {
+      const meals = mealsOn(date);
+      // A fast day or a one-meal day has its own rules: protein isn't judged.
+      if (eatMode(date) !== 'window') return past || eatingDone(date) ? 'done' : 'pending';
+      if (macrosOn(date).p >= S.settings.proteinGoal) return 'done';
+      if (!past) return 'pending';
+      // A past day counts unless you logged something other than the Gironda meals and still came up short.
+      return meals.every((m) => CUT_REFS.includes(m.ref)) ? 'done' : 'miss';
+    }
     case 'cut': {
       // Only the two Gironda meals. A fast day or a planned refeed counts as on plan.
       const meals = mealsOn(date);
       if (meals.some((m) => !CUT_REFS.includes(m.ref)) && !isRefeed(date)) return 'miss';
       if (isRefeed(date) || CUT_REFS.every((r) => meals.some((m) => m.ref === r))) return 'done';
-      if (!meals.length && isFastDay(date) && passed(date, win().to)) return 'done';
-      return past ? 'miss' : 'pending';
+      if (eatMode(date) === 'omad' && meals.length) return 'done';
+      if (eatMode(date) === 'fast' && !meals.length && eatingDone(date)) return 'done';
+      return past ? 'done' : 'pending';
     }
     case 'sleep': {
       // The night that ended on this morning, from the sleep log (or Garmin).
@@ -430,6 +515,8 @@ function chainAuto(date, id) {
 }
 
 const CUT_REFS = ['gironda1', 'gironda2'];
+// The diet chains: kept automatically unless the log shows otherwise, with a one-tap override.
+const FOOD_CHAINS = ['diet', 'cut', 'fasting', 'protein'];
 
 // ---- steps: a weekly target ------------------------------------------------
 const stepsOn = (date) => S.days[date]?.steps || 0;
@@ -450,6 +537,19 @@ function stepsWeek(ws) {
   const met = count >= needDays || total >= needTotal;
   return { ws, count, total, needDays, needTotal, status: met ? 'done' : end < t ? 'miss' : 'pending' };
 }
+
+// Training sessions in a Monday-Sunday week: 4 for the 4-day split (pro-rated in a part week at the start).
+const SESSIONS_PER_WEEK = 4;
+function sessionsWeek(ws) {
+  const t = today();
+  const from = ws < chainStart() ? chainStart() : ws;
+  const end = addDays(ws, 6);
+  const need = Math.min(SESSIONS_PER_WEEK, Math.ceil(SESSIONS_PER_WEEK * (daysBetween(from, end) + 1) / 7));
+  let count = 0;
+  for (let d = from; d <= end && d <= t; d = addDays(d, 1)) if (workoutsOn(d).length) count++;
+  return { ws, count, need, status: count >= need ? 'done' : end < t ? 'miss' : 'pending' };
+}
+const weekResult = (id, ws) => (id === 'sessions' ? sessionsWeek(ws) : stepsWeek(ws));
 
 function chainStatus(date, id) {
   if (date > today()) return 'off';
@@ -478,7 +578,7 @@ function chainStreak(id) {
     if (t < chainStart()) return (chainMemo[id] = { cur, best, days, today: 'off', unit: 'wk' });
     let week = null;
     for (let ws = weekStart(chainStart()); ws <= t; ws = addDays(ws, 7)) {
-      week = stepsWeek(ws);
+      week = weekResult(id, ws);
       days += week.count;
       if (week.status === 'done') { cur++; best = Math.max(best, cur); } else if (week.status === 'miss') cur = 0;
     }
@@ -661,8 +761,10 @@ function computeXP() {
   }
   if (today() >= chainStart()) for (let ws = weekStart(chainStart()); ws <= today(); ws = addDays(ws, 7)) {
     if (stepsWeek(ws).status === 'done') add(ws, PTS.stepsWeek, 'Weekly step target', 'END');
+    if (sessionsWeek(ws).status === 'done') add(ws, PTS.sessionsWeek, '4 sessions in a week', 'STR');
   }
   Object.entries(S.days).forEach(([d, r]) => { if (r.sweat) add(d, PTS.sweat, 'Sweat-suit bonus', 'END'); });
+  Object.entries(S.days).forEach(([d, r]) => LIFE_AREAS.forEach(([k, name]) => { if (r.life?.[k]) add(d, PTS.life, `A bit for ${name}`, 'MND'); }));
   goalXP(add);
   for (const d of allDates()) if (d >= cleanStart() && d <= today()) { const c = checklistFor(d); if (c.length && c.every((x) => x.done)) add(d, PTS.perfect, 'Perfect day: whole checklist', 'MND'); }
   Object.entries(S.dreams).forEach(([d, x]) => { if (x.text) add(d, PTS.dream, 'Dream diary', 'MND'); });
@@ -951,6 +1053,9 @@ function applyPack(p) {
   }
   // Starting weights: [kg, reps] per set. They only show until you log that exercise yourself.
   for (const b of p.baselines || []) {
+    // Keep a newer starting weight you already have (e.g. brought over from Trainer).
+    const had = S.baselines[exKey(b.name)];
+    if (had?.date && b.date && had.date > b.date) continue;
     S.baselines[exKey(b.name)] = { name: b.name, date: b.date, note: b.note || '', sets: b.sets.map(([kg, reps]) => ({ kg: kg ?? null, reps: reps ?? null })) };
   }
   for (const c of p.chains || []) {
@@ -982,6 +1087,10 @@ try {
   if (saved.tab && TABS.some(([k]) => k === saved.tab)) ui.tab = saved.tab;
   if (saved.sub) for (const k of Object.keys(ui.sub)) if (SUBTABS[k].some(([v]) => v === saved.sub[k])) ui.sub[k] = saved.sub[k];
 } catch { /* private mode */ }
+// A half-logged session survives the phone closing the app mid-workout.
+const DRAFTS_KEY = 'shtrainer.drafts';
+try { ui.drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY)) || {}; } catch { ui.drafts = {}; }
+const saveDrafts = () => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(ui.drafts)); } catch { /* ignore */ } };
 const rememberUi = () => { try { sessionStorage.setItem('shtrainer.ui', JSON.stringify({ tab: ui.tab, sub: ui.sub })); } catch { /* ignore */ } };
 
 // ===========================================================================
@@ -1048,9 +1157,17 @@ function fastingCard() {
       <div class="bigtime" data-since="${w.fastSince.toISOString()}">${fmtDur(Date.now() - w.fastSince)}</div>`;
     line = `Window opens ${w.state === 'after' ? 'tomorrow ' : ''}at ${hm(w.open)} · in <span data-until="${w.open.toISOString()}">${fmtDur(w.open - Date.now())}</span>`;
   }
+  const d = today(), mode = eatMode(d), meals = mealsOn(d);
+  const modeLine = mode === 'fast'
+    ? (meals.length ? '<p class="small bad-text">Food logged on a fast day: the fasting chain is broken. Switch to 18:6 or One meal if that was the plan.</p>' : '<p class="small"><b>Fast day.</b> Water, tea and electrolytes only. Diet, cut, fasting and protein chains all count it.</p>')
+    : mode === 'omad'
+      ? `<p class="small"><b>One meal today</b>, any time, in one sitting (everything within ${OMAD_SITTING_MIN / 60} hours of the first bite).${meals.length ? ` Eaten at ${fmtTime(meals[0].at)}${mealTimingOk(d) ? ' · ✓ fasting chain kept' : ' · second sitting: fasting chain broken'}.` : ''}</p>`
+      : '';
   return `<section class="card fastcard">
-    <h2>Eating window <span class="right">${esc(win().from)}–${esc(win().to)}</span></h2>
-    ${head}<p class="small">${line}</p>
+    <h2>Eating today <span class="right">${mode === 'window' ? `${esc(win().from)}–${esc(win().to)}` : ''}</span></h2>
+    ${segmented('eat-mode', EAT_MODES, mode, 'How you are eating today', `data-date="${d}"`)}
+    ${modeLine}
+    ${mode === 'fast' && !meals.length ? '' : `${head}<p class="small">${mode === 'omad' ? 'The window doesn\'t apply today.' : line}</p>`}
     <button data-act="fast-start">Start an extended fast</button>
   </section>`;
 }
@@ -1062,7 +1179,7 @@ const dayBadge = (st) => { const n = dayNumber(st); return `<span class="daybadg
 function chainRow(c) {
   const st = chainStreak(c.id);
   const s = st.today;
-  const action = { diet: 'go-fuel', cut: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
+  const action = { diet: 'go-fuel', cut: 'go-fuel', fasting: 'go-fuel', protein: 'go-fuel', training: 'go-train', sleep: 'go-sleep', plan: 'go-plan' }[c.id];
   const flame = `<span class="flame ${st.cur ? 'lit' : ''}" aria-label="${st.cur} ${st.unit === 'wk' ? 'week' : 'day'} chain">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span>`;
   if (c.id === 'steps') {
     const w = st.week, d = today(), n = stepsOn(d), sweat = !!S.days[d]?.sweat;
@@ -1073,6 +1190,14 @@ function chainRow(c) {
       ${bar(Math.max(w.count / w.needDays, w.total / w.needTotal) * 100, 100, s === 'done' ? 'good' : '')}
       <div class="grid2"><button data-act="steps-open" data-date="${d}">${n ? `Today ${fmt(n)}` : '+ Enter steps'}</button>
       <button class="${sweat ? 'primary' : ''}" data-act="sweat" aria-pressed="${sweat}">${sweat ? '✓ Sweat suit +' + PTS.sweat : 'Sweat suit (bonus)'}</button></div></div>`;
+  }
+  if (c.id === 'sessions') {
+    const w = st.week;
+    return `<div class="chain ${s}">
+      <div class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}Sessions this week</b><br>
+        <span class="muted small">${w.count}/${w.need} done${s === 'done' ? ' · week won' : ''} · best ${st.best} wk · +${PTS.sessionsWeek} XP a week</span></span>${flame}</div>
+      ${bar(w.count, w.need, s === 'done' ? 'good' : '')}
+      <button data-act="go-train">${workoutsOn(today()).length ? '✓ Trained today' : 'Go to today\'s session'}</button></div>`;
   }
   const sl = c.id === 'sleep' ? sleepOn(today()) : null;
   const cutNote = c.id === 'cut' && s === 'pending' ? CUT_REFS.map((r, i) => `Meal ${i + 1} ${mealsOn(today()).some((m) => m.ref === r) ? '✓' : '—'}`).join(' · ') : '';
@@ -1090,6 +1215,15 @@ function chainRow(c) {
       <div class="row between"><span class="grow"><b>${c.name}</b><br><span class="muted small">${s === 'pending' ? 'Keeps counting unless you tap I had coffee.' : esc(note)} · best ${st.best}</span></span>${dayBadge(st)}</div>
       <div class="grid2"><button class="${s === 'done' ? 'primary' : ''}" data-act="coffee" data-v="1" aria-pressed="${s === 'done'}">✓ Coffee-free today</button>
       <button class="${s === 'miss' ? 'danger' : ''}" data-act="coffee" data-v="0" aria-pressed="${s === 'miss'}">I had coffee</button></div></div>`;
+  }
+  if (FOOD_CHAINS.includes(c.id)) {
+    const o = S.days[today()]?.chains?.[c.id];
+    const mode = eatMode(today());
+    const why = s === 'pending' ? (mode === 'fast' ? 'Fast day: counts once the window has passed with nothing eaten' : mode === 'omad' ? 'One meal today, one sitting, any time' : 'Counts itself unless you tap I broke it') : note;
+    return `<div class="chain ${s}">
+      <button class="linkish" data-act="${action}"><span class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}${c.name}</b><br><span class="muted small">${esc(why)} · best ${st.best}</span></span>${flame}</span></button>
+      <div class="grid2"><button class="${o === true ? 'primary' : ''}" data-act="chain-mark" data-chain="${c.id}" data-v="1" aria-pressed="${o === true}">✓ Kept</button>
+      <button class="${o === false ? 'danger' : ''}" data-act="chain-mark" data-chain="${c.id}" data-v="0" aria-pressed="${o === false}">I broke it</button></div></div>`;
   }
   return `<button class="chain linkish ${s}" data-act="${action}">
     <span class="row between"><span class="grow"><b>${STATUS_ICON[s] ? `<span class="st ${s}">${STATUS_ICON[s]}</span> ` : ''}${c.name}</b><br><span class="muted small">${esc(note)} · best ${st.best}</span></span>${flame}</span></button>`;
@@ -1111,6 +1245,34 @@ function coffeeSupport() {
   const tip = [...COFFEE_TIPS].reverse().find(([n]) => n === dayNo) || (dayNo <= 3 && dayNo > 0 ? COFFEE_TIPS[Math.min(dayNo, 3) - 1] : null);
   if (!tip) return '';
   return `<section class="card support"><h2>No-coffee chain · ${esc(tip[1])}</h2><p>${esc(tip[2])}</p></section>`;
+}
+
+function lifeCard(d) {
+  const r = S.days[d]?.life || {};
+  const next = S.videos.filter((v) => v.status !== 'published').sort((a, b) => (a.date || '9').localeCompare(b.date || '9'))[0];
+  return `<section class="card">
+    <h2>A little for everything else <span class="right">+${PTS.life} XP each</span></h2>
+    <div class="list">${LIFE_AREAS.map(([k, name, hint]) => `<button class="check" role="checkbox" aria-checked="${!!r[k]}" data-act="life" data-k="${k}"><span class="box" aria-hidden="true">${r[k] ? '✓' : ''}</span>
+      <span><b>${esc(name)}</b><br><span class="muted small">${k === 'youtube' && next ? `Next video: ${esc(next.title)} (${esc(VIDEO_STATUS.find(([x]) => x === next.status)?.[1] || next.status)})` : esc(hint)}</span></span></button>`).join('')}</div>
+    <div class="grid2"><button class="small-btn" data-act="go-channel">Channel</button><button class="small-btn" data-act="go-goals" data-v="today">Goals</button></div>
+  </section>`;
+}
+
+// When the 4-week cycle ends, offer next month's Mentzer HIT block.
+const cycleEnd = () => addDays(S.settings.cycleStart, 28);
+function mentzerCard() {
+  const st = S.settings;
+  if (st.family !== 'cycle') return '';
+  const t = today();
+  if (t < cycleEnd()) return cycleWeek() === 4 ? `<section class="card slim"><p class="small"><b>Last week of the 4-week programme.</b> Mike Mentzer HIT takes over on ${fmtDate(cycleEnd())}.</p></section>` : '';
+  if (st.mentzerSnooze && t < addDays(st.mentzerSnooze, 7)) return '';
+  return `<section class="card alert">
+    <h2>4 weeks done: Mentzer next</h2>
+    <p class="small">The 4-week programme finished on ${fmtDate(addDays(cycleEnd(), -1))}. Next month is Mike Mentzer's Heavy Duty: one all-out set per exercise, more rest between sessions. It suits a deep cut: less volume to recover from.</p>
+    <p class="muted small">Your weights carry over. Start the HIT weights at about 80–90% of your best 8-rep set and go to failure.</p>
+    <button class="primary" data-act="go-mentzer">Switch to Mentzer HIT</button>
+    <div class="grid2"><button data-act="cycle-again">Run the 4 weeks again</button><button data-act="mentzer-later">Remind me next week</button></div>
+  </section>`;
 }
 
 function todaysPlanCard(d) {
@@ -1214,6 +1376,19 @@ function refeedCard(d) {
         : `<p><b>${Math.round(c.every - c.hours)} h</b> to the next carb-up (around ${fmtDate(c.next)}).</p><p class="muted small">Last: ${c.last ? fmtDate(c.last) : 'none yet'}. Flat in the gym, lifts down two sessions running or a stalled scale? Carb-up sooner.</p>`}
     </div></div>
     ${c.due ? `<button class="primary" data-act="refeed" data-date="${d}">Today is a carb-up day</button>` : `<button class="small-btn" data-act="refeed" data-date="${d}">Carb-up today instead</button>`}
+  </section>`;
+}
+
+// Weight and sleep in one place, straight from Today.
+function quickLogCard(d) {
+  const w = S.weights.find((x) => x.date === d), sl = sleepOn(d), lw = latestWeight();
+  return `<section class="card">
+    <h2>Log <span class="right">${w ? `✓ ${w.kg} kg` : 'weigh in'} · ${sl ? `✓ ${sl.hours} h sleep` : 'sleep'}</span></h2>
+    <form id="quick-log" class="grid2" autocomplete="off">
+      <label class="field">Weight (kg)<input name="kg" inputmode="decimal" placeholder="${lw ? lw.kg : ''}" value="${w ? w.kg : ''}"></label>
+      <label class="field">Sleep last night (h)<input name="hours" inputmode="decimal" placeholder="${S.settings.sleepGoal}" value="${sl ? sl.hours : ''}"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
+    </form>
   </section>`;
 }
 
@@ -1612,17 +1787,23 @@ function viewToday(P) {
       <div class="stat"><b>${(fl / 1000).toFixed(1)} L</b><span>Fluids / ${(fg / 1000).toFixed(1)}</span></div>
     </div>
   </section>
-  ${d >= cleanStart() ? checklistCard(d) : ''}
   ${fastingCard()}
   <section class="card">
-    <h2>Chains <span class="right">miss a day and it resets</span></h2>
-    ${started ? allChains().map(chainRow).join('') : d >= cleanStart() ? `${allChains().filter(isClean).map(chainRow).join('')}
-      <p class="small">Diet, training, steps and planning chains start <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). Use the days before to plan the first week and do a shop.</p>` : `<p>Your chains start on <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go). No coffee comes first; then diet, training, steps and planning.</p>
-      <p class="muted small">Use these days to plan the first week and do a shop.</p>`}
+    <h2>Diet &amp; health <span class="right">auto-kept</span></h2>
+    ${started ? healthChains().map(chainRow).join('') : `<p>Diet, fasting, training, steps and sleep chains start <b>${fmtDate(chainStart())}</b> (${daysBetween(d, chainStart())} day${daysBetween(d, chainStart()) === 1 ? '' : 's'} to go).</p>
+      <p class="muted small">Use the days before to plan the first week and do a shop.</p>`}
   </section>
+  ${d >= cleanStart() ? checklistCard(d) : ''}
+  ${quickLogCard(d)}
+  ${mentzerCard()}
+  ${d >= cleanStart() ? `<section class="card">
+    <h2>Clean chains <span class="right">miss a day and it resets</span></h2>
+    ${otherChains().filter((c) => started || isClean(c)).map(chainRow).join('')}
+  </section>` : ''}
   ${refeedCard(d)}
   ${cutCheckinCard(d)}
   ${d >= cleanStart() ? coffeeSupport() : ''}
+  ${lifeCard(d)}
   ${new Date().getHours() < 11 && !S.dreams[d] ? `<section class="card slim"><p class="small">🌙 Remember a dream? <button class="linkish inline" data-act="go-dream">Log it before it fades</button></p></section>` : ''}
   ${todayGoalsCard(d)}
   ${todaysPlanCard(d)}
@@ -1819,17 +2000,21 @@ function exerciseLogCard(prog, day, e, i) {
   const hint = progressionHint(e, prog.family);
   const tech = techOf(e);
   const mode = logMode(e);
-  const nSets = Math.max(1, Number(e.sets) || 1, mode === 'singles' ? tech.sets : 1);
+  const planned = Math.max(1, Number(e.sets) || 1, mode === 'singles' ? tech.sets : 1);
+  const extra = Math.max(0, Number(draft.extra) || 0);
+  const nSets = planned + extra;
   const ref = `${esc(prog.id)}|${esc(day.id)}|${esc(e.id)}`;
+  const base = `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" data-eid="${esc(e.id)}"`;
   const input = (s, field, ph, label, mode2 = 'numeric') => `<input inputmode="${mode2}" placeholder="${ph}" value="${esc(draft.sets?.[s]?.[field] ?? '')}" aria-label="${esc(e.name)} ${label}" data-draft="${ref}|${s}|${field}">`;
   const rows = Array.from({ length: nSets }, (_, s) => {
     const ls = last?.entry.sets[s] || last?.entry.sets[last.entry.sets.length - 1];
     const kg = input(s, 'kg', ls?.kg ?? 'kg', `set ${s + 1} kg`, 'decimal');
+    const label = s < planned ? `Set ${s + 1}` : `Extra ${s - planned + 1}`;
     if (mode === 'singles') return `<div class="setrow two"><span class="muted small">Rep ${s + 1}</span>${kg}<span class="muted">kg × 1</span></div>`;
     if (mode === 'hold') return `<div class="setrow"><span class="muted small">Hold</span>${kg}<span class="muted">kg ·</span>${input(s, 'hold', ls?.hold ?? 'sec', `set ${s + 1} seconds held`)}</div>`;
     const reps = input(s, 'reps', ls?.reps ?? 'reps', `set ${s + 1} reps`);
     if (mode === 'failhold') return `<div class="setrow three"><span class="muted small">Set</span>${kg}<span class="muted">×</span>${reps}<span class="muted">+</span>${input(s, 'hold', ls?.hold ?? 'sec', `set ${s + 1} hold seconds`)}</div>`;
-    return `<div class="setrow"><span class="muted small">Set ${s + 1}</span>${kg}<span class="muted">kg ×</span>${reps}</div>`;
+    return `<div class="setrow ${s >= planned ? 'extra' : ''}"><span class="muted small">${label}</span>${kg}<span class="muted">kg ×</span>${reps}</div>`;
   }).join('');
   const prevSs = i > 0 && day.exercises[i - 1].ss;
   return `<div class="excard ${e.ss ? 'ss-start' : ''} ${prevSs ? 'ss-end' : ''}">
@@ -1843,9 +2028,23 @@ function exerciseLogCard(prog, day, e, i) {
     ${rows}
     <div class="row wrap">
       ${mode === 'singles' ? '<button class="small-btn" data-act="rp-timer">10 s rest</button>' : ''}
+      ${mode === 'singles' ? '' : `<button class="small-btn" data-act="set-add" ${base}>+ Add set</button>`}
+      ${extra ? `<button class="small-btn" data-act="set-del" ${base}>− Remove extra set</button>` : ''}
       ${last ? `<button class="small-btn" data-act="copy-last" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" data-eid="${esc(e.id)}">Fill from last time</button>` : ''}
       <input class="grow" placeholder="Note (forced reps, negatives, feel…)" value="${esc(draft.note || '')}" aria-label="${esc(e.name)} note" data-draft="${ref}|note">
     </div>
+  </div>`;
+}
+
+const FEELS = [[1, 'Rough'], [2, 'Hard'], [3, 'OK'], [4, 'Good'], [5, 'Great']];
+const feelName = (n) => FEELS.find(([k]) => k === n)?.[1] || '';
+// How the whole session felt, saved with it: a 1–5 rating and a note.
+function sessionFeelCard(prog, day) {
+  const dr = getDraft(prog.id, day.id)._session || {};
+  return `<div class="excard feel">
+    <b>How did it feel?</b>
+    ${segmented('feel', FEELS, dr.feel, 'How the session felt', `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}"`)}
+    <input placeholder="Session notes (energy, pumps, sleep, anything off…)" value="${esc(dr.note || '')}" aria-label="Session notes" data-draft="${esc(prog.id)}|${esc(day.id)}|_session|note">
   </div>`;
 }
 
@@ -1903,6 +2102,7 @@ function viewTrain() {
   const kind = planKind(today());
   const af = activeFast();
   return `
+  ${mentzerCard()}
   ${segmented('family', [['cycle', '4-Week Cycle'], ['hit', 'Mentzer HIT']], fam, 'Training style')}
   ${fam === 'hit' ? `${segmented('tier', TIERS.map(([k, l]) => [k, l]), S.settings.tier, 'Mentzer level')}<p class="muted small tierdesc">${esc(tier[2])}</p>` : ''}
   <div class="chiprow">${programs(fam, fam === 'hit' ? S.settings.tier : null).map((p) => `<button class="pchip" data-act="pick-program" data-v="${esc(p.id)}" aria-pressed="${p.id === prog.id}">${esc(p.name)}</button>`).join('')}</div>
@@ -1931,6 +2131,7 @@ function viewTrain() {
       ${tmpl ? `<button class="ghost" data-act="prog-reset" data-pid="${esc(prog.id)}">Reset to the original</button>` : `<button class="ghost danger" data-act="prog-del" data-pid="${esc(prog.id)}">Delete this program</button>`}
     ` : `
       ${day.exercises.map((e, i) => exerciseLogCard(prog, day, e, i)).join('')}
+      ${sessionFeelCard(prog, day)}
       <button class="primary" data-act="complete" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}">Complete session · +${PTS.session} XP</button>
     `}
   </section>
@@ -1939,6 +2140,7 @@ function viewTrain() {
     ${hist.length ? `<div class="list">${hist.map((w) => `<div>
       <div class="row between"><button class="linkish grow" data-act="open-session" data-id="${esc(w.id)}"><b>${esc(w.dayName)}</b><br><span class="muted small">${fmtDate(w.date)} ${fmtTime(w.at)}${w.quick ? ' · quick' : ''}</span></button>
       <button class="icon ghost" data-act="del-workout" data-id="${esc(w.id)}" aria-label="Delete session">✕</button></div>
+      ${w.feel || w.note ? `<p class="small">${w.feel ? chip(`Felt: ${feelName(w.feel)}`, w.feel >= 4 ? 'good' : w.feel <= 2 ? 'warn' : '') : ''} ${w.note ? `<span class="muted">${esc(w.note)}</span>` : ''}</p>` : ''}
       ${ui.openSession === w.id ? `<div class="small muted">${(w.entries || []).map((e) => `${esc(e.name)}: ${e.sets.map(setText).join(', ')}${e.note ? ` (${esc(e.note)})` : ''}`).join('<br>') || 'No sets logged.'}</div>` : ''}
     </div>`).join('')}</div>` : `<p class="muted">No sessions logged for this program yet.${Object.keys(S.baselines).length ? ' Your last weights from before the reset show as starting points.' : ''}</p>`}
   </section>
@@ -2352,7 +2554,7 @@ function viewBodyGuide() {
       ${rule('Weeks 3–4: hypertrophy, 10–12 reps', 'Higher volume costs more recovery. If two sessions in a row drop, bring the carb-up forward or drop the last set of each exercise.')}
       ${rule('Put carb-ups on the hard days', 'Day 2 (legs) and Day 4 (back and deadlifts) benefit most. Carb up the day before or on the day.')}
       ${rule('Recovery', `Four sessions a week plus steps is a lot in a deficit. Sleep ${st.sleepGoal} h+, keep protein at ${st.proteinGoal} g, and treat a stalled lift as a recovery signal, not a reason to add volume.`)}
-      ${rule('After week 4', 'Run the cycle again with heavier starting weights, or move to Mentzer HIT (Train → switch family) for lower volume as you get leaner.')}
+      ${rule('After week 4', 'From the Monday after week 4, Today offers Mike Mentzer HIT for the next month: one all-out set per exercise and more rest, which suits a deep cut. Or run the cycle again with heavier starting weights.')}
     </div>
   </section>
   <section class="card">
@@ -2814,7 +3016,7 @@ function viewHeroCalendar() {
     const off = ds < cs || ds > t;
     let mark = '&nbsp;', cls = '';
     if (!off) {
-      if (sel === 'all') { const n = allChains().filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === allChains().length ? 'streak' : ''; }
+      if (sel === 'all') { const daily = allChains().filter((c) => c.id !== 'sessions'); const n = daily.filter((c) => chainStatus(ds, c.id) === 'done').length; mark = n || '&nbsp;'; cls = n === daily.length ? 'streak' : ''; }
       else { const s = chainStatus(ds, sel); mark = STATUS_ICON[s] || '·'; cls = s === 'done' ? 'streak' : s === 'miss' ? 'missday' : ''; }
     }
     cells.push(`<button class="${ds === d ? 'sel' : ''} ${off ? 'off' : ''} ${cls}" data-act="cal-date" data-date="${ds}" aria-label="${fmtDate(ds)}">${i}<span class="dots">${mark}</span></button>`);
@@ -2838,7 +3040,7 @@ function viewHeroCalendar() {
   </section>
   <section class="card">
     <h2>Streaks</h2>
-    <div class="list">${allChains().map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} days ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
+    <div class="list">${allChains().map((c) => { const st = chainStreak(c.id); return `<div class="row between"><span><b>${c.name}</b><br><span class="muted small">${st.days} ${c.id === 'sessions' ? 'sessions' : 'days'} ${c.id === 'steps' ? `at ${S.settings.stepGoal.toLocaleString('en-GB')}` : c.id === 'sessions' ? 'logged' : 'kept'} in total${c.weekly ? ' · counted in weeks' : ''}</span></span><span class="nowrap"><span class="flame ${st.cur ? 'lit' : ''}">${st.cur}${st.unit === 'wk' ? '<small>wk</small>' : ''}</span> <span class="muted small">best ${st.best}</span></span></div>`; }).join('')}</div>
   </section>
   <section class="card">
     <h2>${MON[first.getMonth()]} ${first.getFullYear()}</h2>
@@ -3146,8 +3348,13 @@ function completeSession(pid, did) {
     return { exId: e.id, name: e.name, tech: e.tech || '', sets, note: (dr.note || '').trim() };
   }).filter((e) => e.sets.length || e.note);
   const d = today();
-  S.workouts.push({ id: uid(), date: d, at: new Date().toISOString(), programId: pid, programName: prog.name, family: prog.family, dayId: did, dayName: day.name, entries });
+  const sess = draft._session || {};
+  const w = { id: uid(), date: d, at: new Date().toISOString(), programId: pid, programName: prog.name, family: prog.family, dayId: did, dayName: day.name, entries };
+  if (sess.feel) w.feel = Number(sess.feel);
+  if ((sess.note || '').trim()) w.note = sess.note.trim();
+  S.workouts.push(w);
   delete ui.drafts[draftKey(pid, did)];
+  saveDrafts();
   ui.dayId = null;
   const prs = prSessions();
   const last = S.workouts[S.workouts.length - 1];
@@ -3343,6 +3550,38 @@ document.addEventListener('click', (e) => {
       if (c.coffee === false) toast('Chain reset. Tomorrow is day 1 again');
       break;
     }
+    case 'life': {
+      const r = (dayRec(today()).life ||= {});
+      const k = el.dataset.k;
+      if (r[k]) delete r[k]; else { r[k] = true; toast(`${LIFE_AREAS.find(([x]) => x === k)[1]} · a bit done · +${PTS.life} XP`); }
+      break;
+    }
+    case 'go-channel': ui.tab = 'hero'; ui.sub.hero = 'channel'; rememberUi(); render({ scrollTop: true }); return;
+    case 'go-mentzer': S.settings.family = 'hit'; S.settings.mentzerSwitched = today(); ui.dayId = null; ui.tab = 'train'; rememberUi(); toast('Mentzer HIT is now your programme'); break;
+    case 'cycle-again': S.settings.cycleStart = weekStart(today()); toast('4-week programme restarted: week 1'); break;
+    case 'mentzer-later': S.settings.mentzerSnooze = today(); break;
+    case 'chain-mark': {
+      const c = (dayRec(today()).chains ||= {});
+      const id = el.dataset.chain, v = el.dataset.v === '1';
+      if (c[id] === v) delete c[id]; else c[id] = v;
+      const name = chainDef(id)?.name || 'Chain';
+      if (c[id] === false) toast(`${name} broken today. Day 1 again tomorrow`);
+      if (c[id] === true) toast(`${name} · kept`);
+      if (c[id] === undefined) toast(`${name} · back to automatic`);
+      break;
+    }
+    case 'eat-mode': {
+      const r = dayRec(el.dataset.date || today());
+      const v = el.dataset.v;
+      r.fast = v === 'fast';
+      if (v === 'omad') r.eat = 'omad'; else delete r.eat;
+      if (!r.fast) delete r.fast;
+      // Switching away from a planned fast day makes it a rest day.
+      const pl = S.plans[el.dataset.date || today()];
+      if (v !== 'fast' && pl?.kind === 'fast') pl.kind = 'rest';
+      toast(v === 'fast' ? 'Fast day: water, tea and electrolytes. Your diet chains count it' : v === 'omad' ? `One meal today: any time, one sitting (within ${OMAD_SITTING_MIN / 60} hours)` : `18:6 today: eat between ${win().from} and ${win().to}`);
+      break;
+    }
     case 'chain-set': {
       const c = (dayRec(el.dataset.date).chains ||= {});
       const v = el.dataset.v;
@@ -3436,17 +3675,47 @@ document.addEventListener('click', (e) => {
     case 'pick-day': ui.dayId = el.dataset.v; render(); return;
     case 'toggle-edit': ui.editProgram = !ui.editProgram; render(); return;
     case 'rp-timer': restTimer(el); return;
+    case 'set-add': case 'set-del': {
+      const { ex } = findEx(el.dataset.pid, el.dataset.did, el.dataset.eid);
+      const dr = (getDraft(el.dataset.pid, el.dataset.did)[ex.id] ||= {});
+      const planned = Math.max(1, Number(ex.sets) || 1);
+      const extra = Math.max(0, Number(dr.extra) || 0);
+      dr.sets ||= [];
+      if (a === 'set-add') {
+        // The new set starts at the weight you typed for the set before it.
+        const prev = dr.sets[planned + extra - 1];
+        dr.sets[planned + extra] = { kg: prev?.kg ?? '', reps: '' };
+        dr.extra = extra + 1;
+      } else if (extra) {
+        dr.sets.length = Math.min(dr.sets.length, planned + extra - 1);
+        dr.extra = extra - 1;
+      }
+      saveDrafts();
+      render();
+      return;
+    }
+    case 'feel': {
+      const dr = (getDraft(el.dataset.pid, el.dataset.did)._session ||= {});
+      dr.feel = Number(dr.feel) === Number(el.dataset.v) ? null : Number(el.dataset.v);
+      saveDrafts();
+      render();
+      return;
+    }
     case 'copy-last': {
       const { ex } = findEx(el.dataset.pid, el.dataset.did, el.dataset.eid);
       const last = lastEntryFor(ex.name);
       if (!last) return;
       const mode = logMode(ex);
-      const n = Math.max(1, Number(ex.sets) || 1, mode === 'singles' ? techOf(ex).sets : 1);
+      const planned = Math.max(1, Number(ex.sets) || 1, mode === 'singles' ? techOf(ex).sets : 1);
+      // Extra sets you did last time come back too.
+      const n = mode === 'singles' ? planned : Math.max(planned, last.entry.sets.length);
       const dr = (getDraft(el.dataset.pid, el.dataset.did)[ex.id] ||= {});
+      dr.extra = n - planned;
       dr.sets = Array.from({ length: n }, (_, s) => {
         const ls = last.entry.sets[s] || last.entry.sets[last.entry.sets.length - 1];
         return { kg: ls?.kg ?? '', reps: ls?.reps ?? '', hold: ls?.hold ?? '' };
       });
+      saveDrafts();
       render(); return;
     }
     case 'complete': completeSession(el.dataset.pid, el.dataset.did); break;
@@ -3612,8 +3881,8 @@ document.addEventListener('click', (e) => {
     case 'del-old': ask('Delete the data kept from before version 3? This can\'t be undone.', 'Delete', () => { try { localStorage.removeItem(OLD_KEY); } catch { /* ignore */ } }); return;
     case 'reset-all':
       ask('Reset all data? Everything is wiped: logs, plans, chains, goals and XP.\nCopy a backup first if you might want it.', 'Wipe everything',
-        () => { S = cleanSlate(S, false); ui.drafts = {}; toast('All data reset'); },
-        { label: 'Keep exercise weights', run: () => { S = cleanSlate(S, true); ui.drafts = {}; toast('Reset · exercise weights kept'); } });
+        () => { S = cleanSlate(S, false); ui.drafts = {}; saveDrafts(); toast('All data reset'); },
+        { label: 'Keep exercise weights', run: () => { S = cleanSlate(S, true); ui.drafts = {}; saveDrafts(); toast('Reset · exercise weights kept'); } });
       return;
     case 'restore-paste': restoreFrom(document.getElementById('restore-text')?.value.trim()); return;
     case 'export': {
@@ -3661,6 +3930,7 @@ document.addEventListener('input', (e) => {
     const dr = (getDraft(pid, did)[eid] ||= {});
     if (s === 'note') dr.note = t.value;
     else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; }
+    saveDrafts();
     return;
   }
   if (t.dataset.live === 'recipe-q') {
@@ -3936,6 +4206,17 @@ document.addEventListener('submit', (e) => {
       if (data.food && p.food) S.meals.push({ id: uid(), date: d, at, name: `${p.name} (stack)`, kcal: p.food.kcal, p: p.food.p, c: p.food.c, f: p.food.f, servings: 1, ref: `stack:${p.id}`, kind: 'stack', slot: 'Snack' });
       closeSheet();
       toast(`${p.name} logged`);
+      break;
+    }
+    case 'quick-log': {
+      const d = today(), kg = num(data.kg), h = num(data.hours);
+      if (kg === null && h === null) return toast('Enter your weight or sleep');
+      if (kg !== null && (kg < 30 || kg > 250)) return toast('Enter a weight in kg');
+      if (h !== null && (h < 0 || h > 16)) return toast('Enter sleep in hours');
+      const done = [];
+      if (kg !== null) { S.weights = S.weights.filter((w) => w.date !== d); S.weights.push({ date: d, kg: round1(kg) }); done.push(`${round1(kg)} kg`); }
+      if (h !== null) { const prev = sleepOn(d); S.sleep = S.sleep.filter((x) => x.date !== d); S.sleep.push({ date: d, at: prev?.at || new Date().toISOString(), hours: round1(h), quality: prev?.quality ?? null, notes: prev?.notes || '' }); done.push(`${round1(h)} h sleep`); }
+      toast(`Saved: ${done.join(', ')}`);
       break;
     }
     case 'weight-form': {

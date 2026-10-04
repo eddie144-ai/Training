@@ -237,7 +237,7 @@ await test('Chain summary for the home page: every chain with streaks, rewritten
   const own = await seeded(() => {});
   const { ctx, page } = await open({ own });
   const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')));
-  eq([sum.v, sum.date, sum.chains.map((c) => c.id)], [1, '2026-10-08', ['coffee', 'diet', 'cut', 'training', 'steps', 'sleep', 'plan']], 'summary');
+  eq([sum.v, sum.date, sum.chains.map((c) => c.id)], [1, '2026-10-08', ['coffee', 'diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan']], 'summary');
   assert(sum.chains.every((c) => typeof c.day === 'number' && typeof c.best === 'number' && typeof c.name === 'string'), 'fields');
   await page.evaluate(() => { window.__writes = []; });
   await page.click('nav [data-tab="plan"]'); await page.click('nav [data-tab="today"]');
@@ -275,6 +275,154 @@ await test('Look: Gironda background by default, plain option, own photo kept in
   await page.click('nav [data-tab="body"]'); await page.click('.subtabs [data-v="measure"]');
   await page.waitForSelector('#photo-grid p');
   eq(await page.locator('#photo-grid img').count(), 0, 'background photo not in progress photos');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('New chains: fasting window, protein, and 4 sessions a week', async () => {
+  const own = await seeded((s) => {
+    const meal = (id, d, hhmm, ref, p) => ({ id, date: d, at: new Date(`${d}T${hhmm}:00+01:00`).toISOString(), name: ref, kcal: 900, p, c: 4, f: 60, servings: 1, ref });
+    s.meals.push(meal('a', '2026-10-05', '09:30', 'gironda1', 77), meal('b', '2026-10-05', '14:00', 'gironda2', 93));
+    s.meals.push(meal('c', '2026-10-06', '09:30', 'gironda1', 77), meal('d', '2026-10-06', '19:30', 'gironda2', 93));
+    s.meals.push(meal('e', '2026-10-07', '12:00', 'other', 20));
+    s.workouts.push(...['2026-10-05', '2026-10-06', '2026-10-08', '2026-10-09'].map((d, i) => ({ id: `w${i}`, date: d, at: `${d}T17:00:00.000Z`, programId: 'my4week', dayId: 'x', entries: [] })));
+  });
+  const { ctx, page, errors } = await open({ own, time: '2026-10-12T10:00:00+01:00' });
+  const r = await page.evaluate(() => ({
+    fast: [chainStatus('2026-10-05', 'fasting'), chainStatus('2026-10-06', 'fasting')],
+    prot: [chainStatus('2026-10-05', 'protein'), chainStatus('2026-10-07', 'protein')],
+    wk: sessionsWeek('2026-10-05'), wk2: sessionsWeek('2026-10-12'), st: chainStreak('sessions'),
+    sum: JSON.parse(localStorage.getItem('shtrainer.chains')).chains.find((c) => c.id === 'sessions'),
+  }));
+  eq(r.fast, ['done', 'miss'], 'fasting: inside the 09:00-15:00 window, then a 19:30 meal breaks it');
+  eq(r.prot, ['done', 'miss'], 'protein: 170 g hit, then an off-plan 20 g day');
+  eq([r.wk.count, r.wk.need, r.wk.status, r.wk2.status, r.st.cur], [4, 4, 'done', 'pending', 1], 'one week of 4 sessions won; this week open');
+  eq([r.sum.unit, r.sum.day], ['wk', 1], 'home page summary in weeks');
+  await page.click('nav [data-tab="today"]');
+  assert(await page.locator('text=Sessions this week').count(), 'shown on Today');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('Quick log on Today saves weight and sleep, and feeds the sleep chain', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own });
+  await page.fill('#quick-log input[name="kg"]', '94.3');
+  await page.fill('#quick-log input[name="hours"]', '7.8');
+  await page.click('#quick-log button[type=submit]');
+  eq(await page.evaluate(() => [S.weights.find((w) => w.date === today())?.kg, sleepOn(today())?.hours, chainStatus(today(), 'sleep')]), [94.3, 7.8, 'done'], 'saved');
+  await page.fill('#quick-log input[name="hours"]', '6');
+  await page.click('#quick-log button[type=submit]');
+  eq(await page.evaluate(() => [S.sleep.filter((x) => x.date === today()).length, chainStatus(today(), 'sleep')]), [1, 'miss'], 'updated, not duplicated');
+  await page.fill('#quick-log input[name="kg"]', '9000');
+  await page.click('#quick-log button[type=submit]');
+  eq(await page.evaluate(() => S.weights.find((w) => w.date === today()).kg), 94.3, 'bad weight rejected');
+  await ctx.close();
+});
+
+await test('Goal-pack link imports clean chains with their history and starting weights', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own });
+  const pack = { kind: 'trainer-goals', name: 'Test pack', chains: [{ id: 'weed', name: 'No weed', since: '2026-07-08' }, { id: 'energy', name: 'No energy drinks', since: '2026-07-16' }], baselines: [{ name: 'Barbell Squat', date: '2026-09-23', sets: [[110, 8], [110, 8], [110, 8]] }] };
+  const link = 'https://example/#import=' + Buffer.from(JSON.stringify(pack)).toString('base64url');
+  const p = await page.evaluate((l) => decodePack(l), link);
+  eq(p.name, 'Test pack', 'decodes');
+  await page.evaluate((x) => { applyPack(x); commit(); }, p);
+  const r = await page.evaluate(() => ({ weed: dayNumber(chainStreak('weed')), energy: dayNumber(chainStreak('energy')), base: S.baselines[exKey('Barbell Squat')].sets[0] }));
+  eq([r.weed, r.energy, r.base], [93, 85, { kg: 110, reps: 8 }], 'No weed day 93 and No energy drinks day 85 on 8 Oct; squat baseline 110 x 8');
+  await ctx.close();
+});
+
+await test('Previous weights are built in; a newer weight you already have is kept', async () => {
+  const own = await seeded(() => {});
+  eq([Object.keys(own.baselines).length, own.baselines['reverse grip bench press'].sets[0]], [22, { kg: 25, reps: 8 }], 'fresh start has all 22 lifts');
+  const old = await seeded((s) => { delete s.settings.seededLifts; s.baselines = { 'barbell squat': { name: 'Barbell Squat', date: '2026-10-01', sets: [{ kg: 120, reps: 5 }] } }; });
+  const { ctx, page, errors } = await open({ own: old });
+  const r = await page.evaluate(() => ({ n: Object.keys(S.baselines).length, squat: S.baselines[exKey('Barbell Squat')].sets[0].kg, saved: JSON.parse(localStorage.getItem('shtrainer.v1')).settings.seededLifts }));
+  eq(r, { n: 22, squat: 120, saved: true }, 'merged once, newer squat kept');
+  await page.click('nav [data-tab="train"]');
+  assert(await page.locator('text=/Starting point/').count(), 'starting points shown in the logger');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('Eating modes: 18:6, one meal, fast day; diet chains kept unless the log or I broke it says otherwise', async () => {
+  const own = await seeded((s) => {
+    const meal = (id, d, hhmm, ref, p) => ({ id, date: d, at: new Date(`${d}T${hhmm}:00+01:00`).toISOString(), name: ref, kcal: 900, p, c: 4, f: 60, servings: 1, ref });
+    s.days['2026-10-06'] = { eat: 'omad' };
+    s.meals.push(meal('a', '2026-10-06', '19:30', 'gironda2', 93));
+    s.days['2026-10-07'] = { eat: 'omad' };
+    s.meals.push(meal('b', '2026-10-07', '12:00', 'gironda1', 77), meal('c', '2026-10-07', '18:00', 'gironda2', 93));
+  });
+  const { ctx, page, errors } = await open({ own, time: '2026-10-08T10:00:00+01:00' });
+  const ids = ['diet', 'cut', 'fasting', 'protein'];
+  const r = await page.evaluate((ids) => ({
+    blank: ids.map((id) => chainStatus('2026-10-05', id)),
+    omad: ids.map((id) => chainStatus('2026-10-06', id)),
+    two: chainStatus('2026-10-07', 'fasting'),
+  }), ids);
+  eq(r.blank, ['done', 'done', 'done', 'done'], 'a past day with nothing logged counts as kept');
+  eq(r.omad, ['done', 'done', 'done', 'done'], 'one meal at 19:30 keeps every diet chain');
+  eq(r.two, 'miss', 'two sittings on a one-meal day break the fasting chain');
+  await page.click('[data-act="eat-mode"][data-v="fast"]');
+  eq(await page.evaluate(() => [eatMode(today()), S.days[today()].fast, chainStatus(today(), 'fasting')]), ['fast', true, 'pending'], 'fast day set; counts once the window has passed');
+  assert(await page.locator('text=/Fast day\./').count(), 'fast-day note on Today');
+  await page.click('[data-act="eat-mode"][data-v="omad"]');
+  eq(await page.evaluate(() => [eatMode(today()), !!S.days[today()].fast]), ['omad', false], 'switched to one meal');
+  await page.click('[data-act="chain-mark"][data-chain="cut"][data-v="0"]');
+  eq(await page.evaluate(() => chainStatus(today(), 'cut')), 'miss', 'I broke it');
+  await page.click('[data-act="chain-mark"][data-chain="cut"][data-v="0"]');
+  eq(await page.evaluate(() => chainStatus(today(), 'cut')), 'pending', 'tap again: back to automatic');
+  const order = await page.evaluate(() => [...document.querySelectorAll('#view h2')].map((h) => h.textContent));
+  const at = (t) => order.findIndex((x) => x.startsWith(t));
+  assert(at('Eating today') < at('Diet & health') && at('Diet & health') < at('Clean chains') && at('Clean chains') < at('A little for everything else'), `Today order: ${order.join(' | ')}`);
+  await page.click('[data-act="life"][data-k="youtube"]');
+  eq(await page.evaluate(() => S.days[today()].life), { youtube: true }, 'a bit for YouTube ticked');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('Workout log: different weight per set, extra sets, how it felt; a half-logged session survives a reload', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page, errors } = await open({ own });
+  await page.click('nav [data-tab="train"]');
+  const card = page.locator('.excard').filter({ has: page.locator('[data-act="set-add"]') }).first();
+  const name = (await card.locator('b').first().textContent()).trim();
+  const kg = (s) => card.locator(`input[data-draft$="|${s}|kg"]`);
+  const reps = (s) => card.locator(`input[data-draft$="|${s}|reps"]`);
+  const planned = await card.locator('input[data-draft$="|kg"]').count();
+  const weights = [25, 25, 20, 15, 15, 15].slice(0, planned);
+  for (let s = 0; s < planned; s++) { await kg(s).fill(String(weights[s])); await reps(s).fill('8'); }
+  await page.reload();
+  await page.click('nav [data-tab="train"]');
+  eq(await kg(0).inputValue(), '25', 'draft kept after reload');
+  await card.locator('[data-act="set-add"]').click();
+  await card.locator('[data-act="set-add"]').click();
+  eq(await kg(planned + 1).inputValue(), String(weights[planned - 1]), 'extra set starts at the last weight');
+  await kg(planned).fill('20'); await kg(planned + 1).fill('20');
+  await reps(planned).fill('10'); await reps(planned + 1).fill('9');
+  assert(await card.locator('text=Extra 2').count(), 'extra sets labelled');
+  await page.click('[data-act="feel"][data-v="4"]');
+  await page.fill('input[aria-label="Session notes"]', 'Strong on bench');
+  await page.click('[data-act="complete"]');
+  const w = await page.evaluate((n) => { const w = S.workouts[S.workouts.length - 1]; return { feel: w.feel, note: w.note, sets: w.entries.find((e) => e.name === n).sets }; }, name);
+  eq([w.feel, w.note, w.sets.length, w.sets[0].kg, w.sets[planned].kg, w.sets[planned + 1].reps], [4, 'Strong on bench', planned + 2, 25, 20, 9], 'saved with extra sets and feel');
+  assert(await page.locator('text=Felt: Good').count(), 'feel shown in history');
+  eq(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('shtrainer.drafts')))), [], 'draft cleared after completing');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('After the 4 weeks: Mentzer HIT is offered on 2 November', async () => {
+  const own = await seeded(() => {});
+  const a = await open({ own, time: '2026-10-28T10:00:00+01:00' });
+  assert(await a.page.locator('text=/Last week of the 4-week programme/').count(), 'week 4 heads-up');
+  await a.ctx.close();
+  const { ctx, page, errors } = await open({ own, time: '2026-11-02T10:00:00+00:00' });
+  assert(await page.locator('text=4 weeks done: Mentzer next').count(), 'offer on Today');
+  await page.click('#view [data-act="go-mentzer"]');
+  eq(await page.evaluate(() => [S.settings.family, ui.tab, activeProgram().family]), ['hit', 'train', 'hit'], 'switched');
+  eq(await page.locator('text=4 weeks done: Mentzer next').count(), 0, 'offer gone');
   eq(errors, [], 'errors');
   await ctx.close();
 });
