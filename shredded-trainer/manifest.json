@@ -1,0 +1,16 @@
+{
+  "name": "Shredded Trainer",
+  "short_name": "Shredded",
+  "description": "Your 4-week programme and the Gironda cut: chains, carb-up clock and weekly decisions.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121211",
+  "theme_color": "#121211",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
