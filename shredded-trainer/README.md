@@ -13,15 +13,31 @@ never changed, and from then on the two apps keep separate data. Either way the 
 the 4-week cycle as the active programme, a 75 kg target with 70 kg as the lowest goal, and a carb-up every
 96 hours.
 
-## Chains
-No coffee, diet dialled in, cut day, **fasting window kept** (every meal inside the window, or a fast day),
-**protein hit**, training plan followed, **4 sessions this week** (Monday to Sunday, counted in weeks, +20 XP a
-week), steps (weekly), sleep 7.5 h+ and tomorrow planned, plus your own "No ___" chains. Your personal
-chains (such as No energy drinks) aren't in this public code: add them in Hero → Chains, copy them from
-Trainer (Body → Setup), or import them from a private goal-pack link, which can also carry starting weights
-for each exercise (a newer starting weight already on the phone is kept).
+## Today, in order
+1. **Eating today:** tap **18:6 window**, **One meal** (any time, one sitting: everything within 2 hours
+   of the first bite) or **Fast day**. The diet chains follow whichever you pick.
+2. **Diet & health chains:** diet dialled in, cut day, **fasting kept**, **protein hit**, training plan
+   followed, **4 sessions this week** (Monday to Sunday, +20 XP a week), steps (weekly) and sleep 7.5 h+.
+   The four diet chains **tick themselves**: a day counts as kept unless your log shows otherwise (a meal
+   outside the window, a second sitting, food on a fast day, something off the Gironda plan) or you tap
+   **I broke it**. Tap it again to go back to automatic. Protein isn't judged on one-meal or fast days.
+3. Daily checklist (tap Meal 1 or Meal 2 to log it), then **Log** for weight and last night's sleep.
+4. **Clean chains:** no coffee, your own "No ___" chains and tomorrow planned.
+5. Carb-up clock, cut check-in and red flags.
+6. **A little for everything else:** one tap each for YouTube, wealth, and family & the rest (+3 XP each).
 
-**Log** on Today saves your weight and last night's sleep in one go.
+Your personal chains (such as No energy drinks) aren't in this public code: add them in Hero → Chains,
+copy them from Trainer (Body → Setup), or import them from a private goal-pack link.
+
+## Training
+- **Previous weights are built in:** your last Grok-tracker numbers for all 22 exercises of My 4-Week
+  Program show as starting points (a newer weight already on the phone is kept).
+- Each set has its own kg and reps, so 25, 25, 20, 15 logs as it happened. **+ Add set** adds extra sets
+  (starting at the weight of the set before); **Fill from last time** brings back extra sets too.
+- **How did it feel?** Rough to Great plus a session note, saved with the session and shown in history.
+- A half-logged session is kept on the phone if the app closes mid-workout.
+- **Next month:** in week 4 Today says when the programme ends; from Monday 2 November it offers to switch
+  to **Mike Mentzer HIT** (or run the 4 weeks again, or remind you next week).
 
 ## Everything from Trainer
 Chains (no coffee, diet, cut day, training, steps, sleep, planning, your own), both programme families
@@ -61,7 +77,9 @@ module), `photos.js`, `scan.js`, `reminders.js` (shared with Shredded System), `
 npm i playwright          # once
 node shredded-trainer/tests/app.test.mjs
 ```
-17 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
+21 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
 programme by week, the carb-up clock and chains, red flags and check-in, the weekly decision and the
-calorie floor, barcode logging, photos, the calendar file, the new chains, the quick log, goal-pack import, the chain summary, copying chains from Trainer, the background, every tab rendering,
+calorie floor, barcode logging, photos, the calendar file, the new chains, the quick log, goal-pack import, the chain summary, copying chains from Trainer, the background, built-in previous weights,
+eating modes and auto-kept chains, the workout log (extra sets, feel, surviving a reload), the Mentzer switch,
+every tab rendering,
 and offline use.

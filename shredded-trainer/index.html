@@ -90,6 +90,7 @@
   .small { font-size: 13px; }
   .accent { color: var(--accent); }
   .good-text { color: var(--good); }
+  .bad-text { color: var(--bad); }
   .danger { color: var(--bad); }
   .row { display: flex; gap: 10px; align-items: center; min-width: 0; }
   .between { justify-content: space-between; }
@@ -235,6 +236,8 @@
   @media (prefers-reduced-motion: reduce) { .toast { animation: none; } button:active { transform: none; } }
   @media (max-width: 360px) { .grid3 { grid-template-columns: 1fr 1fr; } .habit-grid { grid-template-columns: 1fr; } }
   .setrow.two { grid-template-columns: 44px 1fr auto; }
+  .setrow.extra > span:first-child { color: var(--brass, var(--accent)); font-weight: 700; }
+  .excard.feel { display: grid; gap: 8px; }
   .setrow.three { grid-template-columns: 34px 1fr auto 1fr auto 1fr; gap: 6px; }
   .setrow.three input { padding: 8px 4px; }
   .center { text-align: center; }
