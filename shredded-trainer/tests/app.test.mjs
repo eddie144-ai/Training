@@ -219,7 +219,7 @@ await test('Reminders: calendar file with daily weigh-in, carb-ups and the 4-day
 await test('Every tab and sub-tab renders with no errors or broken text', async () => {
   const own = await seeded(() => {});
   const { ctx, page, errors } = await open({ own });
-  const tabs = [['today', []], ['plan', ['tomorrow', 'week', 'shop']], ['train', []], ['fuel', ['log', 'recipes', 'fluids', 'stack']], ['body', ['weight', 'garmin', 'measure', 'sleep', 'guide', 'settings']], ['hero', ['character', 'goals', 'journal', 'calendar', 'channel']]];
+  const tabs = [['today', []], ['plan', ['tomorrow', 'week', 'shop']], ['train', []], ['fuel', ['log', 'recipes', 'fluids', 'stack']], ['body', ['weight', 'garmin', 'measure', 'sleep', 'guide', 'settings']], ['hero', ['character', 'goals', 'journal', 'calendar', 'channel', 'apps']]];
   for (const [tab, subs] of tabs) {
     await page.click(`nav [data-tab="${tab}"]`);
     for (const sub of subs.length ? subs : [null]) {
@@ -423,6 +423,27 @@ await test('After the 4 weeks: Mentzer HIT is offered on 2 November', async () =
   await page.click('#view [data-act="go-mentzer"]');
   eq(await page.evaluate(() => [S.settings.family, ui.tab, activeProgram().family]), ['hit', 'train', 'hit'], 'switched');
   eq(await page.locator('text=4 weeks done: Mentzer next').count(), 0, 'offer gone');
+  eq(errors, [], 'errors');
+  await ctx.close();
+});
+
+await test('Iron & Eggs: Apps tab backs up every app in one file and restores it', async () => {
+  const own = await seeded((s) => { s.weights.push({ date: '2026-10-07', kg: 94.4 }); });
+  const { ctx, page, errors } = await open({ own });
+  await page.evaluate(() => { localStorage.setItem('council.v1', '{"commits":[]}'); localStorage.setItem('council.anthropicKey', 'SECRET'); });
+  eq(await page.locator('#title').textContent(), 'Iron & Eggs', 'branded');
+  assert(await page.locator('text=No backup for a week').count(), 'backup nudge on Today');
+  await page.click('[data-act="go-apps"]');
+  assert(await page.locator('a.applink', { hasText: 'Council' }).count(), 'other apps listed');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="backup-all"]')]);
+  const file = await dl.path();
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  eq([data.kind, !!data.keys['shtrainer.v1'], data.keys['council.v1'], JSON.stringify(data).includes('SECRET')], ['iron-eggs-backup', true, '{"commits":[]}', false], 'backup contents');
+  await page.evaluate(() => { S.weights = []; commit(); localStorage.setItem('council.v1', '{"commits":[1]}'); });
+  fs.writeFileSync(file + '.json', JSON.stringify(data));
+  await page.setInputFiles('#restore-all', file + '.json');
+  await Promise.all([page.waitForEvent('load'), page.click('[data-act="ask-yes"]')]);
+  eq(await page.evaluate(() => [S.weights.length, localStorage.getItem('council.v1')]), [1, '{"commits":[]}'], 'restored');
   eq(errors, [], 'errors');
   await ctx.close();
 });
