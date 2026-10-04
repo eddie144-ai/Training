@@ -83,9 +83,9 @@ module), `photos.js`, `scan.js`, `reminders.js` (shared with Shredded System), `
 npm i playwright          # once
 node shredded-trainer/tests/app.test.mjs
 ```
-22 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
+23 tests: the welcome and data copy (Trainer untouched, only `shtrainer.*` written), the 4-week
 programme by week, the carb-up clock and chains, red flags and check-in, the weekly decision and the
 calorie floor, barcode logging, photos, the calendar file, the new chains, the quick log, goal-pack import, the chain summary, copying chains from Trainer, the background, built-in previous weights,
-eating modes and auto-kept chains, the all-apps backup and restore, the workout log (extra sets, feel, surviving a reload), the Mentzer switch,
+eating modes and auto-kept chains, the all-apps backup and restore, the fast timer from midnight, the workout log (extra sets, feel, surviving a reload), the Mentzer switch,
 every tab rendering,
 and offline use.

@@ -1137,7 +1137,7 @@ function fastingCard() {
     const h = fastHours(f);
     const { cur, next } = fastStage(h);
     return `<section class="card fastcard">
-      <h2>Extended fast <span class="right">goal ${f.goalH} h</span></h2>
+      <h2>Fast timer <span class="right">goal ${f.goalH} h</span></h2>
       <div class="bigtime" data-since="${f.start}">${fmtDur(Date.now() - new Date(f.start))}</div>
       ${bar(h, f.goalH, h >= f.goalH ? 'good' : 'xp')}
       <p class="small">${cur ? `<b>${esc(cur[1])}.</b> ${esc(cur[2])}` : 'Started. Water and electrolytes through the day.'}</p>
@@ -1169,7 +1169,7 @@ function fastingCard() {
     ${segmented('eat-mode', EAT_MODES, mode, 'How you are eating today', `data-date="${d}"`)}
     ${modeLine}
     ${mode === 'fast' && !meals.length ? '' : `${head}<p class="small">${mode === 'omad' ? 'The window doesn\'t apply today.' : line}</p>`}
-    <button data-act="fast-start">Start an extended fast</button>
+    <div class="grid2"><button class="primary" data-act="fast-midnight">⏱ Fast timer from midnight</button><button data-act="fast-start">Other start or goal</button></div>
   </section>`;
 }
 
@@ -3221,14 +3221,22 @@ function openSteps(date) {
   </form>`);
 }
 
+const FAST_GOALS = [16, 18, 20, 24, 36, 48, 72];
+// The most recent midnight, local time.
+const lastMidnight = () => new Date(atOn(today(), '00:00')).toISOString();
+function startFast(start, goalH) {
+  S.fasts.push({ id: uid(), start, end: null, goalH });
+  toast(`Fast timer running from ${fmtTime(start)} · goal ${goalH} h. Water, tea and electrolytes`);
+}
+
 function openFastStart() {
   const last = lastMealBefore(new Date());
-  openSheet('Start an extended fast', `<form id="fast-form" class="grid1" autocomplete="off">
-    <p class="small">Your usual ${windowLabel()} fast runs every day on its own. This is for going longer, such as 24, 36, 48 or 72 hours.</p>
+  openSheet('Start a fast timer', `<form id="fast-form" class="grid1" autocomplete="off">
+    <p class="small">A timer with stages and a goal. Your usual ${windowLabel()} fast also runs every day on its own.</p>
     <label class="field">Goal
-      <select name="goalH">${[24, 36, 48, 72].map((h) => `<option value="${h}" ${h === 36 ? 'selected' : ''}>${h} hours</option>`).join('')}</select></label>
+      <select name="goalH">${FAST_GOALS.map((h) => `<option value="${h}" ${h === 24 ? 'selected' : ''}>${h} hours</option>`).join('')}</select></label>
     <label class="field">Started
-      <select name="from">${last ? `<option value="last">At my last meal (${fmtDate(last.date)} ${fmtTime(last.at)})</option>` : ''}<option value="now">Now</option></select></label>
+      <select name="from"><option value="midnight">At midnight (00:00 ${fmtDate(today())})</option>${last ? `<option value="last">At my last meal (${fmtDate(last.date)} ${fmtTime(last.at)})</option>` : ''}<option value="now">Now</option></select></label>
     <ul class="small">${FAST_SAFETY.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
     <button class="primary" type="submit">Start fast</button>
   </form>`);
@@ -3651,6 +3659,7 @@ document.addEventListener('click', (e) => {
     case 'fuel-date': { const dir = Number(el.dataset.dir); const cur = ui.fuelDate || today(); ui.fuelDate = dir === 0 ? today() : addDays(cur, dir); if (ui.fuelDate > today()) ui.fuelDate = today(); render(); return; }
     // Fasting
     case 'fast-start': openFastStart(); return;
+    case 'fast-midnight': if (!activeFast()) startFast(lastMidnight(), 24); break;
     case 'fast-end': {
       const f = activeFast();
       const h = Math.floor(fastHours(f));
@@ -3659,7 +3668,7 @@ document.addEventListener('click', (e) => {
     }
     case 'fast-goal': {
       const f = activeFast();
-      openSheet('Fast goal', `<div class="grid4">${[24, 36, 48, 72].map((h) => `<button data-act="fast-goal-set" data-h="${h}" aria-pressed="${f.goalH === h}">${h} h</button>`).join('')}</div>`);
+      openSheet('Fast goal', `<div class="grid4">${FAST_GOALS.map((h) => `<button data-act="fast-goal-set" data-h="${h}" aria-pressed="${f.goalH === h}">${h} h</button>`).join('')}</div>`);
       return;
     }
     case 'fast-goal-set': activeFast().goalH = Number(el.dataset.h); closeSheet(); break;
@@ -4240,10 +4249,9 @@ document.addEventListener('submit', (e) => {
     }
     case 'fast-form': {
       const last = lastMealBefore(new Date());
-      const start = data.from === 'last' && last ? last.at : new Date().toISOString();
-      S.fasts.push({ id: uid(), start, end: null, goalH: Number(data.goalH) || 36 });
+      const start = data.from === 'midnight' ? lastMidnight() : data.from === 'last' && last ? last.at : new Date().toISOString();
       closeSheet();
-      toast('Fast started. Water and electrolytes');
+      startFast(start, Number(data.goalH) || 24);
       break;
     }
     case 'window-form': {
