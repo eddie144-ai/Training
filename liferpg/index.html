@@ -143,6 +143,12 @@
   .quest.flash { animation: flash .7s ease-out; }
   @keyframes flash { 0% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 18px var(--accent); } 100% { box-shadow: inset 0 0 0 0 transparent; } }
   .qgrid { display: grid; gap: 8px; }
+  .qwrap { display: grid; gap: 4px; }
+  .badge { display: inline-block; margin-top: 4px; font: 700 11px/1 var(--mono); padding: 4px 6px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  button.revert { justify-self: end; min-height: 36px; padding: 4px 12px; font-size: 13px; background: transparent; border: 1px solid var(--warn); color: var(--warn); }
+  .quest.paused .tick, .quest.moved .tick { background: var(--xp); border-color: var(--xp); color: #000; }
+  .dots i.paused, .dots i.moved { background: var(--xp); }
+  .danger { color: var(--bad); }
   .pillar-h { display: flex; align-items: center; gap: 8px; font: 800 12px/1 var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--accent); margin-top: 4px; }
   .pillar-h .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); font-size: 11px; }
   .goal { display: grid; gap: 8px; padding: 10px 0 2px 12px; border-left: 2px solid var(--border); }
@@ -212,6 +218,7 @@
 <div class="dock" id="dock" aria-label="Quick log"></div>
 <nav id="nav" aria-label="Sections"></nav>
 <script src="data.js"></script>
+<script src="trainer-adapter.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

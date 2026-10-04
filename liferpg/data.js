@@ -14,19 +14,22 @@ const STATS = [
 
 // Quest fields: type daily|weekly, metric binary|numeric, xp, stat (where the XP goes).
 // numeric quests have a unit and a target: reaching the target completes them.
-// core quests cost HP when a past day is missed. auto names the Trainer reading that can complete it.
+// core quests (you can change which in Quests) cost HP when missed and are all a perfect day needs.
+// schedule: only shown on scheduled training days (or days you trained).
+// auto names the Trainer reading that can fill it in. clean: counts by itself unless you report a slip.
 const DOMAINS = [
   {
     id: 'health_wellness', name: 'Health & Wellness', short: 'Health',
     goals: [
       { id: 'physical_fitness', title: 'Improve Physical Fitness', stats: ['STR', 'VIT'], quests: [
-        { id: 'workout', label: 'Training plan followed', sub: 'Trained, or a planned rest day', type: 'daily', xp: 50, stat: 'STR', metric: 'binary', core: true, auto: 'workout', dock: 'Workout' },
-        { id: 'volume', label: 'Log kettlebell / weight volume', type: 'daily', xp: 30, stat: 'STR', metric: 'numeric', unit: 'kg', target: 1, auto: 'volume', optional: true },
-        { id: 'steps', label: 'Steps', type: 'daily', xp: 20, stat: 'VIT', metric: 'numeric', unit: 'steps', target: 15000, auto: 'steps', dock: 'Steps', optional: true },
+        { id: 'workout', label: 'Training session', sub: 'Scheduled training day', type: 'daily', xp: 50, stat: 'STR', metric: 'binary', core: true, auto: 'workout', schedule: true, dock: 'Workout' },
+        { id: 'volume', label: 'Log kettlebell / weight volume', type: 'daily', xp: 30, stat: 'STR', metric: 'numeric', unit: 'kg', target: 1, auto: 'volume', schedule: true },
+        { id: 'steps', label: 'Steps', type: 'daily', xp: 20, stat: 'VIT', metric: 'numeric', unit: 'steps', target: 15000, auto: 'steps', dock: 'Steps' },
       ] },
       { id: 'mental_discipline', title: 'Enhance Mental Discipline', stats: ['VIT', 'DISC'], quests: [
-        { id: 'gironda', label: 'Strict Gironda protocol', sub: 'Steak & eggs, nothing else', type: 'daily', xp: 40, stat: 'VIT', metric: 'binary', core: true, auto: 'gironda', dock: 'Gironda meal' },
-        { id: 'teetotal', label: 'Zero alcohol / zero coffee', type: 'daily', xp: 30, stat: 'VIT', metric: 'binary', core: true, auto: 'coffee', clean: true },
+        { id: 'meal1', label: 'Gironda meal 1', sub: '6 eggs + 3 patties, or your plan', type: 'daily', xp: 20, stat: 'VIT', metric: 'binary', core: true, auto: 'meal1', dock: 'Meal 1' },
+        { id: 'meal2', label: 'Gironda meal 2', sub: '6 eggs + steak, or your plan', type: 'daily', xp: 20, stat: 'VIT', metric: 'binary', core: true, auto: 'meal2', dock: 'Meal 2' },
+        { id: 'teetotal', label: 'Zero alcohol', type: 'daily', xp: 30, stat: 'VIT', metric: 'binary', core: true, auto: 'abstain', clean: true },
       ] },
     ],
   },
@@ -82,11 +85,12 @@ const TRAITS = [
 
 // Rules of the game, shown in Hero → How it works.
 const RULES = [
-  ['One tap', 'Every quest is a single tap or a single number. Trainer data fills in what it can: workouts, volume, steps, the Gironda meals and coffee slips.'],
-  ['Core quests', 'Training plan, Gironda protocol and zero alcohol/coffee. Each one missed on a past day costs 10 HP.'],
-  ['Regeneration', 'A perfect day (every daily quest you have switched on; steps and lifting volume are bonus) restores 10 HP.'],
-  ['Respec', 'At 0 HP you lose the XP earned inside your current level and HP refills to 100. Your level and stats stay.'],
-  ['Streaks', 'Each perfect day in a row adds ×0.1 to the next day\'s XP, up to ×1.5. One missed quest resets it.'],
-  ['Discipline', 'DISC grows only from perfect days (+20) and full weeks (+50). It is the stat for showing up.'],
-  ['Honest maths', 'XP, HP and stats are recalculated from your logs every time, so editing a past day can never leave them wrong.'],
+  ['One tap', 'Every quest is a single tap or a single number. Trainer data fills in what it can: workouts, volume, steps, the two Gironda meals and coffee slips. Your taps win; an Edited badge shows where, with a button to go back to Trainer.'],
+  ['Core quests', 'By default: the training session, both Gironda meals and zero alcohol (and coffee, if you switch that rule on). A perfect day needs only the core quests. Change which quests are core in Quests.'],
+  ['Training follows your schedule', 'The session quest appears only on scheduled training days (Setup, or Trainer\'s plan). Recovery days are neutral: no XP, no HP loss. Miss a session and you have a grace window (1 day by default) to train before it counts as missed. A pause for illness, injury or doctor\'s orders stops the quest without breaking anything.'],
+  ['HP', 'Each core quest missed costs HP once its day (or training window) is over: 10 by default, adjustable in Setup. A perfect day restores 10.'],
+  ['Respec', 'At 0 HP you lose the XP inside your current level and HP refills. You see a confirmation before any tap that would cause one, and every respec is kept in the log. You can switch respecs off in Setup.'],
+  ['Streaks', 'Each perfect day in a row adds ×0.1 to the next day\'s XP, up to ×1.5.'],
+  ['Discipline', 'Perfect days give +20 DISC, for up to 5 days a week (+100), plus +50 for a full week of weekly quests. Stats grow with the square root of their XP and stop at 99, so no single stat runs away.'],
+  ['Honest maths', 'XP, HP and stats are recalculated from your logs every time. Reopening a day can never pay out twice, and editing a past day can never leave the totals wrong.'],
 ];
