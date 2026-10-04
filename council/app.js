@@ -13,6 +13,7 @@ const START_MIN = 10; // The Start button's timer. Small on purpose: starting is
 
 const TABS = [
   ['today', 'Today', '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/><circle cx="12" cy="12" r="4"/>'],
+  ['coach', 'Coach', '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>'],
   ['goals', 'Goals', '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>'],
   ['council', 'Council', '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="4" r="1.6"/><circle cx="19" cy="8.5" r="1.6"/><circle cx="19" cy="15.5" r="1.6"/><circle cx="12" cy="20" r="1.6"/><circle cx="5" cy="15.5" r="1.6"/><circle cx="5" cy="8.5" r="1.6"/>'],
   ['mirror', 'Mirror', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
@@ -72,6 +73,7 @@ function freshState() {
     weeks: {},
     timer: null,
     draft: null,
+    coach: coachFresh(),
   };
 }
 
@@ -84,6 +86,7 @@ function normalise(s) {
   const known = new Set(DOMAINS.map((x) => x.id));
   out.priorities = [...new Set((out.priorities || []).filter((x) => known.has(x)))];
   for (const x of DOMAINS) if (!out.priorities.includes(x.id)) out.priorities.push(x.id);
+  out.coach = coachNormalise(s.coach);
   return out;
 }
 
@@ -1077,7 +1080,7 @@ function render() {
   const w7 = sayDo(addDays(today(), -6), today());
   document.getElementById('saydo-pill').textContent = `Say/Do ${pct(w7.rate)}`;
   const view = document.getElementById('view');
-  const fns = { today: renderToday, goals: renderGoals, council: renderCouncil, mirror: renderMirror, me: renderMe };
+  const fns = { today: renderToday, coach: renderCoach, goals: renderGoals, council: renderCouncil, mirror: renderMirror, me: renderMe };
   view.innerHTML = fns[ui.tab]();
   document.getElementById('nav').innerHTML = TABS.map(([id, label, icon]) => `<button data-act="tab" data-v="${id}" ${ui.tab === id ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>${label}</button>`).join('');
   renderTimer();
@@ -1137,6 +1140,7 @@ function handle(el) {
   const a = el.dataset.act, id = el.dataset.id, v = el.dataset.v;
   const c = id ? S.commits.find((x) => x.id === id) : null;
   const t = today();
+  if (handleCoach(el)) return;
   switch (a) {
     case 'tab': ui.tab = v; ui.sheet = null; render(); window.scrollTo(0, 0); return;
     case 'welcome-ok': S.notice = null; commit(); return;
@@ -1334,6 +1338,7 @@ document.addEventListener('click', (e) => {
 let draftSaveTimer = null;
 function onField(e) {
   const el = e.target;
+  if (onCoachField(el)) return;
   if (el.dataset.sk && ui.sheet) {
     sv()[el.dataset.sk] = el.value;
     // Re-enable the save button without re-rendering (which would drop focus).

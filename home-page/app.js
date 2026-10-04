@@ -2950,7 +2950,7 @@ function videoCard(v) {
 
 // ---- Apps: the other apps, and one backup for all of them ------------------
 const OTHER_APPS = [
-  ['daily', 'Council', '/Training/council/', 'Mind, money, projects, family: commitments and the One Thing.'],
+  ['daily', 'Council', '/Training/council/', 'Your coach and therapist: talk it through, Self-Authoring, interviews, commitments and the One Thing.'],
   ['tools', 'Deliberation Council', '/Training/deliberation/', 'Big decisions, argued out by four seats.'],
   ['tools', 'MASSA', '/Training/massa/', 'Value betting. Paper only during the cut.'],
   ['old', 'Life RPG', '/Training/liferpg/', 'Merging in here after 1 November.'],

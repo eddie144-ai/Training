@@ -121,7 +121,7 @@
   .seg button { flex: 1; min-height: 40px; background: transparent; border: 0; color: var(--muted); padding: 6px 2px; font-size: 14px; }
   .seg button[aria-pressed="true"] { background: var(--card); color: var(--text); }
   :root[data-contrast="high"] .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-  .scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .scale button { min-height: 42px; padding: 0; }
   .scale button[aria-pressed="true"], .pchip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .scaleq { display: grid; gap: 6px; }
@@ -181,7 +181,7 @@
   details summary { cursor: pointer; font-weight: 700; min-height: 36px; display: flex; align-items: center; }
   nav {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
-    display: grid; grid-template-columns: repeat(5, 1fr);
+    display: grid; grid-template-columns: repeat(6, 1fr);
     height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--surface); border-top: var(--border-w) solid var(--border);
   }
@@ -206,6 +206,18 @@
   @media (max-width: 360px) { .grid3 { grid-template-columns: 1fr 1fr; } }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* Coach */
+  .chat { display: grid; gap: 10px; }
+  .msg { padding: 10px 12px; border-radius: 14px; max-width: 92%; overflow-wrap: anywhere; line-height: 1.45; }
+  .msg.user { justify-self: end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+  .msg.assistant { justify-self: start; background: var(--raised); border-bottom-left-radius: 4px; }
+  .modes { display: grid; gap: 8px; }
+  .modecard { display: grid; justify-content: stretch; justify-items: start; gap: 2px; text-align: left; padding: 12px 14px; min-height: 56px; width: 100%; }
+  button.opt { text-align: left; justify-content: flex-start; min-height: 48px; }
+  button.opt[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .subcard { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: var(--card); }
+  .scale { grid-template-columns: repeat(6, 1fr); }
+  .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -220,6 +232,8 @@
 <div id="timer-slot"></div>
 <nav id="nav" aria-label="Sections"></nav>
 <script src="data.js"></script>
+<script src="coach-data.js"></script>
+<script src="coach.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
