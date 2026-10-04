@@ -1,6 +1,6 @@
 # Shredded System: Product Specification
 
-For building or rebuilding the app in Claude Code, Grok or any other tool. A working reference build is in `../app/` (plain HTML, CSS and JavaScript, no build step). This spec describes that build and what a fuller version should add.
+For building or rebuilding the app in Claude Code, Grok or any other tool. A working build is in `../app/` (plain HTML, CSS and JavaScript, no build step). It implements everything below except Garmin sync (section 9). This spec describes that build and what a fuller version should add.
 
 ## 1. Purpose
 
@@ -107,13 +107,22 @@ type Day = {
 8. Restore rejects anything that isn't `{ v: 1, days: {...} }`.
 9. Works offline after the first load (service worker), and as the single-file copy opened from disk.
 
-## 9. Next features (not in the reference build)
+## 9. Extended features
 
-- **Garmin sync:** Garmin's Health API needs a registered developer account and a server. Route it through the existing `n8n/telemetry-ingest` workflow into a small store the app can read, or keep manual entry.
-- **Photo log:** monthly front/side/back photos stored on the device (IndexedDB).
-- **Barcode scanning** for off-plan foods (Open Food Facts).
-- **Shared Trainer data model,** so Trainer, Life RPG and Shredded System write one log.
-- **Reminders:** morning weigh-in and carb-up-due notifications (needs a PWA notification permission).
+| Feature | Status | How |
+|---|---|---|
+| **Trainer data, live** | Built | `app/trainer-adapter.js` reads only `trainer.v1` (validated, never written). Trainer's weigh-ins, steps (including Garmin entries) and sleep count automatically; anything you type wins. Replaces the old one-off import. |
+| **Photo log** | Built | `app/photos.js`: front, side and back photos stored in IndexedDB (`shredded-photos`), shrunk to 1080 px JPEG. Progress compares your first and latest of each pose. Today shows a "Photo day" nudge every 4 weeks. Not in JSON backups (size); Reset deletes them. |
+| **Barcode scanning** | Built | `app/scan.js`: camera scanning with the browser's BarcodeDetector (Chrome on Android), or type the number. Looks up Open Food Facts (only the barcode is sent), adds the food by grams, and saves it to `S.myFoods` so it works offline next time. |
+| **Reminders** | Built | `app/reminders.js`: a calendar file (.ics) with a daily weigh-in, the next 12 weeks of carb-up days and weekly training sessions, in Europe/London time. An offline web app can't wake the phone on a schedule without a push server, so the phone's calendar does the reminding. |
+| **Garmin sync** | Not built | Garmin's Health API is server-to-server: a registered developer account, HTTPS endpoints and secrets that can't live in a browser app. The route is the existing `n8n/telemetry-ingest` workflow into a store the apps read. Until then, Garmin numbers entered in Trainer flow through. |
+| **One shared log for Trainer, Life RPG and Shredded System** | Partly | Both newer apps read Trainer through the same validated adapter design. A single shared store would mean changing Trainer's data model; not done. |
+
+State additions (all optional, defaults filled in on load, backups stay `v: 1`): `useTrainer` (boolean), `myFoods` (scanned products, per 100 g), `reminders` (`weighTime`, `trainTime`), `lastPhoto` (date).
+
+### Tests
+
+`node shredded-system/tests/app.test.mjs` runs the 9 acceptance tests above (8.1–8.9) plus Trainer data, barcode lookup (Open Food Facts is faked), photos, the calendar file and mobile layout.
 
 ## 10. Build prompt
 

@@ -31,12 +31,11 @@ const RULES = ${JSON.stringify(rules)};
 `;
 write('app/data.js', data);
 
-// Single-file copy: inline the two scripts into the page.
+// Single-file copy: the whole app in one page.
 const html = read('app/index.html');
-const app = read('app/app.js');
+// Every local <script src="x.js"> is inlined (data.js from memory, the rest from app/).
 const single = html
-  .replace('<script src="data.js"></script>', () => `<script>\n${data}</script>`)
-  .replace('<script src="app.js"></script>', () => `<script>\n${app}</script>`)
+  .replace(/<script src="([a-z0-9-]+\.js)"><\/script>/g, (_, f) => `<script>\n${f === 'data.js' ? data : read(`app/${f}`)}</script>`)
   .replace(/<link rel="manifest"[^>]*>\n?/, '');
 write('app/shredded-system-single.html', single);
 
