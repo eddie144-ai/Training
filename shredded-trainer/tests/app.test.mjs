@@ -481,6 +481,64 @@ await test('Offline after the first load, and a deploy is picked up', async () =
   await ctx.close();
 });
 
+// A minimal zip writer (stored and deflated entries) for the Garmin import test.
+function makeZip(entries) {
+  const zlib = globalThis.__zlib;
+  const crcT = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcT[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const locals = [], central = []; let off = 0;
+  for (const [name, text, deflate] of entries) {
+    const data = Buffer.from(text), body = deflate ? zlib.deflateRawSync(data) : data, n = Buffer.from(name);
+    const h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(deflate ? 8 : 0, 8);
+    h.writeUInt32LE(crc(data), 14); h.writeUInt32LE(body.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(n.length, 26);
+    const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(deflate ? 8 : 0, 10);
+    c.writeUInt32LE(crc(data), 16); c.writeUInt32LE(body.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(n.length, 28); c.writeUInt32LE(off, 42);
+    locals.push(h, n, body); central.push(c, n); off += 30 + n.length + body.length;
+  }
+  const cd = Buffer.concat(central), e = Buffer.alloc(22);
+  e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(entries.length, 8); e.writeUInt16LE(entries.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+  return Buffer.concat([...locals, cd, e]);
+}
+
+await test('Garmin import: reads the export zip into Garmin days, steps and sleep, keeping hand-logged sleep', async () => {
+  globalThis.__zlib = (await import('node:zlib')).default;
+  const uds = [
+    { calendarDate: '2026-10-05', totalSteps: 12000, restingHeartRate: 74, maxHeartRate: 140, activeKilocalories: 900.4, totalDistanceMeters: 9800, moderateIntensityMinutes: 10, vigorousIntensityMinutes: 5,
+      allDayStress: { aggregatorList: [{ type: 'AWAKE', averageStressLevel: 60 }, { type: 'TOTAL', averageStressLevel: 41 }] }, respiration: { avgWakingRespirationValue: 14 },
+      bodyBattery: { bodyBatteryStatList: [{ bodyBatteryStatType: 'HIGHEST', statsValue: 38 }, { bodyBatteryStatType: 'LOWEST', statsValue: 16 }, { bodyBatteryStatType: 'SLEEPEND', statsValue: 35 }] } },
+    { calendarDate: '2026-10-06', totalSteps: 3000, restingHeartRate: 72 },
+  ];
+  const sleep = [
+    { calendarDate: '2026-10-05', sleepStartTimestampGMT: '2026-10-04T22:58:00.0', sleepEndTimestampGMT: '2026-10-05T07:20:00.0', deepSleepSeconds: 3600, lightSleepSeconds: 21600, remSleepSeconds: 3600 },
+    { calendarDate: '2026-10-06', sleepStartTimestampGMT: '2026-10-05T23:00:00.0', sleepEndTimestampGMT: '2026-10-06T07:00:00.0' },
+  ];
+  const zip = makeZip([
+    ['DI_CONNECT/DI-Connect-User/user_profile.json', '{"firstName":"x"}', true],
+    ['DI_CONNECT/DI-Connect-Aggregator/UDSFile_2026-09-01_2026-10-07.json', JSON.stringify(uds), true],
+    ['DI_CONNECT/DI-Connect-Wellness/2026-09-08_2026-10-07_1_sleepData.json', JSON.stringify(sleep), false],
+  ]);
+  const own = await seeded((s) => {
+    s.days['2026-10-06'] = { steps: 5000 };
+    s.sleep.push({ date: '2026-10-06', at: '2026-10-06T08:00:00.000Z', hours: 6, quality: 5, notes: 'mine' });
+  });
+  const { ctx, page, errors } = await open({ own });
+  await page.click('nav [data-tab="body"]');
+  await page.click('[data-act="sub"][data-v="garmin"]');
+  await page.setInputFiles('#garmin-file', { name: 'export.zip', mimeType: 'application/zip', buffer: zip });
+  await page.waitForSelector('[data-act="ask-yes"]');
+  assert((await page.locator('.ask-text').innerText()).includes('Import 2 days'), 'asks to import 2 days');
+  await page.click('[data-act="ask-yes"]');
+  const r = await page.evaluate(() => ({ g: S.garmin, steps: [S.days['2026-10-05']?.steps, S.days['2026-10-06']?.steps], sleep: S.sleep.filter((x) => x.date >= '2026-10-05').map((x) => [x.date, x.hours, x.notes]).sort() }));
+  eq(r.g['2026-10-05'], { rhr: 74, maxHr: 140, activeKcal: 900, distance: 9.8, intensity: 20, stress: 41, resp: 14, bbHigh: 38, bbLow: 16, bbWake: 35, sleepH: 8 }, 'day mapped');
+  eq(r.steps, [12000, 5000], 'steps filled, higher hand-logged count kept');
+  eq(r.sleep, [['2026-10-05', 8, 'From Garmin'], ['2026-10-06', 6, 'mine']], 'sleep from stages; hand-logged night kept');
+  eq(r.g['2026-10-06'].sleepH, 8, 'sleep span used when there are no stages');
+  await page.setInputFiles('#garmin-file', { name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"a":1}') });
+  await page.waitForSelector('.toast:has-text("No Garmin")');
+  eq(errors, [], 'no page errors');
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

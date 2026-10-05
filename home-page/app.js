@@ -2520,6 +2520,12 @@ function viewBodyGarmin() {
       <li>Wind: <b>respiration</b>, breaths per minute</li>
     </ul></details>
   </section>
+  <section class="card">
+    <h2>Import from Garmin</h2>
+    <p class="small">Load weeks at once from your Garmin data export: steps, resting heart rate, Body Battery, stress, respiration, intensity minutes and sleep.</p>
+    <label class="btn">Choose the Garmin zip<input type="file" accept=".zip,.json,application/zip,application/json" multiple id="garmin-file" class="sr"></label>
+    <p class="muted small">Get it from Garmin Connect on the web: Account → Data management → Export your data. Garmin emails a link to a zip; choose that zip here as it is. It stays on this phone.</p>
+  </section>
   ${hist.length ? `<section class="card"><h2>History</h2><div class="list">${hist.map((x) => { const r = S.garmin[x]; return `<div class="row between">
     <button class="linkish grow" data-act="garmin-edit" data-date="${x}"><b>${fmtDate(x)}</b><br><span class="muted small">${GARMIN_FIELDS.filter(([k]) => gVal(x, k) != null).slice(0, 5).map(([k, l]) => `${l.replace('Body Battery', 'BB').replace('Average ', '').replace('Resting heart rate', 'RHR')} ${k === 'steps' ? gVal(x, k).toLocaleString('en-GB') : gVal(x, k)}`).join(' · ')}</span></button>
     <button class="icon ghost" data-act="garmin-del" data-date="${x}" aria-label="Delete Garmin day">✕</button></div>`; }).join('')}</div></section>` : ''}`;
@@ -2529,6 +2535,101 @@ function readinessCard(d) {
   const r = garminReadiness(d);
   if (!r) return `<section class="card slim"><p class="small">No Garmin data for today yet. Enter this morning's resting heart rate and Body Battery below for a recovery read.</p></section>`;
   return `<section class="card slim"><p>${chip(r.text, r.cls)}</p></section>`;
+}
+
+// ---- Garmin export import ---------------------------------------------------
+// Garmin Connect → Account → Data management → Export your data emails a zip. Only the daily summary
+// (UDSFile_*.json) and sleep (*sleepData.json) files are read; everything else in the zip is skipped.
+const GARMIN_WANT = /(UDSFile_[^/]*|sleepData[^/]*)\.json$/;
+
+// Reads matching files from a zip without loading the whole thing (exports with uploads can be large).
+async function zipEntries(blob, want) {
+  const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  const tailLen = Math.min(blob.size, 65557);
+  const tail = new Uint8Array(await blob.slice(blob.size - tailLen).arrayBuffer());
+  let e = -1;
+  for (let i = tail.length - 22; i >= 0; i--) if (u32(tail, i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a zip');
+  const count = u16(tail, e + 10), cdSize = u32(tail, e + 12), cdOff = u32(tail, e + 16);
+  const cd = new Uint8Array(await blob.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const out = [];
+  for (let i = 0, p = 0; i < count && u32(cd, p) === 0x02014b50; i++) {
+    const method = u16(cd, p + 10), csize = u32(cd, p + 20), nlen = u16(cd, p + 28), xlen = u16(cd, p + 30), clen = u16(cd, p + 32), loc = u32(cd, p + 42);
+    const name = new TextDecoder().decode(cd.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (!want.test(name) || (method !== 0 && method !== 8)) continue;
+    const lh = new Uint8Array(await blob.slice(loc, loc + 30).arrayBuffer());
+    const start = loc + 30 + u16(lh, 26) + u16(lh, 28);
+    const raw = blob.slice(start, start + csize);
+    const text = method === 0 ? await raw.text() : await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    out.push({ name, text });
+  }
+  return out;
+}
+
+// Turns Garmin's JSON into { date: { rhr, bbHigh, …, steps, sleepH } }. Pure, so it can be tested.
+function parseGarminFiles(files) {
+  const days = {};
+  const put = (d, k, v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(d || '') && v != null && Number.isFinite(Number(v)) && Number(v) >= 0) (days[d] ||= {})[k] = Number(v); };
+  for (const { name, text } of files) {
+    let rows;
+    try { rows = JSON.parse(text); } catch { continue; }
+    if (!Array.isArray(rows)) continue;
+    if (/UDSFile_/.test(name)) for (const r of rows) {
+      const d = r.calendarDate;
+      put(d, 'steps', r.totalSteps || null);
+      put(d, 'rhr', r.restingHeartRate);
+      put(d, 'maxHr', r.maxHeartRate);
+      put(d, 'activeKcal', r.activeKilocalories != null ? Math.round(r.activeKilocalories) : null);
+      put(d, 'distance', r.totalDistanceMeters ? round1(r.totalDistanceMeters / 1000) : null);
+      const mod = r.moderateIntensityMinutes || 0, vig = r.vigorousIntensityMinutes || 0;
+      put(d, 'intensity', mod + vig ? mod + 2 * vig : null); // Garmin counts vigorous minutes double
+      const st = (r.allDayStress?.aggregatorList || []).find((a) => a.type === 'TOTAL')?.averageStressLevel;
+      put(d, 'stress', st > 0 ? st : null);
+      put(d, 'resp', r.respiration?.avgWakingRespirationValue);
+      const bb = Object.fromEntries((r.bodyBattery?.bodyBatteryStatList || []).map((s) => [s.bodyBatteryStatType, s.statsValue]));
+      put(d, 'bbHigh', bb.HIGHEST); put(d, 'bbLow', bb.LOWEST); put(d, 'bbWake', bb.SLEEPEND);
+    }
+    if (/sleepData/.test(name)) for (const r of rows) {
+      // calendarDate is the morning you woke up, same as the app's sleep log.
+      const staged = (r.deepSleepSeconds || 0) + (r.lightSleepSeconds || 0) + (r.remSleepSeconds || 0);
+      const span = (Date.parse(`${r.sleepEndTimestampGMT}Z`) - Date.parse(`${r.sleepStartTimestampGMT}Z`)) / 1000;
+      const secs = staged || (Number.isFinite(span) ? span : 0);
+      if (secs > 0) put(r.calendarDate, 'sleepH', round1(secs / 3600));
+      put(r.calendarDate, 'sleepScore', r.sleepScores?.overallScore?.value ?? r.sleepScores?.overall?.value);
+    }
+  }
+  return days;
+}
+
+// Garmin is the source for its own numbers; steps keep whichever is higher, and a sleep you logged by hand stays.
+function applyGarminDays(days) {
+  for (const [d, row] of Object.entries(days)) {
+    const g = { ...row };
+    if (g.steps != null) { const r = dayRec(d); if (!(r.steps >= g.steps)) { r.steps = Math.round(g.steps); r.stepsAt ||= nowOn(d); } delete g.steps; }
+    if (g.sleepH != null && (!sleepOn(d) || sleepOn(d).notes === 'From Garmin')) {
+      S.sleep = S.sleep.filter((x) => x.date !== d);
+      S.sleep.push({ date: d, at: nowOn(d), hours: g.sleepH, quality: g.sleepScore != null ? Math.max(1, Math.min(10, Math.round(g.sleepScore / 10))) : 7, notes: 'From Garmin' });
+    }
+    if (Object.keys(g).length) S.garmin[d] = { ...(S.garmin[d] || {}), ...g };
+  }
+}
+
+async function importGarminFiles(list) {
+  const files = [];
+  for (const f of list) {
+    if (/\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') files.push(...await zipEntries(f, GARMIN_WANT));
+    else files.push({ name: f.name, text: await f.text() });
+  }
+  const days = parseGarminFiles(files);
+  const dates = Object.keys(days).sort();
+  if (!dates.length) return toast('No Garmin daily or sleep data found in that file');
+  const span = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])} to ${fmtDate(dates.at(-1))}`;
+  ask(`Import ${dates.length} day${dates.length === 1 ? '' : 's'} of Garmin data (${span})? Steps, resting heart rate, Body Battery, stress and sleep. Sleep you logged by hand is kept.`, 'Import', () => {
+    applyGarminDays(days);
+    toast(`Garmin: ${dates.length} days imported`);
+  });
 }
 
 const DOCS = 'https://github.com/eddie144-ai/Training/blob/main/shredded-system/docs';
@@ -4030,6 +4131,12 @@ document.addEventListener('change', (e) => {
   if (t.classList?.contains('photo-in')) {
     const file = t.files?.[0];
     if (file) Photos.add(today(), t.dataset.pose, file).then(() => { S.lastPhoto = today(); commit(); toast('Photo saved'); }, () => toast('Couldn\'t save the photo: the browser may be out of space'));
+    return;
+  }
+  if (t.id === 'garmin-file') {
+    const list = [...(t.files || [])];
+    if (list.length) importGarminFiles(list).catch(() => toast('Could not read that file. Use the zip Garmin emailed you, or the JSON files inside it'));
+    t.value = '';
     return;
   }
   if (t.id === 'pack-file') {
