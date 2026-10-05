@@ -59,6 +59,7 @@ shopping list, goals, journal, dreams, channel, Garmin entries, XP and achieveme
 | Body → Tape | **Progress photos** (front, side, back), first vs latest, stored only on the phone. |
 | Body → Guide | How the programme and the Gironda diet fit together on a cut, the carb-up rules, safety and links to the PDFs. |
 | Body → Setup | Carb-up interval, lowest goal, and a **calendar file** of reminders: daily weigh-in, carb-up days for 12 weeks, training days (from Plan → Week, or Mon/Tue/Thu/Fri). |
+| Body → Garmin | **Import from Garmin**: choose the zip from Garmin Connect (Account → Data management → Export your data) and weeks of steps, resting heart rate, Body Battery, stress, respiration, intensity minutes and sleep load at once. Only the daily-summary and sleep files are read; a sleep you logged by hand is kept. |
 | Body → Setup | **Look:** the Gironda background (default), your own photo (kept only on the phone) or plain. **From Trainer:** copy just your chains (your own "No ___" chains, their check-ins and the no-coffee start) or everything, any time. |
 | Fuel → Log | **Scan a barcode** (camera on Chrome for Android, or type it). Open Food Facts lookup, added by grams, remembered offline. |
 
