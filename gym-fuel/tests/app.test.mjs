@@ -57,7 +57,9 @@ const state = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('gym
 await test('first open shows the welcome and every tab renders without errors', async () => {
   const { page, ctx, errors } = await open();
   assert(await page.getByRole('dialog', { name: 'Welcome to Gym & Fuel' }).isVisible(), 'welcome sheet');
-  await page.getByRole('button', { name: 'Get started' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Set up my targets' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
+  assert(await page.getByText('Your calorie, protein and target weight are still the app\'s defaults').isVisible(), 'setup reminder on Today');
   for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Body', ['Weight', 'Measurements', 'Settings']]]) {
     await page.locator('nav').getByRole('button', { name: tab }).click();
     for (const s of subs) await page.locator('.subtabs').getByRole('button', { name: s }).click();
@@ -150,6 +152,44 @@ await test('measurements: save, merge on the same day, body-fat estimate, delete
   await page.getByRole('button', { name: /Delete measurements for/ }).first().click();
   s = await state(page);
   assert(s.measurements.length === 1, 'deleted');
+  await ctx.close();
+});
+
+await test('a new user is asked for their stats and gets their own targets', async () => {
+  const { page, ctx } = await open();
+  await page.getByRole('dialog').getByRole('button', { name: 'Set up my targets' }).click();
+  const f = page.locator('#setup-form');
+  await f.getByLabel('Age').fill('30');
+  await f.getByLabel('Height (cm)').fill('180');
+  await f.getByLabel('Weight now (kg)').fill('90');
+  await f.getByLabel('Target weight (kg)').fill('80');
+  // Mifflin-St Jeor: 10*90 + 6.25*180 - 5*30 + 5 = 1880; x1.55 = 2914; -500 = 2414 -> 2410 kcal; protein 2 x 80 = 160 g
+  assert((await f.getByLabel('Calories (kcal)').inputValue()) === '2410', `kcal ${await f.getByLabel('Calories (kcal)').inputValue()}`);
+  assert((await f.getByLabel('Protein (g)').inputValue()) === '160', 'protein');
+  await f.getByLabel('Protein (g)').fill('175'); // typed by hand: kept when other fields change
+  await f.getByLabel('Age').fill('31');
+  assert((await f.getByLabel('Protein (g)').inputValue()) === '175', 'own value kept');
+  await f.getByLabel('Training programme').selectOption({ label: '10 lbs of Muscle in 4 Weeks' });
+  await f.getByRole('button', { name: 'Save my targets' }).click();
+  const s = await state(page);
+  assert(s.settings.setupDone && s.settings.target === 80 && s.settings.proteinGoal === 175 && s.settings.startWeight === 90, 'settings saved');
+  assert(s.settings.active.cycle === 'tenlbs', 'programme chosen');
+  assert(s.weights.length === 1 && s.weights[0].kg === 90, 'first weigh-in');
+  assert(!(await page.getByText('still the app\'s defaults').count()), 'reminder gone');
+  await ctx.close();
+});
+
+await test('progress photos: add, show and delete', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: {} } });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Measurements' }).click();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await page.getByLabel('Add a front photo').setInputFiles({ name: 'front.png', mimeType: 'image/png', buffer: png });
+  await page.locator('#photo-grid img').first().waitFor();
+  assert((await page.locator('#photo-grid img').count()) === 1, 'one photo shown');
+  await page.getByRole('button', { name: /Delete front photo/ }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByText('No photos yet').waitFor();
   await ctx.close();
 });
 

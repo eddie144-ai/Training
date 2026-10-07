@@ -61,7 +61,7 @@ function freshState() {
     v: 1,
     settings: {
       kcalGoal: 1900, proteinGoal: 170, carbGoal: 80, fatGoal: 90,
-      startWeight: null, target: 75, heightCm: null,
+      startWeight: null, target: 75, heightCm: null, sex: 'male', age: null, activity: 'moderate', setupDone: false,
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' }, cycleStart: weekStart(today()),
       highContrast: false,
     },
@@ -96,7 +96,10 @@ function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return { ...freshState(), notice: 'start' };
-    return normalise(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    // Anyone who used the app before the setup sheet existed has already set their targets.
+    if (parsed?.settings && parsed.settings.setupDone === undefined) parsed.settings.setupDone = true;
+    return normalise(parsed);
   } catch {
     storageOk = false;
     return freshState();
@@ -118,7 +121,7 @@ function bringIron() {
   if (!src) return false;
   const n = freshState();
   const st = src.settings || {};
-  for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal', 'startWeight', 'target', 'heightCm', 'family', 'tier', 'cycleStart', 'highContrast']) if (st[k] != null) n.settings[k] = st[k];
+  for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal', 'startWeight', 'target', 'heightCm', 'sex', 'family', 'tier', 'cycleStart', 'highContrast']) if (st[k] != null) n.settings[k] = st[k];
   n.settings.active = { ...n.settings.active, ...(st.active || {}) };
   n.programs = { ...n.programs, ...(src.programs || {}) };
   n.baselines = { ...(src.baselines || {}) };
@@ -128,7 +131,9 @@ function bringIron() {
   n.scanned = src.scanned || [];
   n.weights = src.weights || [];
   n.measurements = src.measurements || [];
+  n.settings.setupDone = true;
   S = normalise(n);
+  Photos.importFrom('shtrainer-photos').then((k) => { if (k) { toast(`${k} progress photo${k === 1 ? '' : 's'} brought over too`); render(); } }, () => {});
   return true;
 }
 
@@ -371,6 +376,7 @@ function viewToday() {
   const quick = STAPLES.slice(0, 2).map((g) => `<button class="small-btn" data-act="pick-food" data-id="${g.id}">${esc(g.name.split(':')[0])}</button>`).join('');
   const inProgress = draftStarted(prog.id, next.id);
   return `
+  ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
   <section class="card hero-card">
     <h2>Training <span class="right">${esc(prog.name)}</span></h2>
     ${done.length
@@ -683,11 +689,46 @@ function viewBodyWeight() {
   </section>`;
 }
 
-// US Navy body-fat estimate (men) from waist, neck and height, all in cm.
+// US Navy body-fat estimate from height, waist and neck (and hips for women), all in cm.
 function navyBodyFat(m) {
   const h = S.settings.heightCm;
-  if (!h || !m.waist || !m.neck || m.waist <= m.neck) return null;
+  if (!h || !m.waist || !m.neck) return null;
+  if (S.settings.sex === 'female') {
+    if (!m.hips || m.waist + m.hips <= m.neck) return null;
+    return round1(495 / (1.29579 - 0.35004 * Math.log10(m.waist + m.hips - m.neck) + 0.22100 * Math.log10(h)) - 450);
+  }
+  if (m.waist <= m.neck) return null;
   return round1(495 / (1.0324 - 0.19077 * Math.log10(m.waist - m.neck) + 0.15456 * Math.log10(h)) - 450);
+}
+
+// ---- progress photos (photos.js): front, side and back, first next to latest
+const POSES = ['front', 'side', 'back'];
+let photoUrls = [];
+function photosCard() {
+  return `<section class="card" id="photos-card"><h2>Progress photos <span class="right">every 2–4 weeks</span></h2>
+    <div class="grid3">${POSES.map((pose) => `<label class="btn">+ ${cap(pose)}<input type="file" accept="image/*" class="sr photo-in" data-pose="${pose}" aria-label="Add a ${pose} photo"></label>`).join('')}</div>
+    <div id="photo-grid"><p class="muted small">Loading…</p></div>
+    <p class="muted small">Same light, same place, same time of day. Photos stay on this phone only: they aren't in backups and never leave the device.</p></section>`;
+}
+async function fillPhotos() {
+  const grid = document.getElementById('photo-grid');
+  if (!grid) return;
+  let all;
+  try { all = (await Photos.all()).filter((p) => POSES.includes(p.pose)); } catch { grid.innerHTML = '<p class="muted small">Photos aren\'t available in this browser.</p>'; return; }
+  if (!document.getElementById('photo-grid')) return;
+  for (const u of photoUrls) URL.revokeObjectURL(u);
+  photoUrls = [];
+  if (!all.length) { grid.innerHTML = '<p class="muted small">No photos yet. Take your first set today.</p>'; return; }
+  const img = (p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return `<figure><img src="${u}" alt="${p.pose} photo, ${fmtDate(p.date)}"><figcaption>${fmtDate(p.date)} <button class="icon ghost" data-act="photo-del" data-id="${esc(p.id)}" aria-label="Delete ${p.pose} photo from ${fmtDate(p.date)}">✕</button></figcaption></figure>`; };
+  grid.innerHTML = POSES.map((pose) => {
+    const ps = all.filter((p) => p.pose === pose).sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
+    if (!ps.length) return '';
+    const f = ps[0], l = ps[ps.length - 1];
+    const shown = ui.photoAll === pose ? ps : f === l ? [f] : [f, l];
+    return `<div class="photo-row"><div class="row between"><b class="small">${cap(pose)}${ps.length > 1 ? ` <span class="muted">· first and latest, ${daysBetween(f.date, l.date)} days apart</span>` : ''}</b>
+      ${ps.length > 2 ? `<button class="small-btn ghost" data-act="photo-all" data-v="${pose}">${ui.photoAll === pose ? 'Show less' : `All ${ps.length}`}</button>` : ''}</div>
+      <div class="pair">${shown.map(img).join('')}</div></div>`;
+  }).join('');
 }
 
 function viewBodyMeasure() {
@@ -707,7 +748,7 @@ function viewBodyMeasure() {
       ${bf !== null ? `<div class="stat"><b>${fmtNum(bf)}%</b><span>Body fat (Navy est.)</span></div>` : ''}
     </div>
     ${waists.length > 1 ? `<p class="muted small">Waist trend</p>${spark(waists)}` : ''}
-    <p class="muted small">Changes are since your first entry (${fmtDate(first.date)}).${S.settings.heightCm ? '' : ' Add your height in Body → Settings for a body-fat estimate from waist and neck.'}</p>` : ''}
+    <p class="muted small">Changes are since your first entry (${fmtDate(first.date)}).${S.settings.heightCm ? '' : ` Add your height in Body → Settings for a body-fat estimate from waist and neck${S.settings.sex === 'female' ? ' and hips' : ''}.`}</p>` : ''}
     <form id="meas-form" class="grid3" autocomplete="off">
       ${MEASURES.map((m) => `<label class="field">${cap(m)}<input name="${m}" inputmode="decimal" placeholder="${last?.[m] ?? ''}"></label>`).join('')}
       <label class="field" style="grid-column:1/-1">Date<input name="date" type="date" value="${today()}" max="${today()}"></label>
@@ -719,7 +760,8 @@ function viewBodyMeasure() {
     <h2>History <span class="right">${meas.length}</span></h2>
     ${meas.length ? `<div class="list">${meas.slice(0, 20).map((x) => `<div class="row between"><span class="grow"><b>${fmtDate(x.date)}</b><br><span class="muted small">${MEASURES.filter((m) => x[m] != null).map((m) => `${m} ${fmtNum(x[m])}`).join(' · ')}${navyBodyFat(x) !== null ? ` · ${fmtNum(navyBodyFat(x))}% BF` : ''}</span></span>
       <button class="icon ghost" data-act="del-meas" data-date="${esc(x.date)}" aria-label="Delete measurements for ${fmtDate(x.date)}">✕</button></div>`).join('')}</div>` : '<p class="muted">No measurements yet.</p>'}
-  </section>`;
+  </section>
+  ${photosCard()}`;
 }
 
 function viewBodySettings() {
@@ -736,9 +778,11 @@ function viewBodySettings() {
       <label class="field">Start weight (kg)<input name="startWeight" inputmode="decimal" value="${st.startWeight ?? ''}" placeholder="first weigh-in"></label>
       <label class="field">Target weight (kg)<input name="target" inputmode="decimal" value="${st.target ?? ''}"></label>
       <label class="field">Height (cm)<input name="heightCm" inputmode="decimal" value="${st.heightCm ?? ''}" placeholder="for body fat"></label>
+      <label class="field">Sex (for body fat)<select name="sex"><option value="male" ${st.sex !== 'female' ? 'selected' : ''}>Male</option><option value="female" ${st.sex === 'female' ? 'selected' : ''}>Female</option></select></label>
       <label class="field">4-week cycle started<input name="cycleStart" type="date" value="${esc(st.cycleStart)}" required></label>
       <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
     </form>
+    <button class="ghost" data-act="setup">Work out targets from my stats again</button>
   </section>
   <section class="card">
     <h2>From Iron &amp; Eggs</h2>
@@ -878,15 +922,72 @@ async function scanLookup(code) {
   drawScan();
 }
 
+const ACTIVITY = [['light', 'Light (train 2–3 days)', 1.375], ['moderate', 'Moderate (3–5 days)', 1.55], ['high', 'Very active (6–7 days)', 1.725]];
+// A starting point from Mifflin-St Jeor: maintenance calories, then a deficit to lose or a small surplus to gain.
+// Protein about 2 g per kg (of target weight when cutting), fat about 25% of calories, carbs the rest.
+function suggestTargets({ sex, age, heightCm, weight, target, activity }) {
+  if (!age || !heightCm || !weight) return null;
+  const bmr = 10 * weight + 6.25 * heightCm - 5 * age + (sex === 'female' ? -161 : 5);
+  const tdee = bmr * (ACTIVITY.find(([k]) => k === activity)?.[2] || 1.55);
+  const goal = !target || Math.abs(target - weight) < 1 ? 'maintain' : target < weight ? 'lose' : 'gain';
+  const floor = sex === 'female' ? 1200 : 1500;
+  const kcal = Math.round(Math.max(floor, goal === 'lose' ? tdee - 500 : goal === 'gain' ? tdee + 300 : tdee) / 10) * 10;
+  const protein = Math.round(2 * (goal === 'lose' ? Math.min(weight, target) : weight));
+  const fat = Math.round((kcal * 0.25) / 9);
+  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+  return { goal, tdee: Math.round(tdee), kcal, protein, fat, carbs };
+}
+
+function setupForm() {
+  const st = S.settings;
+  const lw = latestWeight();
+  const progs = Object.values(S.programs);
+  const progId = st.active[st.family];
+  return `<form id="setup-form" class="grid2" autocomplete="off">
+    <p class="small" style="grid-column:1/-1">Tell the app about you and it suggests daily targets. You can change any of it later in Body → Settings.</p>
+    <label class="field">Sex<select name="sex"><option value="male" ${st.sex !== 'female' ? 'selected' : ''}>Male</option><option value="female" ${st.sex === 'female' ? 'selected' : ''}>Female</option></select></label>
+    <label class="field">Age<input name="age" inputmode="numeric" value="${st.age ?? ''}" required></label>
+    <label class="field">Height (cm)<input name="heightCm" inputmode="decimal" value="${st.heightCm ?? ''}" required></label>
+    <label class="field">Weight now (kg)<input name="weight" inputmode="decimal" value="${lw?.kg ?? ''}" required></label>
+    <label class="field">Target weight (kg)<input name="target" inputmode="decimal" value="${st.setupDone ? st.target ?? '' : ''}" required></label>
+    <label class="field">Activity<select name="activity">${ACTIVITY.map(([k, l]) => `<option value="${k}" ${st.activity === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    <label class="field" style="grid-column:1/-1">Training programme<select name="program">${progs.map((p) => `<option value="${esc(p.id)}" ${p.id === progId ? 'selected' : ''}>${esc(p.name)}${p.family === 'hit' ? ' (Mentzer HIT)' : ''}</option>`).join('')}</select></label>
+    <p class="setup-sug small" id="setup-sug" style="grid-column:1/-1">Fill in your age, height and weight to get suggested targets.</p>
+    <label class="field">Calories (kcal)<input name="kcalGoal" inputmode="numeric" value="${st.setupDone ? st.kcalGoal : ''}" required></label>
+    <label class="field">Protein (g)<input name="proteinGoal" inputmode="numeric" value="${st.setupDone ? st.proteinGoal : ''}" required></label>
+    <label class="field">Carbs (g)<input name="carbGoal" inputmode="numeric" value="${st.setupDone ? st.carbGoal : ''}" required></label>
+    <label class="field">Fat (g)<input name="fatGoal" inputmode="numeric" value="${st.setupDone ? st.fatGoal : ''}" required></label>
+    <button class="primary" style="grid-column:1/-1" type="submit">Save my targets</button>
+    <p class="muted small" style="grid-column:1/-1">Suggestions are a starting estimate, not medical advice. Watch your weekly average weight and adjust by 100–200 kcal if it isn't moving the way you want.</p>
+  </form>`;
+}
+// Recomputes the suggestion as the form changes; fills target boxes the user hasn't typed in themselves.
+function refreshSetup(form) {
+  const v = (k) => num(form.elements[k]?.value);
+  const sug = suggestTargets({ sex: form.elements.sex.value, age: v('age'), heightCm: v('heightCm'), weight: v('weight'), target: v('target'), activity: form.elements.activity.value });
+  const box = document.getElementById('setup-sug');
+  if (!sug) { box.textContent = 'Fill in your age, height and weight to get suggested targets.'; return; }
+  box.innerHTML = `<b>Suggested:</b> ${sug.kcal} kcal · protein ${sug.protein} g · carbs ${sug.carbs} g · fat ${sug.fat} g<br><span class="muted">Maintenance is about ${sug.tdee} kcal; this is set to ${sug.goal === 'lose' ? 'lose about 0.5 kg a week' : sug.goal === 'gain' ? 'gain slowly' : 'hold your weight'}.</span>`;
+  for (const [k, val] of [['kcalGoal', sug.kcal], ['proteinGoal', sug.protein], ['carbGoal', sug.carbs], ['fatGoal', sug.fat]]) {
+    const el = form.elements[k];
+    if (!el.dataset.touched) el.value = val;
+  }
+}
+function openSetup() {
+  openSheet('Set up your targets', setupForm());
+  const f = document.getElementById('setup-form');
+  if (f) refreshSetup(f);
+}
+
 function showWelcome() {
   const iron = ironData();
   openSheet('Welcome to Gym & Fuel', `
-    <p>Iron &amp; Eggs, stripped down to the gym and the kitchen: your programmes and set logger, the food log with macro targets, the Dolce recipes, barcode scanning and your weight.</p>
+    <p>Your training and nutrition in one place: workout programmes and a set logger, a food log with macro targets, recipes, barcode scanning, your weight, measurements and progress photos.</p>
+    <p class="muted small">Everything stays on this phone. Nothing is uploaded or shared.</p>
     ${iron ? `<p class="small">Iron &amp; Eggs data is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? Iron &amp; Eggs isn't changed.</p>
       <button class="primary" data-act="bring-iron-now">Bring my Iron &amp; Eggs data</button>
-      <button data-act="sheet-close">Start fresh</button>`
-      : '<button class="primary" data-act="sheet-close">Get started</button>'}
-    <p class="muted small">Set your calorie and protein targets in Body → Settings.</p>`);
+      <button data-act="setup">I'm new: set up my targets</button>`
+      : '<button class="primary" data-act="setup">Set up my targets</button>'}`);
 }
 
 // ===========================================================================
@@ -931,6 +1032,7 @@ function render(opts = {}) {
   document.getElementById('nav').innerHTML = TABS.map(([k, label]) =>
     `<button data-tab="${k}" ${ui.tab === k ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg><span>${label}</span></button>`).join('');
   if (opts.scrollTop) window.scrollTo(0, 0);
+  if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
   rememberUi();
 }
 function commit(opts) { save(); render(opts); }
@@ -1120,12 +1222,15 @@ document.addEventListener('click', (e) => {
     case 'scan-recent': scanLookup(el.dataset.v); return;
 
     // ---- body
+    case 'setup': openSetup(); return;
+    case 'photo-all': ui.photoAll = ui.photoAll === el.dataset.v ? null : el.dataset.v; fillPhotos(); return;
+    case 'photo-del': ask('Delete this photo?', 'Delete', () => { Photos.remove(el.dataset.id).then(() => render(), () => toast('Couldn\'t delete it')); }); return;
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
     case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs data brought over'); break;
     case 'backup': downloadText(`gym-fuel-${today()}.json`, JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }), 'application/json'); toast('Backup saved'); return;
-    case 'reset-all': ask('Delete all Gym & Fuel data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); }); return;
+    case 'reset-all': ask('Delete all Gym & Fuel data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); }); return;
     default: return;
   }
   commit();
@@ -1150,6 +1255,11 @@ document.addEventListener('input', (e) => {
     again.focus(); again.setSelectionRange(pos, pos);
     return;
   }
+  if (t.form?.id === 'setup-form') {
+    if (['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal'].includes(t.name)) t.dataset.touched = t.value.trim() ? '1' : '';
+    else refreshSetup(t.form);
+    return;
+  }
   if (t.dataset.live === 'picker-q') {
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll('.picker-list .pick').forEach((b) => { b.hidden = !!q && !b.dataset.name.includes(q); });
@@ -1170,6 +1280,12 @@ document.addEventListener('change', (e) => {
     }
     prog.edited = true;
     commit();
+    return;
+  }
+  if (t.classList?.contains('photo-in')) {
+    const file = t.files?.[0];
+    if (file) Photos.add(today(), t.dataset.pose, file).then(() => { toast(`${cap(t.dataset.pose)} photo saved`); fillPhotos(); }, () => toast('Couldn\'t save the photo'));
+    t.value = '';
     return;
   }
   if (t.id === 'hc-toggle') { S.settings.highContrast = t.checked; commit(); return; }
@@ -1214,9 +1330,27 @@ document.addEventListener('submit', (e) => {
       for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal']) { const v = formNum(fd, k); if (v != null && v >= 0) st[k] = Math.round(v); }
       st.startWeight = formNum(fd, 'startWeight');
       { const h = formNum(fd, 'heightCm'); st.heightCm = h && h > 100 && h < 250 ? h : null; }
+      st.sex = fd.get('sex') === 'female' ? 'female' : 'male';
       const tgt = formNum(fd, 'target'); if (tgt) st.target = tgt;
       if (fd.get('cycleStart')) st.cycleStart = fd.get('cycleStart');
       toast('Saved'); break;
+    }
+    case 'setup-form': {
+      const st = S.settings;
+      const age = formNum(fd, 'age'), h = formNum(fd, 'heightCm'), w = formNum(fd, 'weight'), tgt = formNum(fd, 'target');
+      if (!age || age < 13 || age > 100) { toast('Enter your age'); return; }
+      if (!h || h < 100 || h > 250) { toast('Enter your height in cm'); return; }
+      if (!w || w < 30 || w > 400 || !tgt || tgt < 30 || tgt > 400) { toast('Enter your weight and target in kg'); return; }
+      Object.assign(st, { sex: fd.get('sex') === 'female' ? 'female' : 'male', age: Math.round(age), heightCm: round1(h), target: round1(tgt), activity: fd.get('activity') });
+      for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal']) { const v = formNum(fd, k); if (v != null && v >= 0) st[k] = Math.round(v); }
+      const prog = S.programs[fd.get('program')];
+      if (prog) { st.family = prog.family; st.active[prog.family] = prog.id; if (prog.family === 'hit') st.tier = prog.tier || 'intermediate'; }
+      const lw = latestWeight();
+      if (!lw || lw.kg !== round1(w)) { S.weights = S.weights.filter((x) => x.date !== today()); S.weights.push({ date: today(), kg: round1(w) }); }
+      if (!st.setupDone || st.startWeight == null) st.startWeight = round1(w);
+      st.setupDone = true;
+      ui.dayId = null;
+      closeSheet(); toast('Targets saved. Good luck!'); break;
     }
     case 'meas-form': {
       const date = fd.get('date') || today();

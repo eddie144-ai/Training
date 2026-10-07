@@ -256,6 +256,13 @@
   .steps { display: grid; gap: 10px; padding-left: 0; list-style: none; counter-reset: step; }
   .steps li { counter-increment: step; display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 15px; }
   .steps li::before { content: counter(step); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 14px; }
+  #photo-grid { display: grid; gap: 12px; }
+  .photo-row { display: grid; gap: 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pair figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+  .pair img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--raised); }
+  .pair figcaption { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+  .setup-sug { padding: 10px 12px; border-radius: 12px; background: var(--raised); }
   .kcal-pill { font-size: 13px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: var(--raised); color: var(--text); font-variant-numeric: tabular-nums; }
   .card.alert { border-left: 4px solid var(--bad); }
   #scan-video { width: 100%; max-height: 260px; border-radius: 10px; background: #000; object-fit: cover; }
@@ -272,6 +279,7 @@
 <nav id="nav" aria-label="Sections"></nav>
 <script src="data.js"></script>
 <script src="scan.js"></script>
+<script src="photos.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

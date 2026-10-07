@@ -1,8 +1,8 @@
 // Offline cache for the Gym & Fuel app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.1';
-const FILES = ['./', './index.html', './data.js', './scan.js', './app.js', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+const VERSION = 'gymfuel-v1.2';
+const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './app.js', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
