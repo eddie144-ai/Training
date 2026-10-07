@@ -19,7 +19,8 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 const URL_ = `http://localhost:${server.address().port}/gym-fuel/`;
-const browser = await chromium.launch();
+// A fake camera, so the scanner can be opened headless.
+const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const results = [];
 async function test(name, fn) {
   try { await fn(); results.push(true); console.log(`  ✓ ${name}`); }
@@ -37,7 +38,7 @@ const IRON = {
 };
 
 async function open({ iron, own } = {}) {
-  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+  const ctx = await browser.newContext({ serviceWorkers: 'block', permissions: ['camera'] });
   await ctx.addInitScript(([iron, own]) => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
@@ -193,6 +194,60 @@ await test('progress photos: add, show and delete', async () => {
   await page.getByRole('button', { name: /Delete front photo/ }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByText('No photos yet').waitFor();
+  await ctx.close();
+});
+
+// Open Food Facts search answers, as the live service sends them (brands as a list).
+const HITS = { hits: [
+  { code: '0894700010137', product_name: 'Nonfat Greek Yogurt', brands: ['Chobani'], nutriments: { 'energy-kcal_100g': 52.9, proteins_100g: 9.41, carbohydrates_100g: 3.53, fat_100g: 0 } },
+  { code: '1111111111116', product_name: 'No calories listed', brands: ['X'], nutriments: {} },
+] };
+
+await test('food search: finds Open Food Facts products by name, logs by grams, remembers them offline', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: {} } });
+  let calls = 0;
+  await page.route('https://search.openfoodfacts.org/**', (r) => { calls += 1; r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(HITS) }); });
+  await page.getByRole('button', { name: '+ Add food' }).click();
+  await page.getByLabel('Search').pressSequentially('greek yogurt', { delay: 40 });
+  await page.getByRole('button', { name: /Nonfat Greek Yogurt · Chobani/ }).click();
+  assert(calls === 1, `one request for one burst of typing, got ${calls}`);
+  assert(!(await page.getByText('No calories listed').count()), 'products without calories are left out');
+  await page.locator('#x-sg').fill('200');
+  await page.getByRole('button', { name: 'Add to log' }).click();
+  const s = await state(page);
+  const m = s.meals[0];
+  assert(m.name === 'Nonfat Greek Yogurt · Chobani (200 g)' && m.kcal === 106 && m.p === 18.8, `meal ${JSON.stringify(m)}`);
+  assert(s.scanned.some((x) => x.code === '0894700010137'), 'remembered');
+  // Offline next time: the saved product is in the picker without any request.
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: '+ Add food' }).click();
+  await page.getByLabel('Search').fill('nonfat');
+  assert(await page.getByRole('button', { name: /Nonfat Greek Yogurt · Chobani Saved product/ }).isVisible(), 'saved product listed offline');
+  assert(await page.getByText('Offline: showing your own foods').isVisible(), 'offline note');
+  assert(calls === 1, 'no request while offline');
+  await ctx.close();
+});
+
+await test('food search: a busy Open Food Facts shows a plain message', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: {} } });
+  await page.route('https://search.openfoodfacts.org/**', (r) => r.fulfill({ status: 429, headers: { 'access-control-allow-origin': '*' }, body: '' }));
+  await page.getByRole('button', { name: '+ Add food' }).click();
+  await page.getByLabel('Search').fill('oats');
+  await page.getByText('Open Food Facts is busy. Wait a minute and search again.').waitFor();
+  await ctx.close();
+});
+
+await test('scanner: loads the barcode polyfill where the browser has none, then looks the code up', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: {} } });
+  let polyfill = 0;
+  await page.route('https://cdn.jsdelivr.net/npm/barcode-detector@*/**', (r) => { polyfill += 1; r.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: "window.BarcodeDetector = class { static async getSupportedFormats() { return ['ean_13']; } async detect() { return [{ rawValue: '0894700010137' }]; } };" }); });
+  await page.route('https://world.openfoodfacts.org/api/v2/product/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ status: 1, product: HITS.hits[0] }) }));
+  const native = await page.evaluate(() => 'BarcodeDetector' in window);
+  await page.getByRole('button', { name: 'Scan a barcode' }).first().click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  await page.getByText('Nonfat Greek Yogurt · Chobani').waitFor();
+  assert(native || polyfill === 1, `polyfill loaded once (native ${native}, loads ${polyfill})`);
+  assert(!errors.length, errors.join('; '));
   await ctx.close();
 });
 
