@@ -1,7 +1,7 @@
 // Offline cache for the Gym & Fuel app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.3';
+const VERSION = 'gymfuel-v1.4';
 const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './app.js', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -16,8 +16,16 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// The barcode scanner for browsers without one (barcode-detector + zxing-wasm on jsDelivr, pinned versions):
+// cache first, so scanning works offline once it has loaded.
+const SCANNER = /^https:\/\/(cdn|fastly)\.jsdelivr\.net\/npm\/(barcode-detector|zxing-wasm)@/;
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  if (req.method === 'GET' && SCANNER.test(req.url)) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; })));
+    return;
+  }
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
     fetch(req, { cache: 'no-cache' })

@@ -26,6 +26,12 @@ again.
   none until they've logged something.
 - **Fuel → Log:** meals by day and slot, totals against your targets, add from the food library, one-off meals,
   barcode scan (Open Food Facts), copy the day before, edit or delete.
+- **Food search:** typing 3+ letters in Add food also searches Open Food Facts by name
+  (`search.openfoodfacts.org`) after a short pause, keeps answers for the session (the service allows about 10
+  searches a minute) and adds products by grams. Products you add are saved and listed offline next time.
+- **Scanning on any phone:** where the browser has no barcode scanner of its own (iPhone Safari, desktop), the
+  [barcode-detector](https://www.npmjs.com/package/barcode-detector) polyfill (ZXing in WebAssembly, pinned
+  3.2.2 on jsDelivr) loads the first time the camera opens; the service worker keeps it for offline use.
 - **Fuel → Recipes:** the Gironda staples and 43 Dolce recipes with macros, ingredients and method, plus your own
   foods.
 - **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day trend line.
@@ -46,7 +52,7 @@ your foods, macro targets and progress photos from Iron & Eggs in the same brows
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, shared with Iron & Eggs), `photos.js` (progress photos), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress photos), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`.
 
 ## Tests

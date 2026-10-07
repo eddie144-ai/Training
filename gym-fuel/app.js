@@ -884,7 +884,45 @@ function openFoodPicker() {
     ${slotSelect('picker-slot', slotForTime(new Date().toISOString()))}
     <label class="field" for="picker-q">Search<input id="picker-q" type="search" placeholder="Name or ingredient" data-live="picker-q"></label>
     <div class="list picker-list">${foodLibrary().map((x) => `<button class="linkish pick" data-act="pick-food" data-id="${esc(x.id)}" data-name="${esc((x.name + ' ' + (x.ingredients || []).join(' ')).toLowerCase())}">
-      <b>${esc(x.name)}</b><br><span class="muted small">${esc(x.meal || '')} · ${macroLine({ ...x, kcal: mealKcal(x) })} per serving</span></button>`).join('')}</div>`);
+      <b>${esc(x.name)}</b><br><span class="muted small">${esc(x.meal || '')} · ${macroLine({ ...x, kcal: mealKcal(x) })} per serving</span></button>`).join('')}
+      ${(S.scanned || []).map((x) => `<button class="linkish pick" data-act="open-product" data-code="${esc(x.code)}" data-name="${esc(x.name.toLowerCase())}">
+      <b>${esc(x.name)}</b><br><span class="muted small">Saved product · ${macroLine(x)} per 100 g</span></button>`).join('')}</div>
+    <div id="off-results" class="list" aria-live="polite"><p class="muted small">Type 3 or more letters to search Open Food Facts too.</p></div>`);
+}
+
+// Searching Open Food Facts by name from the Add food sheet: waits for a pause in typing, keeps answers for the
+// session so the same words never cost a second request (the service allows about 10 searches a minute).
+const offCache = new Map();
+let offTimer = null, offShown = [];
+function offSearchSoon(q) {
+  clearTimeout(offTimer);
+  const box = document.getElementById('off-results');
+  if (!box) return;
+  const words = q.trim().toLowerCase();
+  if (words.length < 3) { box.innerHTML = '<p class="muted small">Type 3 or more letters to search Open Food Facts too.</p>'; return; }
+  if (offCache.has(words)) { drawOff(words, offCache.get(words)); return; }
+  if (!navigator.onLine) { box.innerHTML = '<p class="muted small">Offline: showing your own foods and saved products only.</p>'; return; }
+  box.innerHTML = '<p class="muted small">Searching Open Food Facts…</p>';
+  offTimer = setTimeout(async () => {
+    const res = await Scan.search(words);
+    if (res.ok) offCache.set(words, res);
+    const input = document.getElementById('picker-q');
+    if (input && input.value.trim().toLowerCase() === words) drawOff(words, res);
+  }, 700);
+}
+function drawOff(words, res) {
+  const box = document.getElementById('off-results');
+  if (!box) return;
+  if (!res.ok) { box.innerHTML = `<p class="small warn-text">${esc(res.error)}</p>`; return; }
+  offShown = res.foods;
+  box.innerHTML = res.foods.length
+    ? `<p class="rlabel">Open Food Facts</p>${res.foods.map((f, i) => `<button class="linkish" data-act="off-pick" data-i="${i}"><b>${esc(f.name)}</b><br><span class="muted small">${macroLine(f)} per 100 g</span></button>`).join('')}`
+    : `<p class="muted small">Nothing on Open Food Facts for "${esc(words)}".</p>`;
+}
+// A product (searched or saved) opens the grams sheet, the same one a scanned barcode uses.
+function openProduct(food, msg) {
+  scanState = { status: 'found', food, msg, code: food.code, slot: document.getElementById('picker-slot')?.value };
+  drawScan();
 }
 
 function openServings(food, slot) {
@@ -1225,11 +1263,13 @@ document.addEventListener('click', (e) => {
     case 'scan-food': scanSheet(); return;
     case 'scan-cam': {
       scanState.status = 'camera'; scanState.msg = 'Point the camera at the barcode.'; drawScan();
-      Scan.start(document.getElementById('scan-video'), (code) => scanLookup(code)).catch(() => { Scan.stop(); if (scanState) { Object.assign(scanState, { status: 'error', msg: 'The camera isn\'t available. Type the number instead.' }); drawScan(); } });
+      Scan.start(document.getElementById('scan-video'), (code) => scanLookup(code)).catch((err) => { Scan.stop(); if (scanState) { Object.assign(scanState, { status: 'error', msg: /scanner|detector/.test(err?.message || '') ? 'Couldn\'t load the scanner. It needs internet the first time. Type the number instead.' : 'The camera isn\'t available. Allow camera access, or type the number instead.' }); drawScan(); } });
       return;
     }
     case 'scan-stop': Scan.stop(); Object.assign(scanState, { status: 'idle', msg: '' }); drawScan(); return;
     case 'scan-recent': scanLookup(el.dataset.v); return;
+    case 'off-pick': { const f = offShown[Number(el.dataset.i)]; if (f) openProduct(f, 'From Open Food Facts. Check it against the pack.'); return; }
+    case 'open-product': { const f = (S.scanned || []).find((x) => x.code === el.dataset.code); if (f) openProduct(f, 'Saved earlier, works offline.'); return; }
 
     // ---- body
     case 'setup': openSetup(); return;
@@ -1273,6 +1313,7 @@ document.addEventListener('input', (e) => {
   if (t.dataset.live === 'picker-q') {
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll('.picker-list .pick').forEach((b) => { b.hidden = !!q && !b.dataset.name.includes(q); });
+    offSearchSoon(q);
   }
 });
 
@@ -1323,7 +1364,8 @@ document.addEventListener('submit', (e) => {
       if (!food || !g || g <= 0) { toast('Enter the grams eaten'); return; }
       const k = g / 100;
       const d = ui.fuelDate || today(), at = nowOn(d);
-      S.meals.push({ id: uid(), date: d, at, name: `${food.name} (${fmtNum(g)} g)`, kcal: Math.round(food.kcal * k), p: round1(food.p * k), c: round1(food.c * k), f: round1(food.f * k), servings: 1, ref: null, kind: 'scan', slot: slotForTime(at) });
+      S.meals.push({ id: uid(), date: d, at, name: `${food.name} (${fmtNum(g)} g)`, kcal: Math.round(food.kcal * k), p: round1(food.p * k), c: round1(food.c * k), f: round1(food.f * k), servings: 1, ref: null, kind: 'scan', slot: scanState.slot || slotForTime(at) });
+      if (food.code) S.scanned = [food, ...(S.scanned || []).filter((x) => x.code !== food.code)].slice(0, 50); // remembered for offline use
       closeSheet(); toast('Added to your log'); break;
     }
     case 'weigh-form': case 'weight-form': {
