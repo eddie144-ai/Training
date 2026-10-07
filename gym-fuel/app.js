@@ -161,6 +161,18 @@ function foodLibrary() {
 }
 const findFood = (id) => foodLibrary().find((f) => f.id === id);
 
+// Quick-add buttons: the foods this person logs most (last 30 days), so nobody sees someone else's staples.
+function quickFoods(max = 3) {
+  const from = addDays(today(), -29);
+  const count = {};
+  for (const m of S.meals) if (m.ref && m.date >= from) count[m.ref] = (count[m.ref] || 0) + 1;
+  return Object.entries(count).sort((a, b) => b[1] - a[1]).map(([id]) => findFood(id)).filter(Boolean).slice(0, max);
+}
+function quickAdd() {
+  const foods = quickFoods();
+  return foods.length ? `<span class="muted small">Quick add:</span>${foods.map((g) => `<button class="small-btn" data-act="pick-food" data-id="${esc(g.id)}">${esc(g.name.split(':')[0])}</button>`).join('')}` : '';
+}
+
 // Average daily intake over the days in [from, to] that have food logged.
 function intakeAvg(from, to) {
   const days = [...new Set(S.meals.filter((m) => m.date >= from && m.date <= to).map((m) => m.date))];
@@ -373,7 +385,6 @@ function viewToday() {
   const ws = weekStart(d);
   const weekSessions = S.workouts.filter((w) => w.date >= ws && w.date <= d).length;
   const intake = intakeAvg(ws, d);
-  const quick = STAPLES.slice(0, 2).map((g) => `<button class="small-btn" data-act="pick-food" data-id="${g.id}">${esc(g.name.split(':')[0])}</button>`).join('');
   const inProgress = draftStarted(prog.id, next.id);
   return `
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
@@ -395,7 +406,7 @@ function viewToday() {
     </div>
     ${macroBars(mac)}
     <div class="grid2"><button class="primary" data-act="food-picker">+ Add food</button><button data-act="scan-food">Scan a barcode</button></div>
-    <div class="row wrap"><span class="muted small">Quick add:</span>${quick}<button class="small-btn" data-act="go-fuel">Food log</button></div>
+    <div class="row wrap">${quickAdd()}<button class="small-btn" data-act="go-fuel">Food log</button></div>
   </section>
   <section class="card">
     <h2>Body weight</h2>
@@ -580,7 +591,6 @@ function viewTrainHistory() {
 function viewFuelLog() {
   const d = ui.fuelDate || today();
   const meals = mealsOn(d);
-  const quick = STAPLES.slice(0, 2).map((g) => `<button class="small-btn" data-act="pick-food" data-id="${g.id}">${esc(g.name.split(':')[0])}</button>`).join('');
   return `
   ${dateNav('fuel-date', d)}
   <section class="card"><h2>Totals</h2>${macroBars(macrosOn(d))}</section>
@@ -589,7 +599,7 @@ function viewFuelLog() {
     <button data-act="oneoff">+ One-off meal</button>
   </div>
   <button data-act="scan-food">Scan a barcode</button>
-  <div class="row wrap"><span class="muted small">Quick add:</span>${quick}</div>
+  ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
   <section class="card">
     <h2>Meals · ${d === today() ? 'today' : fmtDate(d)} <span class="right">${meals.length}</span></h2>
     ${meals.length ? `<div class="list">${meals.map((m) => `<div class="row between">
