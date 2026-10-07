@@ -19,15 +19,17 @@ Served at `<site>/gym-fuel/`. Open it in Chrome on Android and tap **⋮ → Ins
 - **Fuel → Recipes:** the Gironda staples and 43 Dolce recipes with macros, ingredients and method, plus your own
   foods.
 - **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day trend line.
-- **Body → Settings:** calorie and macro targets, start and target weight, cycle start, copy from Iron & Eggs,
+- **Body → Measurements:** waist, chest, arms, thighs, hips and neck (cm), change since your first entry, a
+  waist trend line, a US Navy body-fat estimate (with your height set) and the history.
+- **Body → Settings:** calorie and macro targets, start and target weight, height, cycle start, copy from Iron & Eggs,
   backup and restore, high contrast, delete all data.
 
 ## Left out from Iron & Eggs
 Chains, XP and levels, goals, journal and dreams, fasting and the eating window, carb-up clock and cut check-ins,
-Garmin, sleep, fluids, planning and shopping, the channel, photos and the other apps.
+Garmin, sleep, fluids, planning and shopping, the channel, progress photos and the other apps.
 
 ## From Iron & Eggs
-On first open (or Body → Settings) you can bring over weigh-ins, sessions, exercise weights, programmes, meals,
+On first open (or Body → Settings) you can bring over weigh-ins, measurements, sessions, exercise weights, programmes, meals,
 your foods and macro targets from Iron & Eggs in the same browser. Iron & Eggs is only read, never changed.
 
 ## Files
