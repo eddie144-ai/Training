@@ -15,6 +15,8 @@ const IRON_KEY = 'shtrainer.v1'; // Iron & Eggs, read once on request to bring y
 const LOG_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dressing', 'Juice'];
 const TAG_NAMES = { A: 'Athlete', H: 'Health', G: 'GF option', V: 'Vegan option' };
+const MEASURES = ['waist', 'chest', 'arms', 'thighs', 'hips', 'neck'];
+const cap = (w) => w[0].toUpperCase() + w.slice(1);
 const FEELS = [[1, 'Rough'], [2, 'Hard'], [3, 'OK'], [4, 'Good'], [5, 'Great']];
 
 // ===========================================================================
@@ -59,7 +61,7 @@ function freshState() {
     v: 1,
     settings: {
       kcalGoal: 1900, proteinGoal: 170, carbGoal: 80, fatGoal: 90,
-      startWeight: null, target: 75,
+      startWeight: null, target: 75, heightCm: null,
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' }, cycleStart: weekStart(today()),
       highContrast: false,
     },
@@ -70,6 +72,7 @@ function freshState() {
     myFoods: [],
     scanned: [],
     weights: [],
+    measurements: [],
     notice: null,
   };
 }
@@ -78,7 +81,7 @@ function normalise(s) {
   if (!s || typeof s !== 'object') return freshState();
   const d = freshState();
   const out = { ...d, ...s, v: 1, settings: { ...d.settings, ...s.settings, active: { ...d.settings.active, ...(s.settings?.active || {}) } } };
-  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights']) if (!Array.isArray(out[k])) out[k] = [];
+  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights', 'measurements']) if (!Array.isArray(out[k])) out[k] = [];
   if (!out.programs || typeof out.programs !== 'object') out.programs = {};
   if (!out.baselines || typeof out.baselines !== 'object') out.baselines = {};
   for (const t of PROGRAM_TEMPLATES) {
@@ -105,7 +108,7 @@ function save() {
 }
 const rawKey = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
-// Bring weigh-ins, sessions, exercise weights, programmes, meals, foods and macro targets over from Iron & Eggs.
+// Bring weigh-ins, measurements, sessions, exercise weights, programmes, meals, foods and macro targets over from Iron & Eggs.
 // Iron & Eggs itself is only read, never changed.
 function ironData() {
   try { const d = JSON.parse(rawKey(IRON_KEY) || 'null'); return d && d.settings ? d : null; } catch { return null; }
@@ -115,7 +118,7 @@ function bringIron() {
   if (!src) return false;
   const n = freshState();
   const st = src.settings || {};
-  for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal', 'startWeight', 'target', 'family', 'tier', 'cycleStart', 'highContrast']) if (st[k] != null) n.settings[k] = st[k];
+  for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal', 'startWeight', 'target', 'heightCm', 'family', 'tier', 'cycleStart', 'highContrast']) if (st[k] != null) n.settings[k] = st[k];
   n.settings.active = { ...n.settings.active, ...(st.active || {}) };
   n.programs = { ...n.programs, ...(src.programs || {}) };
   n.baselines = { ...(src.baselines || {}) };
@@ -124,6 +127,7 @@ function bringIron() {
   n.myFoods = src.myFoods || [];
   n.scanned = src.scanned || [];
   n.weights = src.weights || [];
+  n.measurements = src.measurements || [];
   S = normalise(n);
   return true;
 }
@@ -297,7 +301,7 @@ const TABS = [['today', 'Today'], ['train', 'Train'], ['fuel', 'Fuel'], ['body',
 const SUBTABS = {
   train: [['log', 'Workout'], ['history', 'History']],
   fuel: [['log', 'Log'], ['recipes', 'Recipes']],
-  body: [['weight', 'Weight'], ['settings', 'Settings']],
+  body: [['weight', 'Weight'], ['measure', 'Measurements'], ['settings', 'Settings']],
 };
 const ui = {
   tab: 'today', sub: { train: 'log', fuel: 'log', body: 'weight' },
@@ -679,6 +683,45 @@ function viewBodyWeight() {
   </section>`;
 }
 
+// US Navy body-fat estimate (men) from waist, neck and height, all in cm.
+function navyBodyFat(m) {
+  const h = S.settings.heightCm;
+  if (!h || !m.waist || !m.neck || m.waist <= m.neck) return null;
+  return round1(495 / (1.0324 - 0.19077 * Math.log10(m.waist - m.neck) + 0.15456 * Math.log10(h)) - 450);
+}
+
+function viewBodyMeasure() {
+  const meas = [...S.measurements].sort((a, b) => b.date.localeCompare(a.date));
+  const first = meas[meas.length - 1];
+  const last = meas[0];
+  const bf = last ? navyBodyFat(last) : null;
+  const waists = [...meas].reverse().filter((m) => m.waist != null).map((m) => m.waist);
+  return `
+  <section class="card">
+    <h2>Measurements (cm)</h2>
+    ${last ? `<div class="stats">
+      ${MEASURES.filter((m) => last[m] != null).map((m) => {
+        const d = first && first !== last && first[m] != null ? round1(last[m] - first[m]) : null;
+        return `<div class="stat"><b>${fmtNum(last[m])}</b><span>${cap(m)}${d !== null ? ` · ${d > 0 ? '+' : ''}${fmtNum(d)}` : ''}</span></div>`;
+      }).join('')}
+      ${bf !== null ? `<div class="stat"><b>${fmtNum(bf)}%</b><span>Body fat (Navy est.)</span></div>` : ''}
+    </div>
+    ${waists.length > 1 ? `<p class="muted small">Waist trend</p>${spark(waists)}` : ''}
+    <p class="muted small">Changes are since your first entry (${fmtDate(first.date)}).${S.settings.heightCm ? '' : ' Add your height in Body → Settings for a body-fat estimate from waist and neck.'}</p>` : ''}
+    <form id="meas-form" class="grid3" autocomplete="off">
+      ${MEASURES.map((m) => `<label class="field">${cap(m)}<input name="${m}" inputmode="decimal" placeholder="${last?.[m] ?? ''}"></label>`).join('')}
+      <label class="field" style="grid-column:1/-1">Date<input name="date" type="date" value="${today()}" max="${today()}"></label>
+      <button class="primary" style="grid-column:1/-1" type="submit">Save measurements</button>
+    </form>
+    <p class="muted small">Measure weekly, same time of day, tape level and snug. Waist at the navel; neck just below the Adam's apple; arms and thighs at the widest point.</p>
+  </section>
+  <section class="card">
+    <h2>History <span class="right">${meas.length}</span></h2>
+    ${meas.length ? `<div class="list">${meas.slice(0, 20).map((x) => `<div class="row between"><span class="grow"><b>${fmtDate(x.date)}</b><br><span class="muted small">${MEASURES.filter((m) => x[m] != null).map((m) => `${m} ${fmtNum(x[m])}`).join(' · ')}${navyBodyFat(x) !== null ? ` · ${fmtNum(navyBodyFat(x))}% BF` : ''}</span></span>
+      <button class="icon ghost" data-act="del-meas" data-date="${esc(x.date)}" aria-label="Delete measurements for ${fmtDate(x.date)}">✕</button></div>`).join('')}</div>` : '<p class="muted">No measurements yet.</p>'}
+  </section>`;
+}
+
 function viewBodySettings() {
   const st = S.settings;
   const iron = ironData();
@@ -692,14 +735,15 @@ function viewBodySettings() {
       <label class="field">Fat (g)<input name="fatGoal" inputmode="numeric" value="${st.fatGoal}" required></label>
       <label class="field">Start weight (kg)<input name="startWeight" inputmode="decimal" value="${st.startWeight ?? ''}" placeholder="first weigh-in"></label>
       <label class="field">Target weight (kg)<input name="target" inputmode="decimal" value="${st.target ?? ''}"></label>
-      <label class="field" style="grid-column:1/-1">4-week cycle started<input name="cycleStart" type="date" value="${esc(st.cycleStart)}" required></label>
+      <label class="field">Height (cm)<input name="heightCm" inputmode="decimal" value="${st.heightCm ?? ''}" placeholder="for body fat"></label>
+      <label class="field">4-week cycle started<input name="cycleStart" type="date" value="${esc(st.cycleStart)}" required></label>
       <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
     </form>
   </section>
   <section class="card">
     <h2>From Iron &amp; Eggs</h2>
     ${iron
-      ? `<p class="small">Bring over your weigh-ins (${(iron.weights || []).length}), sessions (${(iron.workouts || []).length}), exercise weights, programmes, meals (${(iron.meals || []).length}), your foods and macro targets. Iron &amp; Eggs isn't changed.</p>
+      ? `<p class="small">Bring over your weigh-ins (${(iron.weights || []).length}), measurements (${(iron.measurements || []).length}), sessions (${(iron.workouts || []).length}), exercise weights, programmes, meals (${(iron.meals || []).length}), your foods and macro targets. Iron &amp; Eggs isn't changed.</p>
          <button data-act="bring-iron">Replace this app's data with Iron &amp; Eggs data</button>`
       : '<p class="muted small">Iron &amp; Eggs data isn\'t in this browser. Open this app from the same site and phone as Iron &amp; Eggs to copy it, or restore a backup below.</p>'}
   </section>
@@ -838,7 +882,7 @@ function showWelcome() {
   const iron = ironData();
   openSheet('Welcome to Gym & Fuel', `
     <p>Iron &amp; Eggs, stripped down to the gym and the kitchen: your programmes and set logger, the food log with macro targets, the Dolce recipes, barcode scanning and your weight.</p>
-    ${iron ? `<p class="small">Iron &amp; Eggs data is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins and targets? Iron &amp; Eggs isn't changed.</p>
+    ${iron ? `<p class="small">Iron &amp; Eggs data is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? Iron &amp; Eggs isn't changed.</p>
       <button class="primary" data-act="bring-iron-now">Bring my Iron &amp; Eggs data</button>
       <button data-act="sheet-close">Start fresh</button>`
       : '<button class="primary" data-act="sheet-close">Get started</button>'}
@@ -860,7 +904,7 @@ function viewFor() {
     case 'today': return viewToday();
     case 'train': return ui.sub.train === 'history' ? viewTrainHistory() : viewTrainLog();
     case 'fuel': return ui.sub.fuel === 'recipes' ? viewFuelRecipes() : viewFuelLog();
-    case 'body': return ui.sub.body === 'settings' ? viewBodySettings() : viewBodyWeight();
+    case 'body': return { weight: viewBodyWeight, measure: viewBodyMeasure, settings: viewBodySettings }[ui.sub.body]?.() ?? viewBodyWeight();
   }
   return '';
 }
@@ -1076,6 +1120,7 @@ document.addEventListener('click', (e) => {
     case 'scan-recent': scanLookup(el.dataset.v); return;
 
     // ---- body
+    case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
     case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs data brought over'); break;
@@ -1168,9 +1213,20 @@ document.addEventListener('submit', (e) => {
       const st = S.settings;
       for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal']) { const v = formNum(fd, k); if (v != null && v >= 0) st[k] = Math.round(v); }
       st.startWeight = formNum(fd, 'startWeight');
+      { const h = formNum(fd, 'heightCm'); st.heightCm = h && h > 100 && h < 250 ? h : null; }
       const tgt = formNum(fd, 'target'); if (tgt) st.target = tgt;
       if (fd.get('cycleStart')) st.cycleStart = fd.get('cycleStart');
       toast('Saved'); break;
+    }
+    case 'meas-form': {
+      const date = fd.get('date') || today();
+      const row = {};
+      for (const m of MEASURES) { const v = formNum(fd, m); if (v != null && v > 0 && v < 300) row[m] = round1(v); }
+      if (!Object.keys(row).length) { toast('Enter at least one measurement'); return; }
+      const prev = S.measurements.find((x) => x.date === date) || {};
+      S.measurements = S.measurements.filter((x) => x.date !== date);
+      S.measurements.push({ ...prev, ...row, date });
+      toast('Measurements saved'); break;
     }
     case 'servings-form': {
       const k = formNum(fd, 'servings');

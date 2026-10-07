@@ -32,6 +32,7 @@ const IRON = {
   weights: [{ date: '2026-10-06', kg: 95.2 }, { date: '2026-10-07', kg: 94.9 }],
   meals: [{ id: 'm1', date: '2026-10-07', at: '2026-10-07T09:30:00.000Z', name: 'Gironda Meal 1', kcal: 933, p: 77, c: 4, f: 66, servings: 1, ref: 'gironda1' }],
   workouts: [{ id: 'w1', date: '2026-10-06', at: '2026-10-06T17:00:00.000Z', programId: 'my4week', programName: 'My 4-Week Program', family: 'cycle', dayId: 'my4week-d0', dayName: 'Day 1 · Chest & Triceps', entries: [{ name: 'Reverse Grip Bench Press', sets: [{ kg: 27.5, reps: 8 }] }] }],
+  measurements: [{ date: '2026-10-05', waist: 104, neck: 42 }],
   baselines: {}, programs: {}, myFoods: [], journal: { secret: 'not copied' },
 };
 
@@ -57,7 +58,7 @@ await test('first open shows the welcome and every tab renders without errors', 
   const { page, ctx, errors } = await open();
   assert(await page.getByRole('dialog', { name: 'Welcome to Gym & Fuel' }).isVisible(), 'welcome sheet');
   await page.getByRole('button', { name: 'Get started' }).click();
-  for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Body', ['Weight', 'Settings']]]) {
+  for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Body', ['Weight', 'Measurements', 'Settings']]]) {
     await page.locator('nav').getByRole('button', { name: tab }).click();
     for (const s of subs) await page.locator('.subtabs').getByRole('button', { name: s }).click();
   }
@@ -74,6 +75,7 @@ await test('brings Iron & Eggs data over without changing it', async () => {
   const s = await state(page);
   assert(s.weights.length === 2 && s.workouts.length === 1 && s.meals.length === 1, 'copied records');
   assert(s.settings.kcalGoal === 1800, 'targets copied');
+  assert(s.measurements.length === 1, 'measurements copied');
   assert(!s.journal, 'journal not copied');
   const iron = await page.evaluate(() => localStorage.getItem('shtrainer.v1'));
   assert(iron === JSON.stringify(IRON), 'Iron & Eggs untouched');
@@ -128,6 +130,26 @@ await test('weight log and targets', async () => {
   const s = await state(page);
   assert(s.weights[0].kg === 94.4 && s.settings.startWeight === 94.4, 'weight saved');
   assert(s.settings.proteinGoal === 180, 'target saved');
+  await ctx.close();
+});
+
+await test('measurements: save, merge on the same day, body-fat estimate, delete', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { heightCm: 180 }, measurements: [{ date: '2026-10-01', waist: 104 }] } });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Measurements' }).click();
+  const f = page.locator('#meas-form');
+  await f.getByLabel('Waist').fill('100');
+  await f.getByRole('button', { name: 'Save measurements' }).click();
+  await page.locator('#meas-form').getByLabel('Neck').fill('41');
+  await page.locator('#meas-form').getByRole('button', { name: 'Save measurements' }).click();
+  let s = await state(page);
+  const t = s.measurements.find((m) => m.date !== '2026-10-01');
+  assert(s.measurements.length === 2 && t.waist === 100 && t.neck === 41, `merged same-day entry: ${JSON.stringify(s.measurements)}`);
+  assert(await page.getByText('Waist · -4').isVisible(), 'change since first entry');
+  assert(await page.getByText('Body fat (Navy est.)').isVisible(), 'body fat shown');
+  await page.getByRole('button', { name: /Delete measurements for/ }).first().click();
+  s = await state(page);
+  assert(s.measurements.length === 1, 'deleted');
   await ctx.close();
 });
 
