@@ -106,7 +106,9 @@ await test('logs a workout with an extra set and shows the last weights next tim
 
 await test('food log: add a recipe, a one-off meal and see the totals', async () => {
   const { page, ctx } = await open({ own: { v: 1, settings: { kcalGoal: 2000 } } });
-  await page.getByRole('button', { name: 'Gironda Meal 1' }).first().click();
+  assert(!(await page.getByText('Quick add:').count()), 'no quick add for someone who has logged nothing');
+  await page.getByRole('button', { name: '+ Add food' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /Gironda Meal 1/ }).click();
   await page.getByRole('button', { name: '×1', exact: true }).click();
   await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
   await page.getByRole('button', { name: '+ One-off meal' }).click();
@@ -118,6 +120,7 @@ await test('food log: add a recipe, a one-off meal and see the totals', async ()
   assert(s.meals.length === 2, 'two meals');
   assert(s.meals[1].kcal === 100, 'kcal from macros');
   assert((await page.locator('#kcal-pill').textContent()).startsWith('1033 / 2000'), 'header total');
+  assert(await page.getByRole('button', { name: 'Gironda Meal 1', exact: true }).isVisible(), 'their own most-logged food becomes a quick add');
   await ctx.close();
 });
 

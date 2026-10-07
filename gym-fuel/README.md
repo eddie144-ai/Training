@@ -22,6 +22,8 @@ again.
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
   a half-logged session survives the app closing. Edit exercises, days and supersets; reset to the original.
 - **Train → History:** every session (tap for the sets) with PR tags, and personal records as estimated 1-rep max.
+- **Quick add** buttons (Today and Fuel) are your own most-logged foods from the last 30 days, so a new user sees
+  none until they've logged something.
 - **Fuel → Log:** meals by day and slot, totals against your targets, add from the food library, one-off meals,
   barcode scan (Open Food Facts), copy the day before, edit or delete.
 - **Fuel → Recipes:** the Gironda staples and 43 Dolce recipes with macros, ingredients and method, plus your own
