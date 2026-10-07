@@ -137,6 +137,8 @@ then tap **⋮ → Install app**. It works offline after the first load.
   HP and streaks. It reads Trainer's workouts, steps and Gironda meals (see its README).
 - `shredded-trainer/`: Shredded Trainer, Trainer and Shredded System merged for the cut: My 4-Week Program
   with the Gironda diet, carb-up clock, weekly decisions, photos, scanning and reminders (see its README).
+- `gym-fuel/`: Gym & Fuel, Iron & Eggs stripped down to the gym and nutrition: programmes and set logging,
+  food log with macro targets, recipes, barcode scanning and weight (see its README).
 - `shredded-system/`: Shredded System, the Gironda Cut from 95 kg to 70–75 kg: research report and full
   guide (PDF), app spec, datasets, log templates and the app at `shredded-system/app/` (see its README).
 - `massa/`: MASSA, a multi-sport value betting engine (Dixon-Coles football, a darts leg model, points, goals, tennis and Elo models) with automated paper trading, bankroll rules

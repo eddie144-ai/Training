@@ -1,5 +1,5 @@
 // Offline cache for the Trainer app shell. Bump VERSION whenever a file below changes.
-const VERSION = 'trainer-v3.26';
+const VERSION = 'trainer-v3.27';
 const FILES = ['./', './index.html', './data.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -19,9 +19,9 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
-  // Council, MASSA, Life RPG, Shredded System and Shredded Trainer live in their own folders with their own workers; never cache their pages as Trainer's.
+  // Council, MASSA, Life RPG, Shredded System, Shredded Trainer and Gym & Fuel live in their own folders with their own workers; never cache their pages as Trainer's.
   const path = new URL(req.url).pathname;
-  if (path.includes('/council/') || path.includes('/massa/') || path.includes('/liferpg/') || path.includes('/shredded-system/') || path.includes('/shredded-trainer/')) return;
+  if (path.includes('/council/') || path.includes('/massa/') || path.includes('/liferpg/') || path.includes('/shredded-system/') || path.includes('/shredded-trainer/') || path.includes('/gym-fuel/')) return;
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)

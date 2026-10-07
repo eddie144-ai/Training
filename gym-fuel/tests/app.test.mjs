@@ -1,0 +1,138 @@
+// Gym & Fuel tests. Runs the real app in Chromium against a local server.
+// Needs Playwright:  npm i playwright   Run from the repo root:  node gym-fuel/tests/app.test.mjs
+import { chromium } from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const TYPES = { js: 'text/javascript', html: 'text/html', json: 'application/json', png: 'image/png', jpg: 'image/jpeg' };
+const server = http.createServer((req, res) => {
+  let f = path.join(ROOT, decodeURIComponent(req.url.split('?')[0]));
+  if (f.endsWith('/')) f += 'index.html';
+  fs.readFile(f, (err, body) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': TYPES[f.split('.').pop()] || 'text/plain', 'cache-control': 'no-cache' });
+    res.end(body);
+  });
+});
+await new Promise((r) => server.listen(0, r));
+const URL_ = `http://localhost:${server.address().port}/gym-fuel/`;
+const browser = await chromium.launch();
+const results = [];
+async function test(name, fn) {
+  try { await fn(); results.push(true); console.log(`  ✓ ${name}`); }
+  catch (e) { results.push(false); console.log(`  ✗ ${name}\n      ${e.message.split('\n')[0]}`); }
+}
+const assert = (c, m) => { if (!c) throw new Error(m); };
+
+const IRON = {
+  v: 3, settings: { kcalGoal: 1800, proteinGoal: 170, carbGoal: 80, fatGoal: 90, target: 75, startWeight: 96.8, family: 'cycle', cycleStart: '2026-10-05', active: { cycle: 'my4week', hit: 'mentzer_ab' } },
+  weights: [{ date: '2026-10-06', kg: 95.2 }, { date: '2026-10-07', kg: 94.9 }],
+  meals: [{ id: 'm1', date: '2026-10-07', at: '2026-10-07T09:30:00.000Z', name: 'Gironda Meal 1', kcal: 933, p: 77, c: 4, f: 66, servings: 1, ref: 'gironda1' }],
+  workouts: [{ id: 'w1', date: '2026-10-06', at: '2026-10-06T17:00:00.000Z', programId: 'my4week', programName: 'My 4-Week Program', family: 'cycle', dayId: 'my4week-d0', dayName: 'Day 1 · Chest & Triceps', entries: [{ name: 'Reverse Grip Bench Press', sets: [{ kg: 27.5, reps: 8 }] }] }],
+  baselines: {}, programs: {}, myFoods: [], journal: { secret: 'not copied' },
+};
+
+async function open({ iron, own } = {}) {
+  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+  await ctx.addInitScript(([iron, own]) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.clear();
+    if (iron) localStorage.setItem('shtrainer.v1', JSON.stringify(iron));
+    if (own) localStorage.setItem('gymfuel.v1', JSON.stringify(own));
+  }, [iron, own]);
+  await ctx.clock?.setFixedTime?.(new Date('2026-10-07T12:00:00+01:00'));
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(URL_);
+  return { page, ctx, errors };
+}
+const state = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('gymfuel.v1')));
+
+await test('first open shows the welcome and every tab renders without errors', async () => {
+  const { page, ctx, errors } = await open();
+  assert(await page.getByRole('dialog', { name: 'Welcome to Gym & Fuel' }).isVisible(), 'welcome sheet');
+  await page.getByRole('button', { name: 'Get started' }).click();
+  for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Body', ['Weight', 'Settings']]]) {
+    await page.locator('nav').getByRole('button', { name: tab }).click();
+    for (const s of subs) await page.locator('.subtabs').getByRole('button', { name: s }).click();
+  }
+  assert(!errors.length, errors.join('; '));
+  const bg = await page.evaluate(() => getComputedStyle(document.body, '::before').backgroundImage);
+  assert(bg.includes('bg.jpg'), `background photo: ${bg}`);
+  assert((await page.locator('nav button').count()) === 4, 'four tabs');
+  await ctx.close();
+});
+
+await test('brings Iron & Eggs data over without changing it', async () => {
+  const { page, ctx } = await open({ iron: IRON });
+  await page.getByRole('button', { name: 'Bring my Iron & Eggs data' }).click();
+  const s = await state(page);
+  assert(s.weights.length === 2 && s.workouts.length === 1 && s.meals.length === 1, 'copied records');
+  assert(s.settings.kcalGoal === 1800, 'targets copied');
+  assert(!s.journal, 'journal not copied');
+  const iron = await page.evaluate(() => localStorage.getItem('shtrainer.v1'));
+  assert(iron === JSON.stringify(IRON), 'Iron & Eggs untouched');
+  await ctx.close();
+});
+
+await test('logs a workout with an extra set and shows the last weights next time', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { cycleStart: '2026-10-05' } } });
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  const first = page.locator('.excard').first();
+  const name = (await first.locator('b').first().textContent()).trim();
+  await first.getByLabel(`${name} set 1 kg`).fill('30');
+  await first.getByLabel(`${name} set 1 reps`).fill('8');
+  await first.getByRole('button', { name: '+ Add set' }).click();
+  await page.locator('.excard').first().getByLabel(`${name} set 5 kg`).fill('25');
+  await page.locator('.excard').first().getByLabel(`${name} set 5 reps`).fill('10');
+  await page.reload(); // a half-logged session survives a reload
+  assert((await page.locator('.excard').first().getByLabel(`${name} set 1 kg`).inputValue()) === '30', 'draft kept');
+  await page.getByRole('button', { name: 'Complete session' }).click();
+  const s = await state(page);
+  assert(s.workouts.length === 1 && s.workouts[0].entries[0].sets.length === 2, 'two sets saved');
+  await page.locator('.subtabs').getByRole('button', { name: 'History' }).click();
+  assert(await page.getByText('30×8').first().isVisible(), 'record listed');
+  await ctx.close();
+});
+
+await test('food log: add a recipe, a one-off meal and see the totals', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { kcalGoal: 2000 } } });
+  await page.getByRole('button', { name: 'Gironda Meal 1' }).first().click();
+  await page.getByRole('button', { name: '×1', exact: true }).click();
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.getByRole('button', { name: '+ One-off meal' }).click();
+  const f = page.locator('#oneoff-form');
+  await f.getByLabel('Name').fill('Shake');
+  await f.getByLabel('Protein (g)').fill('25');
+  await f.getByRole('button', { name: 'Save' }).click();
+  const s = await state(page);
+  assert(s.meals.length === 2, 'two meals');
+  assert(s.meals[1].kcal === 100, 'kcal from macros');
+  assert((await page.locator('#kcal-pill').textContent()).startsWith('1033 / 2000'), 'header total');
+  await ctx.close();
+});
+
+await test('weight log and targets', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: {} } });
+  await page.getByLabel("Today's weight in kg").fill('94.4');
+  await page.getByRole('button', { name: 'Log', exact: true }).click();
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Protein (g)').fill('180');
+  await page.locator('#targets-form').getByRole('button', { name: 'Save' }).click();
+  const s = await state(page);
+  assert(s.weights[0].kg === 94.4 && s.settings.startWeight === 94.4, 'weight saved');
+  assert(s.settings.proteinGoal === 180, 'target saved');
+  await ctx.close();
+});
+
+await browser.close();
+server.close();
+const failed = results.filter((x) => !x).length;
+console.log(`\n${results.length - failed}/${results.length} passed`);
+process.exit(failed ? 1 : 0);
