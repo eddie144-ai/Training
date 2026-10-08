@@ -62,7 +62,7 @@ function freshState() {
     settings: {
       kcalGoal: 1900, proteinGoal: 170, carbGoal: 80, fatGoal: 90,
       startWeight: null, target: 75, heightCm: null, sex: 'male', age: null, activity: 'moderate', setupDone: false,
-      family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab' }, cycleStart: weekStart(today()),
+      family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab', custom: null }, cycleStart: weekStart(today()),
       highContrast: false,
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
@@ -73,6 +73,7 @@ function freshState() {
     scanned: [],
     weights: [],
     measurements: [],
+    targetLog: [],
     notice: null,
   };
 }
@@ -81,7 +82,7 @@ function normalise(s) {
   if (!s || typeof s !== 'object') return freshState();
   const d = freshState();
   const out = { ...d, ...s, v: 1, settings: { ...d.settings, ...s.settings, active: { ...d.settings.active, ...(s.settings?.active || {}) } } };
-  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights', 'measurements']) if (!Array.isArray(out[k])) out[k] = [];
+  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights', 'measurements', 'targetLog']) if (!Array.isArray(out[k])) out[k] = [];
   if (!out.programs || typeof out.programs !== 'object') out.programs = {};
   if (!out.baselines || typeof out.baselines !== 'object') out.baselines = {};
   for (const t of PROGRAM_TEMPLATES) {
@@ -186,6 +187,74 @@ function intakeAvg(from, to) {
 // ===========================================================================
 const weightsSorted = () => [...S.weights].sort((a, b) => a.date.localeCompare(b.date));
 const latestWeight = () => weightsSorted().pop() || null;
+// ===========================================================================
+// Adaptive calorie target: your real maintenance from the last 3 weeks
+// ===========================================================================
+// Energy balance: maintenance = average intake − (weight change × 7,700 kcal per kg). The weight change is the
+// slope of a straight line through the weigh-ins, so one salty day doesn't swing it. Needs 8+ weigh-ins over 14+
+// days and 12+ days with food logged in the 21 days before today (today is still being logged).
+const ADAPT_DAYS = 21, KCAL_PER_KG = 7700, MAX_STEP = 300;
+function adaptive() {
+  const to = addDays(today(), -1), from = addDays(to, -(ADAPT_DAYS - 1));
+  const ws = S.weights.filter((w) => w.date >= from && w.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+  const days = [...new Set(S.meals.filter((m) => m.date >= from && m.date <= to).map((m) => m.date))];
+  const span = ws.length ? daysBetween(ws[0].date, ws[ws.length - 1].date) : 0;
+  const base = { from, to, weighIns: ws.length, span, foodDays: days.length };
+  if (ws.length < 8 || span < 14 || days.length < 12) return { ...base, ready: false };
+  const xs = ws.map((w) => daysBetween(from, w.date)), ys = ws.map((w) => Number(w.kg));
+  const mx = sum(xs, (x) => x) / xs.length, my = sum(ys, (y) => y) / ys.length;
+  let sxy = 0, sxx = 0;
+  xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; });
+  const slope = sxx ? sxy / sxx : 0; // kg per day
+  const intake = sum(days, (d) => macrosOn(d).kcal) / days.length;
+  const tdee = intake - slope * KCAL_PER_KG;
+  const out = { ...base, ready: true, slopeWeek: slope * 7, intake, tdee, current: my + slope * (xs[xs.length - 1] - mx) };
+  if (tdee < 1200 || tdee > 5000) return { ...out, ready: false, odd: true };
+  const st = S.settings, gap = (st.target ?? out.current) - out.current;
+  out.goal = Math.abs(gap) < 1 ? 'maintain' : gap < 0 ? 'lose' : 'gain';
+  const rateWeek = out.goal === 'lose' ? -0.5 : out.goal === 'gain' ? 0.25 : 0; // kg a week
+  const floor = st.sex === 'female' ? 1200 : 1500;
+  const ideal = Math.max(floor, tdee + (rateWeek * KCAL_PER_KG) / 7);
+  const step = Math.max(-MAX_STEP, Math.min(MAX_STEP, ideal - st.kcalGoal));
+  out.ideal = Math.round(ideal / 10) * 10;
+  out.suggest = Math.max(floor, Math.round((st.kcalGoal + step) / 10) * 10);
+  out.delta = out.suggest - st.kcalGoal;
+  out.capped = Math.abs(ideal - st.kcalGoal) > MAX_STEP;
+  return out;
+}
+// New calories with protein kept; carbs and fat share the rest as they do now (a low-carb plan stays low-carb).
+function macrosFor(kcal) {
+  const st = S.settings, rest = kcal - st.proteinGoal * 4;
+  const ck = st.carbGoal * 4, fk = st.fatGoal * 9, tot = ck + fk;
+  if (rest <= 0 || !tot) return { kcalGoal: kcal, carbGoal: st.carbGoal, fatGoal: st.fatGoal };
+  return { kcalGoal: kcal, carbGoal: Math.round((rest * ck) / tot / 4), fatGoal: Math.round((rest * fk) / tot / 9) };
+}
+function adaptCard(a, where) {
+  const st = S.settings;
+  if (!a.ready) {
+    return `<section class="card"><h2>Your real maintenance</h2>
+      ${a.odd ? '<p class="small">The numbers don\'t add up yet. It usually means some meals or drinks weren\'t logged. Log everything for a week and it will settle.</p>'
+        : `<p class="small">Needs about 3 weeks of your own data. In the last ${ADAPT_DAYS} days:</p>
+      <div class="stats"><div class="stat"><b>${a.weighIns}/8</b><span>weigh-ins</span></div><div class="stat"><b>${a.span}/14</b><span>days between first and last</span></div><div class="stat"><b>${a.foodDays}/12</b><span>days with food logged</span></div></div>`}
+      <p class="muted small">Then the app works out what you really burn from your weight trend and what you ate, and suggests a calorie target.</p></section>`;
+  }
+  const dir = a.slopeWeek < 0 ? 'losing' : 'gaining';
+  const aim = a.goal === 'lose' ? 'lose about 0.5 kg a week' : a.goal === 'gain' ? 'gain about 0.25 kg a week' : 'hold your weight';
+  const same = Math.abs(a.delta) < 100;
+  return `<section class="card ${where === 'today' ? 'hero-card' : ''}" id="adapt-card"><h2>Your real maintenance <span class="right">last ${ADAPT_DAYS} days</span></h2>
+    <div class="stats">
+      <div class="stat"><b>${Math.round(a.tdee / 10) * 10}</b><span>kcal a day burned</span></div>
+      <div class="stat"><b>${Math.round(a.intake)}</b><span>kcal a day eaten</span></div>
+      <div class="stat"><b>${a.slopeWeek > 0 ? '+' : a.slopeWeek < 0 ? '−' : ''}${fmtNum(Math.abs(round1(a.slopeWeek)))} kg</b><span>a week (trend)</span></div>
+    </div>
+    <p class="small">You're ${Math.abs(a.slopeWeek) < 0.05 ? 'holding steady' : `${dir} ${fmtNum(Math.abs(round1(a.slopeWeek)))} kg a week`} on about ${Math.round(a.intake)} kcal. To ${aim}, eat about <b>${a.ideal} kcal</b> a day.</p>
+    ${same ? `<p class="small good-text">✓ Your target of ${st.kcalGoal} kcal is right where it should be.</p>`
+      : `<p class="small">Suggested target: <b>${a.suggest} kcal</b> (${a.delta > 0 ? '+' : '−'}${Math.abs(a.delta)} from ${st.kcalGoal})${a.capped ? `, a step of at most ${MAX_STEP} kcal a week towards ${a.ideal}` : ''}. Protein stays at ${st.proteinGoal} g; carbs and fat keep their share.</p>
+      <div class="grid2"><button class="primary" data-act="adapt-apply" data-v="${a.suggest}">Use ${a.suggest} kcal</button>${where === 'today' ? '<button data-act="adapt-snooze">Not this week</button>' : '<span></span>'}</div>`}
+    <p class="muted small">Based on ${a.weighIns} weigh-ins and ${a.foodDays} days of food logged. It's only as good as the log: missed snacks or drinks make maintenance look lower than it is. Floors of ${st.sex === 'female' ? '1,200' : '1,500'} kcal always apply.${(S.targetLog || []).length ? ` Last change: ${fmtDate(S.targetLog.at(-1).date)}, ${S.targetLog.at(-1).from} → ${S.targetLog.at(-1).to} kcal.` : ''}</p>
+  </section>`;
+}
+
 function avgWeight(end, days) {
   const from = addDays(end, -(days - 1));
   const w = S.weights.filter((x) => x.date >= from && x.date <= end).map((x) => Number(x.kg));
@@ -329,6 +398,8 @@ const libImg = (l, i) => (l.images[i] ? `${LIB.images}${encodeURIComponent(l.id)
 const programs = (family, tier) => Object.values(S.programs).filter((p) => p.family === family && (!tier || (p.tier || 'intermediate') === tier));
 function activeProgram() {
   const fam = S.settings.family;
+  // My workouts: the one you picked, else your first; with none yet, Today keeps showing the 4-week cycle.
+  if (fam === 'custom') return S.programs[S.settings.active.custom] || programs('custom')[0] || S.programs[S.settings.active.cycle] || programs('cycle')[0];
   const p = S.programs[S.settings.active[fam]];
   if (p && (fam !== 'hit' || (p.tier || 'intermediate') === S.settings.tier)) return p;
   return (fam === 'hit' ? programs(fam, S.settings.tier)[0] : null) || p || programs(fam)[0] || Object.values(S.programs)[0];
@@ -443,6 +514,7 @@ function viewToday() {
   const intake = intakeAvg(ws, d);
   const inProgress = draftStarted(prog.id, next.id);
   return `
+  ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
   <section class="card hero-card">
     <h2>Training <span class="right">${esc(prog.name)}</span></h2>
@@ -576,8 +648,35 @@ function techniqueCards() {
   </section>`;
 }
 
+// Your own programmes (family 'custom'): made blank or copied from any other programme.
+function cloneDays(days) {
+  return clone(days).map((d) => ({ ...d, id: uid(), exercises: d.exercises.map((e) => ({ ...e, id: uid() })) }));
+}
+const REST_CHOICES = [['', 'No set rest: days in order'], ['1-2', '1–2 days between sessions'], ['2-3', '2–3 days'], ['4-7', '4–7 days (Mentzer style)']];
+function newProgramForm(copyFrom) {
+  const all = Object.values(S.programs);
+  return `<form id="prog-new-form" class="grid1" autocomplete="off">
+    <label class="field">Name<input name="name" required maxlength="60" placeholder="e.g. Push Pull Legs" value="${copyFrom ? esc(`${copyFrom.name} (my copy)`) : ''}"></label>
+    <label class="field">Start from<select name="from"><option value="">Blank</option>${all.map((p) => `<option value="${esc(p.id)}" ${copyFrom?.id === p.id ? 'selected' : ''}>A copy of ${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="field">Days in the programme (for a blank one)<select name="days">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option ${n === 3 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label class="field">Rest between sessions<select name="rest">${REST_CHOICES.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+    <button class="primary" type="submit">Create</button>
+    <p class="muted small">It goes in My workouts. Add exercises from the library or type your own; rename days and reorder them in Edit.</p>
+  </form>`;
+}
+
 function viewTrainLog() {
   const fam = S.settings.family;
+  const familyTabs = segmented('family', [['cycle', '4-Week Cycle'], ['hit', 'Mentzer HIT'], ['custom', 'My workouts']], fam, 'Training style');
+  if (fam === 'custom' && !programs('custom').length) {
+    return `${familyTabs}
+    <section class="card">
+      <h2>My workouts</h2>
+      <p>Build your own programme: as many days as you like, any exercises, your sets and reps.</p>
+      <button class="primary" data-act="prog-new">+ Create a workout programme</button>
+      <p class="muted small">Or start from a copy of any built-in programme and change it.</p>
+    </section>`;
+  }
   const prog = activeProgram();
   const suggested = nextDay(prog);
   const day = prog.days.find((d) => d.id === ui.dayId) || suggested;
@@ -591,19 +690,24 @@ function viewTrainLog() {
   const tier = TIERS.find(([k]) => k === S.settings.tier);
   const pd = `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}"`;
   return `
-  ${segmented('family', [['cycle', '4-Week Cycle'], ['hit', 'Mentzer HIT']], fam, 'Training style')}
+  ${familyTabs}
   ${fam === 'hit' ? `${segmented('tier', TIERS.map(([k, l]) => [k, l]), S.settings.tier, 'Mentzer level')}<p class="muted small tierdesc">${esc(tier[2])}</p>` : ''}
-  <div class="chiprow">${programs(fam, fam === 'hit' ? S.settings.tier : null).map((p) => `<button class="pchip" data-act="pick-program" data-v="${esc(p.id)}" aria-pressed="${p.id === prog.id}">${esc(p.name)}</button>`).join('')}</div>
+  <div class="chiprow">${programs(fam, fam === 'hit' ? S.settings.tier : null).map((p) => `<button class="pchip" data-act="pick-program" data-v="${esc(p.id)}" aria-pressed="${p.id === prog.id}">${esc(p.name)}</button>`).join('')}${fam === 'custom' ? '<button class="pchip" data-act="prog-new">+ New</button>' : ''}</div>
   ${done.length ? `<section class="card slim"><p>${chip('✓ Trained today', 'good')} <span class="muted small">${done.map((w) => esc(w.dayName)).join(', ')}</span></p></section>` : ''}
   <section class="card">
-    <div class="row between wrap"><h3>${esc(prog.name)}</h3>${rec ? chip(rec.text, rec.cls) : chip(`Cycle week ${((cycleWeek() - 1) % 4 + 4) % 4 + 1}`)}</div>
+    <div class="row between wrap"><h3>${esc(prog.name)}</h3>${rec ? chip(rec.text, rec.cls) : prog.family === 'cycle' ? chip(`Cycle week ${((cycleWeek() - 1) % 4 + 4) % 4 + 1}`) : chip(`${prog.days.length} day${prog.days.length === 1 ? '' : 's'}, in order`)}</div>
     ${prog.about ? `<p class="muted small">${esc(prog.about)}</p>` : ''}
     ${prog.source ? `<p class="muted small">Source: ${esc(prog.source)}</p>` : ''}
     ${dayButtons}
     <div class="row between wrap"><h3 class="dayname">${esc(day.name)}</h3>
       <button class="small-btn" data-act="toggle-edit" aria-pressed="${ui.editProgram}">${ui.editProgram ? 'Done editing' : 'Edit exercises'}</button></div>
     ${ui.editProgram ? `
+      ${prog.family === 'custom' ? `<label class="field">Programme name<input value="${esc(prog.name)}" data-edit="progname" ${pd}></label>` : ''}
       <label class="field">Day name<input value="${esc(day.name)}" data-edit="dayname" ${pd}></label>
+      ${prog.days.length > 1 ? `<div class="row wrap"><span class="muted small">Day order:</span>
+        <button class="small-btn" data-act="day-move" data-dir="-1" ${pd} ${prog.days[0].id === day.id ? 'disabled' : ''}>← Earlier</button>
+        <button class="small-btn" data-act="day-move" data-dir="1" ${pd} ${prog.days.at(-1).id === day.id ? 'disabled' : ''}>Later →</button></div>` : ''}
+      ${day.exercises.length ? '' : '<p class="muted small">No exercises on this day yet.</p>'}
       ${day.exercises.map((e, i) => exerciseEditRow(prog, day, e, i)).join('')}
       <div class="grid2">
         <button data-act="ex-add" ${pd}>+ Add exercise</button>
@@ -611,7 +715,10 @@ function viewTrainLog() {
       </div>
       ${prog.days.length > 1 ? `<button class="danger" data-act="day-del" ${pd}>Delete this day</button>` : ''}
       ${tmpl ? `<button class="ghost" data-act="prog-reset" data-pid="${esc(prog.id)}">Reset programme to the original</button>` : ''}
+      <button class="ghost" data-act="prog-copy" data-pid="${esc(prog.id)}">Copy this programme to My workouts</button>
+      ${prog.family === 'custom' ? `<button class="ghost danger" data-act="prog-del" data-pid="${esc(prog.id)}">Delete this programme</button>` : ''}
     ` : `
+      ${day.exercises.length ? '' : `<p class="muted">No exercises on this day yet. Tap <b>Edit exercises</b>, then <b>+ Add exercise</b>.</p>`}
       ${day.exercises.map((e, i) => exerciseLogCard(prog, day, e, i)).join('')}
       ${sessionFeelCard(prog, day)}
       <button class="primary" data-act="complete" ${pd}>Complete session</button>
@@ -858,6 +965,7 @@ function viewBodyWeight() {
       <button class="primary" style="grid-column:1/-1" type="submit">Save weigh-in</button>
     </form>
   </section>
+  ${adaptCard(adaptive(), 'body')}
   <section class="card">
     <h2>Weigh-ins <span class="right">${list.length}</span></h2>
     ${list.length ? `<div class="list">${[...list].reverse().slice(0, 30).map((w) => `<div class="row between"><span class="grow">${fmtDate(w.date)}</span><b>${fmtNum(w.kg)} kg</b><button class="icon ghost" data-act="del-weight" data-date="${esc(w.date)}" aria-label="Delete weigh-in for ${fmtDate(w.date)}">✕</button></div>`).join('')}</div>` : '<p class="muted">No weigh-ins yet.</p>'}
@@ -1333,9 +1441,9 @@ document.addEventListener('click', (e) => {
     case 'go-fuel': ui.tab = 'fuel'; ui.sub.fuel = 'log'; ui.fuelDate = today(); render({ scrollTop: true }); return;
 
     // ---- train
-    case 'family': S.settings.family = el.dataset.v; ui.dayId = null; break;
+    case 'family': S.settings.family = el.dataset.v; ui.dayId = null; ui.editProgram = false; break;
     case 'tier': S.settings.tier = el.dataset.v; ui.dayId = null; break;
-    case 'pick-program': S.settings.active[S.settings.family] = el.dataset.v; ui.dayId = null; break;
+    case 'pick-program': S.settings.active[S.settings.family] = el.dataset.v; ui.dayId = null; ui.editProgram = false; break;
     case 'pick-day': ui.dayId = el.dataset.v; render(); return;
     case 'toggle-edit': ui.editProgram = !ui.editProgram; render(); return;
     case 'feel': { const dr = (getDraft(pid, did)._session ||= {}); dr.feel = dr.feel === Number(el.dataset.v) ? null : Number(el.dataset.v); saveDrafts(); render(); return; }
@@ -1392,6 +1500,32 @@ document.addEventListener('click', (e) => {
       const day = prog.days.find((d) => d.id === did);
       ask(`Delete ${day.name}? Logged sessions are kept.`, 'Delete', () => { prog.days = prog.days.filter((d) => d.id !== did); prog.edited = true; ui.dayId = null; });
       return;
+    }
+    case 'adapt-apply': {
+      const kcal = Number(el.dataset.v), from = S.settings.kcalGoal;
+      if (!kcal) return;
+      Object.assign(S.settings, macrosFor(kcal));
+      S.targetLog.push({ date: today(), from, to: kcal });
+      toast(`Calorie target now ${kcal} kcal`); break;
+    }
+    case 'adapt-snooze': S.settings.adaptSnooze = weekStart(today()); break;
+    case 'prog-new': openSheet('New workout programme', newProgramForm(null)); return;
+    case 'prog-copy': openSheet('Copy to My workouts', newProgramForm(S.programs[pid])); return;
+    case 'prog-del': {
+      const prog = S.programs[pid];
+      ask(`Delete ${prog.name}? Sessions you logged with it stay in your history.`, 'Delete', () => {
+        delete S.programs[pid];
+        if (S.settings.active.custom === pid) S.settings.active.custom = programs('custom')[0]?.id || null;
+        ui.dayId = null; ui.editProgram = false;
+      });
+      return;
+    }
+    case 'day-move': {
+      const prog = S.programs[pid];
+      const i = prog.days.findIndex((d) => d.id === did), j = i + Number(el.dataset.dir);
+      if (i < 0 || j < 0 || j >= prog.days.length) return;
+      [prog.days[i], prog.days[j]] = [prog.days[j], prog.days[i]];
+      prog.edited = true; ui.dayId = did; break;
     }
     case 'prog-reset': {
       const prog = S.programs[pid];
@@ -1529,6 +1663,7 @@ document.addEventListener('change', (e) => {
     const { prog, day, ex } = findEx(t.dataset.pid, t.dataset.did, t.dataset.eid);
     const k = t.dataset.edit;
     if (k === 'dayname') { if (t.value.trim()) day.name = t.value.trim(); }
+    else if (k === 'progname') { if (t.value.trim()) prog.name = t.value.trim().slice(0, 60); }
     else if (ex) {
       if (k === 'ss') ex.ss = t.checked;
       else if (k === 'sets') ex.sets = Math.max(1, Math.round(num(t.value) || 1));
@@ -1612,6 +1747,24 @@ document.addEventListener('submit', (e) => {
       st.setupDone = true;
       ui.dayId = null;
       closeSheet(); toast('Targets saved. Good luck!'); break;
+    }
+    case 'prog-new-form': {
+      const name = String(fd.get('name') || '').trim();
+      if (!name) return;
+      const src = S.programs[fd.get('from')];
+      const n = Math.min(7, Math.max(1, Number(fd.get('days')) || 3));
+      const rest = String(fd.get('rest') || '');
+      const prog = {
+        id: `my-${uid()}`, family: 'custom', name: name.slice(0, 60), edited: true,
+        days: src ? cloneDays(src.days).map(({ weeks, group, ...d }) => d) : Array.from({ length: n }, (_, i) => ({ id: uid(), name: `Day ${i + 1}`, exercises: [] })),
+      };
+      if (rest) prog.restDays = rest.split('-').map(Number);
+      else if (src?.restDays) prog.restDays = [...src.restDays];
+      if (src) prog.about = `Copied from ${src.name}.`;
+      S.programs[prog.id] = prog;
+      S.settings.family = 'custom'; S.settings.active.custom = prog.id;
+      ui.dayId = prog.days[0].id; ui.editProgram = !src; ui.tab = 'train'; ui.sub.train = 'log';
+      closeSheet(); toast(src ? `${prog.name} created from a copy` : `${prog.name} created: add exercises to each day`); break;
     }
     case 'meas-form': {
       const date = fd.get('date') || today();
