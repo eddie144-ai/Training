@@ -6,6 +6,8 @@
    - Claude (Anthropic, paid): the key entered in Body → Settings. This is a static app with no server, so the official
      SDK runs in the browser with `dangerouslyAllowBrowser`, which is safe here only because the key is the user's own.
      The SDK (pinned) is loaded from jsDelivr the first time it's needed.
+   - Free (no key): the Gym & Fuel Worker (gym-fuel/worker) reads the photo with the owner's Gemini key, kept secret on
+     Cloudflare, with a daily cap per connection. Its address is FREE_AI_URL below (or one set in Settings).
    Keys are kept in this browser only, outside the app data (so never in backups), and sent only to their provider. */
 const FoodAI = (() => {
   const SDK = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.132.0/+esm';
@@ -14,6 +16,9 @@ const FoodAI = (() => {
   const GEMINI_KEY = 'gemini_api_key', COUNCIL_GEMINI_MODEL = 'council.geminiModel', GEMINI_MODEL = 'gymfuel.geminiModel';
   const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
   const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+  // The deployed Worker's address (https://gym-fuel-food-ai.<account>.workers.dev). Empty until it's deployed.
+  const FREE_AI_URL = '';
+  const FREE_URL_KEY = 'gymfuel.freeAiUrl';
   const MODELS = [
     ['claude-opus-5-5', 'Claude Opus 5.5 (most accurate)'],
     ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (about half the cost)'],
@@ -34,10 +39,20 @@ const FoodAI = (() => {
   const getGeminiModel = () => read(GEMINI_MODEL).trim() || read(COUNCIL_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
   const setGeminiModel = (v) => { const m = String(v || '').trim(); write(GEMINI_MODEL, m && m !== DEFAULT_GEMINI_MODEL ? m : ''); };
   // The chosen provider; with no choice made, Gemini when its key is on the phone (free), else Claude.
-  const getProvider = () => { const p = read(PROVIDER); return p === 'gemini' || p === 'claude' ? p : getGeminiKey() && !getKey() ? 'gemini' : 'claude'; };
-  const setProvider = (v) => write(PROVIDER, v === 'gemini' || v === 'claude' ? v : '');
-  const providerName = () => (getProvider() === 'gemini' ? 'Gemini' : 'Claude');
-  const ready = () => !!(getProvider() === 'gemini' ? getGeminiKey() : getKey());
+  const getFreeUrl = () => (read(FREE_URL_KEY).trim() || FREE_AI_URL).replace(/\/+$/, '');
+  const setFreeUrl = (v) => { const u = String(v || '').trim(); write(FREE_URL_KEY, /^https:\/\/[^\s]+$/.test(u) ? u : ''); };
+  const PROVIDERS = ['free', 'gemini', 'claude'];
+  // The chosen provider; with no choice made: your own key if you have one (no daily cap), else the free service, else Claude.
+  const getProvider = () => {
+    const p = read(PROVIDER);
+    if (PROVIDERS.includes(p) && (p !== 'free' || getFreeUrl())) return p;
+    if (getGeminiKey() && !getKey()) return 'gemini';
+    if (getKey()) return 'claude';
+    return getFreeUrl() ? 'free' : 'claude';
+  };
+  const setProvider = (v) => write(PROVIDER, PROVIDERS.includes(v) ? v : '');
+  const providerName = () => ({ free: 'AI', gemini: 'Gemini', claude: 'Claude' }[getProvider()]);
+  const ready = () => !!({ free: getFreeUrl(), gemini: getGeminiKey(), claude: getKey() }[getProvider()]);
 
   let sdkP = null;
   const loadSdk = () => (sdkP ||= import(SDK).catch((e) => { sdkP = null; throw e; }));
@@ -93,7 +108,26 @@ confidence is high when the weight is printed or stated, medium for a clearly vi
   async function analyse(blob, note) {
     const mediaType = IMAGE_TYPES.includes(blob.type) ? blob.type : '';
     if (!mediaType) return { ok: false, error: 'This photo format can\'t be read. Take the photo in JPEG (most phones do) and try again.' };
-    return getProvider() === 'gemini' ? analyseGemini(blob, mediaType, note) : analyseClaude(blob, mediaType, note);
+    const p = getProvider();
+    return p === 'free' ? analyseFree(blob, mediaType, note) : p === 'gemini' ? analyseGemini(blob, mediaType, note) : analyseClaude(blob, mediaType, note);
+  }
+
+  // The free service: the Worker holds the prompt and the key, and answers with the same result shape.
+  async function analyseFree(blob, mediaType, note) {
+    const url = getFreeUrl();
+    if (!url) return { ok: false, error: 'Free photo logging isn\'t set up yet. Add your own free Gemini key in Body → Settings.' };
+    let res;
+    try {
+      res = await fetch(`${url}/analyse`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mimeType: mediaType, image: await toBase64(blob), note: String(note || '').slice(0, 400) }),
+      });
+    } catch { return { ok: false, error: 'Couldn\'t reach the free photo service. Check your connection.' }; }
+    let data = null;
+    try { data = await res.json(); } catch { /* not JSON */ }
+    if (!res.ok || !data?.ok) return { ok: false, error: data?.error || `The free photo service returned an error (${res.status}). Try again later.` };
+    return { ok: true, result: tidy(data.result), model: data.model, left: typeof data.left === 'number' ? data.left : null };
   }
 
   async function analyseGemini(blob, mediaType, note) {
@@ -174,5 +208,5 @@ confidence is high when the weight is printed or stated, medium for a clearly vi
     return { ok: true, result: tidy(result), model: res.model };
   }
 
-  return { MODELS, DEFAULT_GEMINI_MODEL, getKey, setKey, getModel, setModel, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, getProvider, setProvider, providerName, ready, analyse };
+  return { MODELS, DEFAULT_GEMINI_MODEL, getKey, setKey, getModel, setModel, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, getFreeUrl, setFreeUrl, getProvider, setProvider, providerName, ready, analyse };
 })();
