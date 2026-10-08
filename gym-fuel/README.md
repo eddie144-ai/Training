@@ -3,7 +3,8 @@
 Iron & Eggs (`shredded-trainer/`) stripped down to just the gym and nutrition. An offline-first web app with no
 build step and no dependencies; data lives in the browser's `localStorage` under `gymfuel.*`.
 
-Served at `<site>/gym-fuel/`. Open it in Chrome on Android and tap **⋮ → Install app**.
+**[▶ Open Gym & Fuel](https://eddie144-ai.github.io/Training/gym-fuel/)**: open it in Chrome on Android and tap **⋮ → Install app**,
+or in Safari on iPhone and tap **Share → Add to Home Screen**.
 
 ## Sharing it
 Send the link. Each phone keeps its own data, so a friend starts with an empty app. On first open they're asked
