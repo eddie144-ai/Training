@@ -21,7 +21,18 @@ again.
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
   a half-logged session survives the app closing. Edit exercises, days and supersets; reset to the original.
-- **Train → History:** every session (tap for the sets) with PR tags, and personal records as estimated 1-rep max.
+- **Exercise library:** 876 exercises from [free-exercise-db](https://github.com/yuhonas/free-exercise-db)
+  (public domain, `exercises.json`, trimmed; licence in `exercises-LICENSE.md`), loaded the first time Train opens.
+  Each exercise in a workout has **How to do it** (start and end pictures, muscles worked, equipment, level and
+  numbered steps), matched by name, a short alias list for generic names ("Deadlift", "Pec Deck") or the closest
+  name containing every word of yours. **Find it in the library** appears when there's no good match: **Link**
+  keeps your exercise's name and adds the how-to; **Swap** changes the exercise. In Edit exercises,
+  **+ Add exercise** picks from the library (search, muscle and equipment filters) or lets you type your own.
+  Pictures load from GitHub and are cached once seen. The data is public domain; the pictures' licence is less
+  clear upstream, which is fine for personal use.
+- **Train → History:** a **progress chart** per lift (best estimated 1-rep max each session; tap a dot for the set;
+  a table view underneath), every session (tap for the sets) with PR tags, and personal records as estimated
+  1-rep max (tap one to chart it).
 - **Quick add** buttons (Today and Fuel) are your own most-logged foods from the last 30 days, so a new user sees
   none until they've logged something.
 - **Fuel → Log:** meals by day and slot, totals against your targets, add from the food library, one-off meals,
@@ -52,7 +63,7 @@ your foods, macro targets and progress photos from Iron & Eggs in the same brows
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress photos), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress photos), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`.
 
 ## Tests

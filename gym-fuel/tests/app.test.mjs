@@ -101,7 +101,7 @@ await test('logs a workout with an extra set and shows the last weights next tim
   const s = await state(page);
   assert(s.workouts.length === 1 && s.workouts[0].entries[0].sets.length === 2, 'two sets saved');
   await page.locator('.subtabs').getByRole('button', { name: 'History' }).click();
-  assert(await page.getByText('30×8').first().isVisible(), 'record listed');
+  assert(await page.locator('.list button').filter({ hasText: '30×8' }).isVisible(), 'record listed');
   await ctx.close();
 });
 
@@ -247,6 +247,68 @@ await test('scanner: loads the barcode polyfill where the browser has none, then
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await page.getByText('Nonfat Greek Yogurt · Chobani').waitFor();
   assert(native || polyfill === 1, `polyfill loaded once (native ${native}, loads ${polyfill})`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const noImages = (page) => page.route('https://raw.githubusercontent.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }));
+
+await test('exercise library: add from it, then open its how-to from the workout', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { cycleStart: '2026-10-05' } } });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: 'Edit exercises' }).click();
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByLabel('Search').fill('incline dumbbell pr');
+  const row = page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Incline Dumbbell Press chest/ }) });
+  await row.getByRole('button', { name: 'Add' }).click();
+  let s = await state(page);
+  const added = s.programs.my4week.days[0].exercises.at(-1);
+  assert(added.name === 'Incline Dumbbell Press' && added.libId === 'Incline_Dumbbell_Press', `added ${JSON.stringify(added)}`);
+  await page.getByRole('button', { name: 'Done editing' }).click();
+  await page.locator('.excard').filter({ hasText: 'Incline Dumbbell Press' }).getByRole('button', { name: 'How to do it' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Incline Dumbbell Press' });
+  assert((await sheet.locator('.steps li').count()) >= 3, 'steps shown');
+  assert(await sheet.getByText('Works:').isVisible(), 'muscles shown');
+  assert((await sheet.locator('img').count()) === 2, 'start and end pictures');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('exercise library: an unmatched exercise can be linked without renaming it', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { cycleStart: '2026-10-05' } } });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  const card = page.locator('.excard').filter({ hasText: 'Reverse Grip Bench Press' });
+  await card.getByRole('button', { name: 'Find it in the library' }).click();
+  assert((await page.getByLabel('Search').inputValue()) === 'Reverse Grip Bench Press', 'search prefilled with its name');
+  await page.getByLabel('Search').fill('barbell bench press medium');
+  await page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Barbell Bench Press - Medium Grip chest/ }) }).getByRole('button', { name: 'Link' }).click();
+  const s = await state(page);
+  const ex = s.programs.my4week.days[0].exercises[0];
+  assert(ex.name === 'Reverse Grip Bench Press' && ex.libId === 'Barbell_Bench_Press_-_Medium_Grip', `linked ${JSON.stringify(ex)}`);
+  await page.locator('.excard').filter({ hasText: 'Reverse Grip Bench Press' }).getByRole('button', { name: 'How to do it' }).click();
+  assert(await page.getByRole('dialog', { name: 'Barbell Bench Press - Medium Grip' }).isVisible(), 'how-to opens the linked exercise');
+  await ctx.close();
+});
+
+await test('progress chart: best estimated 1-rep max per session, tap a dot for the set', async () => {
+  const w = (id, date, kg, reps) => ({ id, date, at: `${date}T17:00:00.000Z`, programId: 'my4week', programName: 'My 4-Week Program', dayId: 'my4week-d1', dayName: 'Day 2', entries: [{ name: 'Barbell Squat', sets: [{ kg: kg - 10, reps: 10 }, { kg, reps }] }] });
+  const workouts = [w('a', '2026-09-23', 100, 8), w('b', '2026-09-30', 105, 8), w('c', '2026-10-07', 110, 6)];
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: {}, workouts } });
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'History' }).click();
+  const chart = page.locator('svg.liftchart');
+  assert((await chart.locator('.pt').count()) === 3, 'three sessions plotted');
+  assert(await chart.locator('path.series').count() === 1, 'one line');
+  // Best set per session by weight × (1 + reps/30): 100×8 = 126.7 first; last session's 100×10 = 133.3 beats its 110×6 = 132.
+  assert(await page.getByText('+6.7 kg since Wed 23 Sep · 3 sessions').isVisible(), 'change since first session');
+  assert((await chart.locator('.label').textContent()) === 'Best 133.3 kg', 'best labelled');
+  await chart.locator('.pt').nth(1).click();
+  assert(await page.locator('#chart-read').getByText('105×8').isVisible(), 'tapped dot shows its set');
+  await page.getByText('Show as a table').click();
+  assert(await page.getByText('Wed 7 Oct · 100×10').isVisible(), 'table view');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

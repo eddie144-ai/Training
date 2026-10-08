@@ -270,6 +270,62 @@ function progressionHint(ex, family) {
   return family === 'hit' ? 'Top of the range last time: add about 10% weight.' : 'All sets at the top of the range last time: add 2.5 kg.';
 }
 
+// ===========================================================================
+// Exercise library: free-exercise-db (public domain), loaded on first use from exercises.json
+// ===========================================================================
+let LIB = null, libP = null;
+function loadLib() {
+  if (LIB) return Promise.resolve(LIB);
+  return (libP ||= fetch('exercises.json').then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((j) => {
+    LIB = { images: j.images, items: j.items.map(([id, name, level, equipment, primary, secondary, category, mechanic, steps, images]) =>
+      ({ id, name, level, equipment, primary, secondary, category, mechanic, steps, images, key: exKey(name), toks: new Set(libToks(name)) })) };
+    LIB.byId = new Map(LIB.items.map((x) => [x.id, x]));
+    LIB.byKey = new Map(LIB.items.map((x) => [x.key, x]));
+    return LIB;
+  }).catch((e) => { libP = null; throw e; }));
+}
+const LIB_STOP = new Set(['the', 'into', 'for', 'x', '2x', 'a', 'with', 'of', 'and', 'on', 'to']);
+const LIB_SYN = { db: 'dumbbell', flye: 'fly' };
+const libToks = (n) => exKey(n).split(' ').filter((t) => t && !LIB_STOP.has(t)).map((t) => LIB_SYN[t] || t);
+// Generic names in the programmes (from Mentzer's books) and the library entry they mean.
+const LIB_ALIAS = {
+  deadlift: 'Barbell Deadlift', squat: 'Barbell Squat', 'machine or barbell squat': 'Barbell Squat', curl: 'Barbell Curl', 'machine or barbell curl': 'Barbell Curl',
+  row: 'Bent Over Barbell Row', 'bench press': 'Barbell Bench Press - Medium Grip', 'incline press': 'Barbell Incline Bench Press - Medium Grip',
+  'incline barbell press': 'Barbell Incline Bench Press - Medium Grip', dip: 'Dips - Triceps Version', 'weighted dip': 'Dips - Triceps Version',
+  crunch: 'Crunches', 'sit up': 'Sit-Up', lateral: 'Side Lateral Raise', 'lateral raise': 'Side Lateral Raise', 'dumbbell lateral': 'Side Lateral Raise',
+  'bent over dumbbell lateral': 'Reverse Flyes', 'bent over lateral raise': 'Reverse Flyes', 'reverse pec deck fly': 'Reverse Flyes',
+  'leg curl': 'Lying Leg Curls', 'calf raise': 'Standing Calf Raises', 'tricep pressdown': 'Triceps Pushdown', 'reverse grip pressdown': 'Reverse Grip Triceps Pushdown',
+  'pec deck': 'Butterfly', pullover: 'Bent-Arm Dumbbell Pullover', 'lat pulldown': 'Wide-Grip Lat Pulldown', shrug: 'Barbell Shrug',
+  'wide grip seated row': 'Seated Cable Rows', 'palms up pulldown': 'Close-Grip Front Lat Pulldown', 'close grip palms up pulldown': 'Close-Grip Front Lat Pulldown',
+  'straight arm lat machine pulldown': 'Straight-Arm Pulldown', 'hanging knee raise': 'Hanging Leg Raise', hyperextension: 'Hyperextensions (Back Extensions)',
+  'hyperextension or deadlift': 'Hyperextensions (Back Extensions)', 'zottman curl': 'Zottman Curl', 'seated zottman curl': 'Zottman Curl',
+  'dumbbell hammer concentration curl': 'Concentration Curls', 'flat bench dumbbell press': 'Dumbbell Bench Press', 'overhead dumbbell press': 'Dumbbell Shoulder Press',
+};
+// The library entry for a programme exercise: the one you linked, the same name, an alias, or the closest name
+// that contains every word of yours (generic one-word names only through the alias list). null = no good match.
+function libFor(e) {
+  if (!LIB) return null;
+  if (e.libId) return LIB.byId.get(e.libId) || null;
+  const k = exKey(e.name);
+  const named = (n) => (n ? LIB.byKey.get(exKey(n)) : null);
+  const base = libBase(e.name);
+  const hit = LIB.byKey.get(k) || named(LIB_ALIAS[k]) || named(LIB_ALIAS[exKey(base)]);
+  if (hit) return hit;
+  const q = libToks(base);
+  if (q.length < 2) return null;
+  let best = null, score = 0;
+  for (const l of LIB.items) {
+    if (l.category === 'stretching' && !q.includes('stretch')) continue;
+    if (!q.every((t) => l.toks.has(t))) continue;
+    const sc = q.length / l.toks.size;
+    if (sc > score || (sc === score && l.name.length < best.name.length)) { best = l; score = sc; }
+  }
+  return score >= 0.4 ? best : null;
+}
+// "Squats (or Leg Presses)", "Pec Deck / Flyes": the first choice only.
+function libBase(name) { return String(name).split(/\s+\/\s+|\s+or\s+|,|\(/i)[0].trim(); }
+const libImg = (l, i) => (l.images[i] ? `${LIB.images}${encodeURIComponent(l.id)}/${l.images[i]}` : '');
+
 const programs = (family, tier) => Object.values(S.programs).filter((p) => p.family === family && (!tier || (p.tier || 'intermediate') === tier));
 function activeProgram() {
   const fam = S.settings.family;
@@ -466,7 +522,7 @@ function exerciseLogCard(prog, day, e, i) {
   }).join('');
   const prevSs = i > 0 && day.exercises[i - 1].ss;
   return `<div class="excard ${e.ss ? 'ss-start' : ''} ${prevSs ? 'ss-end' : ''}">
-    <div class="row between"><span class="grow"><b>${esc(e.name)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span></span>${prevBadge(last)}</div>
+    <div class="row between"><span class="grow"><b>${esc(e.name)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span>${LIB ? `<br><button class="linkish inline-link" data-act="howto" ${base}>${libFor(e) ? 'How to do it' : 'Find it in the library'}</button>` : ''}</span>${prevBadge(last)}</div>
     ${tech ? `<p class="small"><span class="chip tech">${esc(tech.name)}</span> ${esc(tech.summary)}</p>` : ''}
     ${e.note ? `<p class="muted small">${esc(e.note)}</p>` : ''}
     ${e.ss ? '<p class="small accent">Superset: go straight to the next exercise, no rest.</p>' : ''}
@@ -505,6 +561,7 @@ function exerciseEditRow(prog, day, e, i) {
     <div class="row wrap">
       <button class="small-btn" data-act="ex-move" data-dir="-1" ${base} ${i === 0 ? 'disabled' : ''}>↑ Up</button>
       <button class="small-btn" data-act="ex-move" data-dir="1" ${base} ${i === day.exercises.length - 1 ? 'disabled' : ''}>↓ Down</button>
+      <button class="small-btn" data-act="lib-open" data-mode="swap" ${base}>Swap from library</button>
       <button class="small-btn danger" data-act="ex-del" ${base}>Remove</button>
     </div>
   </div>`;
@@ -562,7 +619,114 @@ function viewTrainLog() {
     `}
   </section>
   ${fam === 'hit' && S.settings.tier === 'advanced' ? techniqueCards() : ''}
+  <button class="ghost" data-act="lib-open" data-mode="browse">Browse the exercise library</button>
   ${fam === 'hit' ? `<section class="card"><h2>Mentzer principles</h2><div class="list">${MENTZER_PRINCIPLES.map(([h, t]) => `<div><b>${esc(h)}</b><br><span class="muted small">${esc(t)}</span></div>`).join('')}</div></section>` : ''}`;
+}
+
+// ---- progress per lift: best estimated 1-rep max per session, over time
+function liftSeries() {
+  const by = new Map();
+  for (const w of [...S.workouts].sort((a, b) => a.at.localeCompare(b.at))) {
+    for (const e of w.entries || []) {
+      const best = (e.sets || []).reduce((b, st) => { const v = e1rm(st.kg, st.reps); return v > (b?.v || 0) ? { v, st } : b; }, null);
+      if (!best) continue;
+      const k = exKey(e.name);
+      if (!by.has(k)) by.set(k, { key: k, name: e.name, pts: [] });
+      by.get(k).pts.push({ date: w.date, v: best.v, set: best.st, id: w.id });
+    }
+  }
+  return [...by.values()].sort((a, b) => b.pts.length - a.pts.length || a.name.localeCompare(b.name));
+}
+// Round axis steps: 1, 2, 2.5 or 5 × a power of ten, about 4 ticks over the range.
+function niceTicks(lo, hi) {
+  const span = hi - lo || 1, raw = span / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw);
+  const out = [];
+  for (let t = Math.floor(lo / step) * step; t <= hi + step * 0.001; t += step) out.push(round1(t));
+  if (out[out.length - 1] < hi) out.push(round1(out[out.length - 1] + step));
+  return out;
+}
+function liftChart(sr) {
+  const pts = sr.pts;
+  const W = 340, H = 190, L = 40, R = 14, T = 16, B = 30;
+  const t0 = parseDate(pts[0].date).getTime(), t1 = parseDate(pts[pts.length - 1].date).getTime();
+  const vals = pts.map((p) => p.v);
+  const ticks = niceTicks(Math.min(...vals), Math.max(...vals));
+  const lo = ticks[0], hi = ticks[ticks.length - 1];
+  const X = (d) => (t1 === t0 ? L + (W - L - R) / 2 : L + ((parseDate(d).getTime() - t0) / (t1 - t0)) * (W - L - R));
+  const Y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const best = pts.reduce((a, b) => (b.v > a.v ? b : a), pts[0]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.date).toFixed(1)} ${Y(p.v).toFixed(1)}`).join('');
+  const short = (d) => { const x = parseDate(d); return `${x.getDate()} ${MON[x.getMonth()]}`; };
+  return `<svg class="liftchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(sr.name)}: estimated 1-rep max from ${fmtNum(round1(pts[0].v))} to ${fmtNum(round1(pts[pts.length - 1].v))} kg over ${pts.length} sessions">
+    ${ticks.map((t) => `<line x1="${L}" x2="${W - R}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" class="grid"/><text x="${L - 6}" y="${(Y(t) + 4).toFixed(1)}" text-anchor="end" class="tick">${fmtNum(t)}</text>`).join('')}
+    <text x="${L}" y="${H - 8}" class="tick">${short(pts[0].date)}</text>${pts.length > 1 ? `<text x="${W - R}" y="${H - 8}" text-anchor="end" class="tick">${short(pts[pts.length - 1].date)}</text>` : ''}
+    ${pts.length > 1 ? `<path d="${line}" class="series"/>` : ''}
+    ${pts.map((p, i) => `<g class="pt${p === best ? ' best' : ''}" data-act="chart-pt" data-i="${i}" tabindex="0" role="button" aria-label="${fmtDate(p.date)}: ${setText(p.set)}, ${fmtNum(round1(p.v))} kg estimated"><circle cx="${X(p.date).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="14" class="hit"/><circle cx="${X(p.date).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="${p === best ? 5 : 4}" class="dot"/></g>`).join('')}
+    <text x="${Math.min(W - R, Math.max(L, X(best.date))).toFixed(1)}" y="${Math.max(11, Y(best.v) - 10).toFixed(1)}" text-anchor="${X(best.date) > W - 60 ? 'end' : X(best.date) < L + 40 ? 'start' : 'middle'}" class="label">Best ${fmtNum(round1(best.v))} kg</text>
+  </svg>`;
+}
+function progressCard() {
+  const all = liftSeries();
+  if (!all.length) return '<section class="card"><h2>Progress</h2><p class="muted">Log a session with weights and reps and your lifts are charted here.</p></section>';
+  const sr = all.find((x) => x.key === ui.chartEx) || all[0];
+  const first = sr.pts[0], last = sr.pts[sr.pts.length - 1];
+  const change = round1(last.v - first.v);
+  return `<section class="card" id="progress-card">
+    <h2>Progress <span class="right">estimated 1-rep max (kg)</span></h2>
+    <label class="field">Exercise<select id="chart-ex">${all.map((x) => `<option value="${esc(x.key)}" ${x === sr ? 'selected' : ''}>${esc(x.name)} (${x.pts.length})</option>`).join('')}</select></label>
+    <p class="small" id="chart-read">${sr.pts.length > 1 ? `${change >= 0 ? '+' : '−'}${fmtNum(Math.abs(change))} kg since ${fmtDate(first.date)} · ${sr.pts.length} sessions` : 'One session so far. The line appears after the next.'}</p>
+    ${liftChart(sr)}
+    <p class="muted small">Each dot is your best set that session, as an estimated 1-rep max (weight × (1 + reps ÷ 30)). Tap a dot for the set.</p>
+    <details><summary class="small">Show as a table</summary><div class="list small">${[...sr.pts].reverse().map((p) => `<div class="row between"><span>${fmtDate(p.date)} · ${setText(p.set)}</span><b>${fmtNum(round1(p.v))} kg</b></div>`).join('')}</div></details>
+  </section>`;
+}
+
+// ---- library sheets
+let libMode = null; // { mode: 'add' | 'swap' | 'browse', pid, did, eid }
+function openLibrary(mode) {
+  libMode = mode;
+  const title = mode.mode === 'add' ? 'Add an exercise' : mode.mode === 'swap' ? 'Swap or link this exercise' : 'Exercise library';
+  openSheet(title, '<p class="muted small" id="lib-wait">Loading the exercise library…</p>');
+  loadLib().then(() => {
+    if (libMode !== mode || !document.getElementById('lib-wait')) return;
+    const muscles = [...new Set(LIB.items.flatMap((x) => x.primary))].sort();
+    const equip = [...new Set(LIB.items.map((x) => x.equipment).filter(Boolean))].sort();
+    const cur = mode.eid ? findEx(mode.pid, mode.did, mode.eid).ex : null;
+    document.querySelector('.sheet-wrap .sheet-body').innerHTML = `
+      ${cur ? `<p class="small">Now: <b>${esc(cur.name)}</b>. <b>Link</b> keeps your name and just adds the how-to; <b>Swap</b> changes the exercise.</p>` : ''}
+      <label class="field" for="lib-q">Search<input id="lib-q" type="search" placeholder="e.g. incline press, curl" data-live="lib-q" value="${esc(cur ? libBase(cur.name) : '')}"></label>
+      <div class="grid2">
+        <label class="field">Muscle<select id="lib-muscle" data-live="lib-q"><option value="">Any</option>${muscles.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
+        <label class="field">Equipment<select id="lib-equip" data-live="lib-q"><option value="">Any</option>${equip.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
+      </div>
+      <div id="lib-list" class="list"></div>
+      ${mode.mode === 'add' ? '<button class="ghost" data-act="ex-add-custom">+ Type my own exercise instead</button>' : ''}
+      <p class="muted small">876 exercises from <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener">free-exercise-db</a> (public domain).</p>`;
+    drawLib();
+  }, () => { const w = document.getElementById('lib-wait'); if (w) w.textContent = 'Couldn\'t load the exercise library. It needs internet the first time.'; });
+}
+function drawLib() {
+  const box = document.getElementById('lib-list');
+  if (!box || !LIB) return;
+  const q = libToks(document.getElementById('lib-q')?.value || '');
+  const mus = document.getElementById('lib-muscle')?.value, eq = document.getElementById('lib-equip')?.value;
+  const hits = LIB.items.filter((l) => (!mus || l.primary.includes(mus)) && (!eq || l.equipment === eq) && q.every((t) => [...l.toks].some((x) => x.startsWith(t))));
+  const verb = libMode?.mode === 'add' ? 'Add' : libMode?.mode === 'swap' ? 'Swap' : '';
+  box.innerHTML = hits.slice(0, 40).map((l) => `<div class="row between">
+      <button class="linkish grow" data-act="lib-howto" data-lib="${esc(l.id)}"><b>${esc(l.name)}</b><br><span class="muted small">${esc([l.primary.join(', '), l.equipment, l.level].filter(Boolean).join(' · '))}</span></button>
+      ${libMode?.mode === 'swap' ? `<button class="small-btn" data-act="lib-pick" data-link="1" data-lib="${esc(l.id)}">Link</button>` : ''}
+      ${verb ? `<button class="small-btn primary" data-act="lib-pick" data-lib="${esc(l.id)}">${verb}</button>` : ''}</div>`).join('')
+    + (hits.length > 40 ? `<p class="muted small">${hits.length - 40} more: narrow the search.</p>` : hits.length ? '' : '<p class="muted small">No matches. Try fewer words.</p>');
+}
+function openHowTo(l, back) {
+  openSheet(l.name, `
+    ${l.images.length ? `<div class="pair">${l.images.map((_, i) => `<figure><img src="${esc(libImg(l, i))}" alt="${esc(l.name)}, ${i ? 'end' : 'start'} position" loading="lazy"><figcaption>${i ? 'End' : 'Start'}</figcaption></figure>`).join('')}</div>` : ''}
+    <div class="row wrap">${[l.level, l.equipment, l.mechanic].filter(Boolean).map((x) => chip(x)).join('')}</div>
+    <p class="small"><b>Works:</b> ${esc(l.primary.join(', '))}${l.secondary.length ? ` <span class="muted">· also ${esc(l.secondary.join(', '))}</span>` : ''}</p>
+    ${l.steps.length ? `<ol class="steps">${l.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+    ${back ? `<button class="ghost" data-act="lib-back">‹ Back to the library</button>` : ''}
+    <p class="muted small">From free-exercise-db (public domain). Pictures load from GitHub when online.</p>`);
 }
 
 function viewTrainHistory() {
@@ -570,6 +734,7 @@ function viewTrainHistory() {
   const hist = [...S.workouts].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
   const recs = records();
   return `
+  ${progressCard()}
   <section class="card">
     <h2>Sessions <span class="right">${S.workouts.length}</span></h2>
     ${hist.length ? `<div class="list">${hist.map((w) => `<div>
@@ -581,7 +746,7 @@ function viewTrainHistory() {
   </section>
   <section class="card">
     <h2>Personal records <span class="right">estimated 1-rep max</span></h2>
-    ${recs.length ? `<div class="list">${recs.map((r) => `<div class="row between"><span class="grow"><b>${esc(r.name)}</b><br><span class="muted small">${setText(r.set)} · ${fmtDate(r.date)}</span></span><b class="nowrap">${fmtNum(round1(r.e1rm))} kg</b></div>`).join('')}</div>` : '<p class="muted">Records appear once you log weight and reps.</p>'}
+    ${recs.length ? `<div class="list">${recs.map((r) => `<button class="linkish row between" data-act="chart-ex" data-v="${esc(exKey(r.name))}"><span class="grow"><b>${esc(r.name)}</b><br><span class="muted small">${setText(r.set)} · ${fmtDate(r.date)}</span></span><b class="nowrap">${fmtNum(round1(r.e1rm))} kg</b></button>`).join('')}</div><p class="muted small">Tap one to chart it above.</p>` : '<p class="muted">Records appear once you log weight and reps.</p>'}
   </section>`;
 }
 
@@ -1081,6 +1246,7 @@ function render(opts = {}) {
     `<button data-tab="${k}" ${ui.tab === k ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg><span>${label}</span></button>`).join('');
   if (opts.scrollTop) window.scrollTo(0, 0);
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
+  if (ui.tab === 'train' && !LIB) loadLib().then(() => { if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
   rememberUi();
 }
 function commit(opts) { save(); render(opts); }
@@ -1157,7 +1323,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
   const a = el.dataset.act;
-  const { pid, did, eid } = el.dataset;
+  let { pid, did, eid } = el.dataset;
 
   switch (a) {
     case 'sheet-close': closeSheet(); return;
@@ -1207,8 +1373,12 @@ document.addEventListener('click', (e) => {
       ask(`Remove ${ex.name} from ${day.name}?`, 'Remove', () => { day.exercises.splice(i, 1); prog.edited = true; });
       return;
     }
-    case 'ex-add': {
+    case 'ex-add': openLibrary({ mode: 'add', pid, did }); return;
+    case 'ex-add-custom': {
+      ({ pid, did } = libMode || {});
+      closeSheet();
       const prog = S.programs[pid];
+      if (!prog) return;
       prog.days.find((d) => d.id === did).exercises.push({ id: uid(), name: 'New exercise', sets: 3, reps: '8–12', note: '', ss: false, tech: '' });
       prog.edited = true; break;
     }
@@ -1275,6 +1445,41 @@ document.addEventListener('click', (e) => {
     case 'setup': openSetup(); return;
     case 'photo-all': ui.photoAll = ui.photoAll === el.dataset.v ? null : el.dataset.v; fillPhotos(); return;
     case 'photo-del': ask('Delete this photo?', 'Delete', () => { Photos.remove(el.dataset.id).then(() => render(), () => toast('Couldn\'t delete it')); }); return;
+    case 'lib-open': openLibrary({ mode: el.dataset.mode, pid, did, eid }); return;
+    case 'lib-back': if (libMode) openLibrary(libMode); return;
+    case 'lib-howto': { const l = LIB?.byId.get(el.dataset.lib); if (l) openHowTo(l, true); return; }
+    case 'howto': {
+      const { ex } = findEx(pid, did, eid);
+      const l = ex && libFor(ex);
+      if (l) openHowTo(l, false); else openLibrary({ mode: 'swap', pid, did, eid });
+      return;
+    }
+    case 'lib-pick': {
+      const l = LIB?.byId.get(el.dataset.lib);
+      const m = libMode;
+      if (!l || !m) return;
+      const prog = S.programs[m.pid];
+      const day = prog?.days.find((d) => d.id === m.did);
+      if (!day) return;
+      if (m.mode === 'add') { day.exercises.push({ id: uid(), name: l.name, sets: 3, reps: '8–12', note: '', ss: false, tech: '', libId: l.id }); toast(`${l.name} added`); }
+      else {
+        const ex = day.exercises.find((x) => x.id === m.eid);
+        if (!ex) return;
+        if (el.dataset.link) { ex.libId = l.id; toast('Linked: How to do it now shows this one'); }
+        else { ex.name = l.name; ex.libId = l.id; toast(`Swapped to ${l.name}`); }
+      }
+      prog.edited = true;
+      closeSheet(); break;
+    }
+    case 'chart-ex': ui.chartEx = el.dataset.v; render(); document.getElementById('progress-card')?.scrollIntoView({ block: 'start' }); return;
+    case 'chart-pt': {
+      const sr = liftSeries().find((x) => x.key === ui.chartEx) || liftSeries()[0];
+      const p = sr?.pts[Number(el.dataset.i)];
+      const out = document.getElementById('chart-read');
+      if (p && out) out.innerHTML = `<b>${fmtDate(p.date)}</b> · ${esc(setText(p.set))} · ${fmtNum(round1(p.v))} kg estimated`;
+      document.querySelectorAll('.liftchart .pt').forEach((g) => g.classList.toggle('on', g === el));
+      return;
+    }
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
@@ -1310,6 +1515,7 @@ document.addEventListener('input', (e) => {
     else refreshSetup(t.form);
     return;
   }
+  if (t.dataset.live === 'lib-q') { drawLib(); return; }
   if (t.dataset.live === 'picker-q') {
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll('.picker-list .pick').forEach((b) => { b.hidden = !!q && !b.dataset.name.includes(q); });
@@ -1339,6 +1545,9 @@ document.addEventListener('change', (e) => {
     t.value = '';
     return;
   }
+  if (t.id === 'chart-ex') { ui.chartEx = t.value; render(); return; }
+  // The library list redraws on 'input' only: redrawing again on 'change' (when the search box loses focus to a
+  // tap on a result) would replace the result under the finger and lose the tap.
   if (t.id === 'hc-toggle') { S.settings.highContrast = t.checked; commit(); return; }
   if (t.id === 'restore-file') {
     const file = t.files?.[0];
@@ -1451,7 +1660,10 @@ document.addEventListener('submit', (e) => {
   commit();
 });
 
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSheet();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('.liftchart .pt')) { e.preventDefault(); e.target.closest('.pt').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+});
 // Coming back to the app on a new day shows the new day.
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); });
 

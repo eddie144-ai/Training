@@ -263,6 +263,18 @@
   .pair img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--raised); }
   .pair figcaption { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
   .setup-sug { padding: 10px 12px; border-radius: 12px; background: var(--raised); }
+  /* Lift progress chart: one series in the accent, recessive grid, big tap targets */
+  .liftchart { width: 100%; height: auto; display: block; overflow: visible; font-family: inherit; }
+  .liftchart .grid { stroke: var(--border); stroke-width: 1; }
+  .liftchart .tick { fill: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .liftchart .series { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .liftchart .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+  .liftchart .best .dot { fill: var(--card); stroke: var(--accent); stroke-width: 2.5; }
+  .liftchart .hit { fill: transparent; cursor: pointer; }
+  .liftchart .pt:focus { outline: none; }
+  .liftchart .pt:focus-visible .hit, .liftchart .pt.on .hit { fill: var(--accent); fill-opacity: .18; }
+  .liftchart .label { fill: var(--text); font-size: 11px; font-weight: 700; }
+  .inline-link { display: inline; width: auto; min-height: 32px; padding: 4px 0; color: var(--accent); font-weight: 700; font-size: 13px; }
   .kcal-pill { font-size: 13px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: var(--raised); color: var(--text); font-variant-numeric: tabular-nums; }
   .card.alert { border-left: 4px solid var(--bad); }
   #scan-video { width: 100%; max-height: 260px; border-radius: 10px; background: #000; object-fit: cover; }
