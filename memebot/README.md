@@ -25,6 +25,7 @@ cd memebot
 python3 -m memebot run                 # 1 simulated day (1440 one-minute ticks), offline
 python3 -m memebot run --ticks 10080   # 1 simulated week
 python3 -m memebot run --web           # same, plus a dashboard at http://127.0.0.1:8050
+                                       # (it stays up after the run ends; Ctrl+C to exit)
 ```
 
 With live market data (needs internet; the bot polls every 30 seconds and runs until you
