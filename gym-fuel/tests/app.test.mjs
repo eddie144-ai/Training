@@ -562,6 +562,82 @@ await test('photo logging with Gemini: uses the key Deliberation Council saved, 
   await ctx.close();
 });
 
+await test('share my week: draws a 1080 × 1350 card from the week and saves it', async () => {
+  const workouts = [
+    { id: 'w0', date: '2026-01-05', at: '2026-01-05T17:00:00.000Z', programId: 'my4week', programName: 'P', dayId: 'my4week-d1', dayName: 'Legs', entries: [{ name: 'Barbell Squat', sets: [{ kg: 100, reps: 8 }] }] },
+  ];
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, startWeight: 96.8 }, workouts } });
+  await page.evaluate(() => {
+    const ws = weekStart(today());
+    S.workouts.push({ id: 'w1', date: ws, at: `${ws}T17:00:00.000Z`, programId: 'my4week', programName: 'P', dayId: 'my4week-d1', dayName: 'Legs', entries: [{ name: 'Barbell Squat', sets: [{ kg: 110, reps: 8 }] }] });
+    S.weights.push({ date: addDays(ws, -1), kg: 95.4 }, { date: today(), kg: 94.6 });
+    S.settings.lastBackup = today();
+    save();
+  });
+  await page.reload();
+  const wd = await page.evaluate(() => weekData());
+  assert(wd.weight.now === '94.6 kg' && wd.weight.week === '−0.8 kg this week' && wd.weight.total === '−2.2 kg since start', `weight ${JSON.stringify(wd.weight)}`);
+  assert(wd.stats[0][0] === '1' && wd.lifts[0].name === 'Barbell Squat' && wd.lifts[0].change.startsWith('▲ +'), `lifts ${JSON.stringify(wd.lifts)}`);
+  await page.getByRole('button', { name: 'Share my week' }).click();
+  const img = page.locator('#share-img');
+  await img.waitFor();
+  await page.waitForFunction(() => document.getElementById('share-img')?.naturalWidth > 0);
+  const size = await img.evaluate((i) => [i.naturalWidth, i.naturalHeight]);
+  assert(size[0] === 1080 && size[1] === 1350, `card size ${size}`);
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save image' }).click();
+  assert((await dl).suggestedFilename().startsWith('gym-fuel-week-'), 'image saved');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('cut with me: a 30-day challenge with weekly targets on Today', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true } } });
+  await page.getByRole('button', { name: 'Start a 30-day "Cut with me" challenge' }).click();
+  assert(await page.locator('.card').getByText('day 1 of 30').isVisible(), 'day 1');
+  assert(await page.getByText('0/3').isVisible(), 'sessions target');
+  assert((await page.evaluate(() => weekData().subtitle)) === 'Cut with me · day 1 of 30', 'on the card');
+  await page.evaluate(() => { S.challenge.start = addDays(today(), -30); save(); });
+  await page.reload();
+  assert(await page.getByText('Cut with me: done').isVisible(), 'finished after 30 days');
+  await page.getByRole('button', { name: 'Close the challenge' }).click();
+  assert(!(await page.getByText('Cut with me: done').count()), 'closed');
+  await ctx.close();
+});
+
+await test('backups: a reminder once there is a log to lose, cleared by backing up', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true } } });
+  assert(!(await page.getByText('Back up your log').count()), 'nothing to back up yet');
+  await page.evaluate(() => { for (let i = 1; i <= 5; i += 1) S.weights.push({ date: addDays(today(), -i), kg: 90 }); save(); });
+  await page.reload();
+  assert(await page.getByText('it has never been backed up').isVisible(), 'reminder');
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Back up now' }).click();
+  const file = await dl;
+  assert(file.suggestedFilename().startsWith('gym-fuel-') && file.suggestedFilename().endsWith('.json'), 'backup file');
+  await page.waitForTimeout(200);
+  assert(!(await page.getByText('Back up your log').count()), 'reminder cleared');
+  assert((await state(page)).settings.lastBackup, 'date recorded');
+  await ctx.close();
+});
+
+await test('install help, plain background and neutral programme for new users', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  assert(await page.getByRole('heading', { name: 'Install Gym & Fuel' }).isVisible(), 'install card');
+  assert(await page.getByText('Install app').first().isVisible(), 'Android steps');
+  await page.getByRole('button', { name: 'Done, or not now' }).click();
+  assert(!(await page.getByRole('heading', { name: 'Install Gym & Fuel' }).count()), 'dismissed');
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Background').selectOption('plain');
+  assert((await page.evaluate(() => document.documentElement.dataset.bg)) === 'plain', 'plain background');
+  await ctx.close();
+  const fresh = await open();
+  await fresh.page.getByRole('dialog').getByRole('button', { name: 'Set up my targets' }).click();
+  assert((await fresh.page.locator('#setup-form').getByLabel('Training programme').inputValue()) === 'tenlbs', 'new users default to the general programme');
+  await fresh.ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

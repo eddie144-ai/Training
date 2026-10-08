@@ -67,6 +67,19 @@ again.
     selectable), effort medium, a JSON-schema structured output, and the server-side refusal fallback
     (`fallbacks: "default"`) on Opus and Sonnet.
   Keys are kept in this browser only, outside the app data, so they're never in backups.
+- **Share my week:** a 1080 × 1350 image of the week so far (weight with this week's and total change and a 4-week
+  trend line, sessions, average calories and protein, best lifts as estimated 1-rep max with the change from before
+  this week, an optional handle, and the app's address), drawn on a canvas in `share.js`. **Share** opens the
+  phone's share sheet, **Save image** downloads it. Nothing leaves the phone unless shared.
+- **Cut with me:** a 30-day challenge started from Today: day N of 30, sessions (target 3) and weigh-ins (target 7)
+  this week, and the day on every share card.
+- **Backups:** **Send a backup to Drive, email or a chat** uses the share sheet (download where there's none); Today
+  reminds you once there's a log to lose and no backup in 7 days ("In a few days" snoozes it for 3).
+- **Installing:** a card on Today (until installed or dismissed) and a note in the welcome sheet with the steps for
+  iPhone (Safari → Share → Add to Home Screen) or Android (Chrome ⋮ → Install app), or an **Install** button where
+  Chrome offers one.
+- **For new users:** setup preselects the general 10 lbs programme, not the owner's own 4-week plan; Settings has a
+  plain background option and the handle shown on share cards.
 - **Fast days:** **Mark as a fast day** (Today and Fuel, when nothing is logged yet) records a deliberate fast. The
   adaptive target counts it as a logged day at 0 kcal (plus anything eaten), instead of skipping it.
 - **Food search:** typing 3+ letters in Add food also searches Open Food Facts by name
@@ -95,7 +108,7 @@ your foods, macro targets and progress photos from Iron & Eggs in the same brows
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`.
 
 ## Tests
