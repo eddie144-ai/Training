@@ -48,6 +48,7 @@ const Photos = (() => {
       return rec;
     },
     async all() { return (await tx('readonly', (s) => s.getAll())) || []; },
+    async get(id) { return (await tx('readonly', (s) => s.get(id))) || null; },
     async remove(id) { await tx('readwrite', (s) => s.delete(id)); },
     async clear() { await tx('readwrite', (s) => s.clear()); },
     // Copies progress photos from Iron & Eggs (same site, its own database). Returns how many were added.

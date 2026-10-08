@@ -407,6 +407,120 @@ await test('adaptive target: Not this week hides it from Today; too little data 
   await ctx.close();
 });
 
+await test('fast days: a marked day counts as 0 kcal in the adaptive target', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.getByRole('button', { name: 'Mark as a fast day' }).click();
+  let s = await state(page);
+  assert(Object.keys(s.fastDays).length === 1, 'today marked');
+  assert(await page.getByRole('button', { name: '✓ Fast day' }).isVisible(), 'shows as marked');
+  // 21 days: 90 → 89 kg; every third day a fast day with nothing logged, the rest 2,000 kcal.
+  await page.evaluate(() => {
+    S.fastDays = {};
+    for (let i = 21; i >= 1; i -= 1) {
+      const d = addDays(today(), -i);
+      S.weights.push({ date: d, kg: Math.round((90 - (21 - i) * 0.05) * 100) / 100 });
+      if (i % 3 === 0) S.fastDays[d] = true;
+      else S.meals.push({ id: `m${i}`, date: d, at: atOn(d, '12:00'), name: 'Food', kcal: 2000, p: 150, c: 200, f: 67, servings: 1, ref: null, slot: 'Lunch' });
+    }
+    save();
+  });
+  const a = await page.evaluate(() => adaptive());
+  // 14 days × 2,000 + 7 fast days × 0 over 21 days = 1,333.3 eaten; + 0.05 kg/day × 7,700 = 1,718.3 burned.
+  assert(a.ready && a.foodDays === 21 && a.fasts === 7 && Math.abs(a.intake - 1333.33) < 0.1 && Math.abs(a.tdee - 1718.33) < 1, `fast days counted ${JSON.stringify(a)}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('photo logging without a key: attach the photo and enter the food yourself; deleting the meal deletes the photo', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'plate.png', mimeType: 'image/png', buffer: PIXEL });
+  const sheet = page.getByRole('dialog', { name: 'Log from a photo' });
+  await sheet.getByText('add your Anthropic API key in Body → Settings').waitFor();
+  await sheet.getByRole('button', { name: 'Enter it myself' }).click();
+  const f = page.locator('#oneoff-form');
+  await f.getByLabel('Name').fill('Chicken and rice');
+  await f.getByLabel('Protein (g)').fill('40');
+  await f.getByRole('button', { name: 'Save' }).click();
+  let s = await state(page);
+  assert(s.meals.length === 1 && s.meals[0].photoId, 'meal keeps its photo');
+  assert((await page.evaluate(() => Photos.all())).length === 1, 'photo stored');
+  await page.getByRole('button', { name: /^Chicken and rice/ }).click();
+  await page.locator('#meal-photo:not([hidden])').waitFor();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Delete Chicken and rice' }).click();
+  await page.waitForTimeout(200);
+  assert((await page.evaluate(() => Photos.all())).length === 0, 'photo deleted with the meal');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+// A stand-in for the Anthropic SDK module: records the request and answers like the API would.
+const SDK_STUB = `
+class APIError extends Error { constructor(status, m) { super(m); this.status = status; } }
+export class AuthenticationError extends APIError {}
+export class PermissionDeniedError extends APIError {}
+export class RateLimitError extends APIError {}
+export class BadRequestError extends APIError {}
+export class APIConnectionError extends Error {}
+export { APIError };
+const answer = (p) => {
+  window.__sent = p;
+  if (p.__auth) throw new AuthenticationError(401, 'bad key');
+  return { model: p.model, stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify({ kind: 'meal', notes: 'Assumed 1 tbsp olive oil.', items: [
+    { name: 'Grilled steak', grams: 200, kcal: 500, protein_g: 54, carbs_g: 0, fat_g: 31, confidence: 'medium' },
+    { name: 'Olive oil', grams: 14, kcal: 124, protein_g: 0, carbs_g: 0, fat_g: 14, confidence: 'low' },
+    { name: 'Chips', grams: 150, kcal: 300, protein_g: 4, carbs_g: 45, fat_g: 12, confidence: 'medium' } ] }) }] };
+};
+export default class Anthropic {
+  constructor(o) { window.__init = o; const auth = o.apiKey === 'sk-ant-bad'; this.messages = { create: async (p) => answer({ ...p, __auth: auth }) }; this.beta = { messages: { create: async (p) => answer({ ...p, __auth: auth, __beta: true }) } }; }
+}`;
+
+await test('photo logging with Claude: sends the photo, lists foods to check, grams rescale, adds them with the photo', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await page.route('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@*/**', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: SDK_STUB }));
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Your Anthropic API key').fill('sk-ant-test');
+  await page.getByLabel('Your Anthropic API key').press('Tab');
+  const backup = await state(page);
+  assert(!JSON.stringify(backup).includes('sk-ant-test'), 'key is not in the app data or backups');
+  await page.locator('nav').getByRole('button', { name: 'Today' }).click();
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'plate.png', mimeType: 'image/png', buffer: PIXEL });
+  const sheet = page.getByRole('dialog', { name: 'Log from a photo' });
+  await sheet.getByLabel("Anything the photo doesn't show? (optional)").fill('ribeye, fried in olive oil');
+  await sheet.getByRole('button', { name: 'Work it out with Claude' }).click();
+  await sheet.getByText('Assumed 1 tbsp olive oil.').waitFor();
+  const sent = await page.evaluate(() => ({ p: window.__sent, init: window.__init }));
+  assert(sent.init.apiKey === 'sk-ant-test' && sent.init.dangerouslyAllowBrowser === true, 'client set up with the key');
+  assert(sent.p.model === 'claude-opus-5-5' && sent.p.__beta && sent.p.fallbacks === 'default' && sent.p.betas[0] === 'server-side-fallback-2026-07-01', `model and fallback ${JSON.stringify({ ...sent.p, messages: 0, system: 0 })}`);
+  assert(sent.p.output_config.format.type === 'json_schema' && sent.p.output_config.effort === 'medium', 'structured output');
+  const content = sent.p.messages[0].content;
+  assert(content[0].type === 'image' && content[0].source.media_type === 'image/jpeg' && content[0].source.data.length > 20, 'photo sent as JPEG');
+  assert(content[1].text.includes('ribeye, fried in olive oil'), 'note sent');
+  // Edit: halve the steak, drop the chips.
+  await sheet.getByLabel('Grilled steak grams').fill('100');
+  assert((await sheet.getByLabel('Grilled steak calories').inputValue()) === '250' && (await sheet.getByLabel('Grilled steak protein').inputValue()) === '27', 'grams rescale');
+  await sheet.getByRole('button', { name: 'Remove Chips' }).click();
+  await sheet.getByRole('button', { name: 'Add 2 items to the log' }).click();
+  const s = await state(page);
+  assert(s.meals.length === 2 && s.meals[0].name === 'Grilled steak (100 g)' && s.meals[0].kcal === 250 && s.meals[0].p === 27, `meals ${JSON.stringify(s.meals)}`);
+  assert(s.meals.every((m) => m.photoId && m.photoId === s.meals[0].photoId), 'both carry the photo');
+  // Cheaper model, no fallback parameter on Haiku; a rejected key gives a plain message.
+  await page.evaluate(() => { FoodAI.setModel('claude-haiku-5-5'); FoodAI.setKey('sk-ant-bad'); });
+  await page.locator('#meal-photo-in').first().setInputFiles({ name: 'plate.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByRole('button', { name: 'Work it out with Claude' }).click();
+  await page.getByText("Anthropic didn't accept the API key. Check it in Body → Settings.").waitFor();
+  const p2 = await page.evaluate(() => window.__sent);
+  assert(p2.model === 'claude-haiku-5-5' && !p2.__beta && !('fallbacks' in p2), 'haiku without fallbacks');
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.waitForTimeout(200);
+  assert((await page.evaluate(() => Photos.all())).length === 1, 'the unused photo was dropped; the logged one kept');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

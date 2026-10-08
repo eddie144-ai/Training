@@ -49,6 +49,19 @@ again.
   none until they've logged something.
 - **Fuel → Log:** meals by day and slot, totals against your targets, add from the food library, one-off meals,
   barcode scan (Open Food Facts), copy the day before, edit or delete.
+- **Photo logging:** **Photo of food or label** (Today and Fuel) takes or picks a photo of a meal, drink, snack,
+  packet, nutrition label or menu, with an optional note ("fried in 1 tbsp butter"). With an Anthropic API key
+  (Body → Settings) **Work it out with Claude** returns each food with grams, calories, protein, carbs and fat and
+  how sure it is; every number can be changed (changing grams rescales the item), items removed or added, then
+  added to the log with the photo attached. Without a key, **Enter it myself** attaches the photo to a one-off
+  meal. Meal photos stay on the phone (IndexedDB) and are deleted with the last meal that uses them.
+  `foodai.js` calls the Messages API through the official SDK (`@anthropic-ai/sdk` 0.132.0 from jsDelivr, loaded on
+  first use, `dangerouslyAllowBrowser` because the key is the user's own): Claude Opus 5.5 by default (Sonnet 5.5
+  or Haiku 5.5 selectable), effort medium, a JSON-schema structured output, and the server-side refusal fallback
+  (`fallbacks: "default"`) on Opus and Sonnet. The key is kept in this browser only, outside the app data, so it's
+  never in backups.
+- **Fast days:** **Mark as a fast day** (Today and Fuel, when nothing is logged yet) records a deliberate fast. The
+  adaptive target counts it as a logged day at 0 kcal (plus anything eaten), instead of skipping it.
 - **Food search:** typing 3+ letters in Add food also searches Open Food Facts by name
   (`search.openfoodfacts.org`) after a short pause, keeps answers for the session (the service allows about 10
   searches a minute) and adds products by grams. Products you add are saved and listed offline next time.
@@ -75,7 +88,7 @@ your foods, macro targets and progress photos from Iron & Eggs in the same brows
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress photos), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Claude), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`.
 
 ## Tests

@@ -74,6 +74,7 @@ function freshState() {
     weights: [],
     measurements: [],
     targetLog: [],
+    fastDays: {},
     notice: null,
   };
 }
@@ -85,6 +86,7 @@ function normalise(s) {
   for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights', 'measurements', 'targetLog']) if (!Array.isArray(out[k])) out[k] = [];
   if (!out.programs || typeof out.programs !== 'object') out.programs = {};
   if (!out.baselines || typeof out.baselines !== 'object') out.baselines = {};
+  if (!out.fastDays || typeof out.fastDays !== 'object' || Array.isArray(out.fastDays)) out.fastDays = {};
   for (const t of PROGRAM_TEMPLATES) {
     const cur = out.programs[t.id];
     if (!cur || (t.version && (cur.version || 1) < t.version && !cur.edited)) out.programs[t.id] = programFromTemplate(t);
@@ -143,6 +145,7 @@ function bringIron() {
 // ===========================================================================
 const mealKcal = (m) => (m.kcal ?? (4 * (m.p || 0) + 4 * (m.c || 0) + 9 * (m.f || 0)));
 const mealTotals = (m) => { const k = m.servings ?? 1; return { kcal: mealKcal(m) * k, p: (m.p || 0) * k, c: (m.c || 0) * k, f: (m.f || 0) * k }; };
+const isFast = (date) => !!S.fastDays?.[date];
 const mealsOn = (date) => S.meals.filter((m) => m.date === date).sort((a, b) => a.at.localeCompare(b.at));
 function macrosOn(date) {
   const t = { kcal: 0, p: 0, c: 0, f: 0 };
@@ -192,14 +195,16 @@ const latestWeight = () => weightsSorted().pop() || null;
 // ===========================================================================
 // Energy balance: maintenance = average intake − (weight change × 7,700 kcal per kg). The weight change is the
 // slope of a straight line through the weigh-ins, so one salty day doesn't swing it. Needs 8+ weigh-ins over 14+
-// days and 12+ days with food logged in the 21 days before today (today is still being logged).
+// days and 12+ days logged in the 21 days before today (today is still being logged). A day marked as a fast
+// day counts as logged, at 0 kcal plus anything eaten that day.
 const ADAPT_DAYS = 21, KCAL_PER_KG = 7700, MAX_STEP = 300;
 function adaptive() {
   const to = addDays(today(), -1), from = addDays(to, -(ADAPT_DAYS - 1));
   const ws = S.weights.filter((w) => w.date >= from && w.date <= to).sort((a, b) => a.date.localeCompare(b.date));
-  const days = [...new Set(S.meals.filter((m) => m.date >= from && m.date <= to).map((m) => m.date))];
+  const days = [...new Set([...S.meals.filter((m) => m.date >= from && m.date <= to).map((m) => m.date), ...Object.keys(S.fastDays || {}).filter((d) => isFast(d) && d >= from && d <= to)])];
+  const fasts = days.filter(isFast).length;
   const span = ws.length ? daysBetween(ws[0].date, ws[ws.length - 1].date) : 0;
-  const base = { from, to, weighIns: ws.length, span, foodDays: days.length };
+  const base = { from, to, weighIns: ws.length, span, foodDays: days.length, fasts };
   if (ws.length < 8 || span < 14 || days.length < 12) return { ...base, ready: false };
   const xs = ws.map((w) => daysBetween(from, w.date)), ys = ws.map((w) => Number(w.kg));
   const mx = sum(xs, (x) => x) / xs.length, my = sum(ys, (y) => y) / ys.length;
@@ -235,7 +240,7 @@ function adaptCard(a, where) {
     return `<section class="card"><h2>Your real maintenance</h2>
       ${a.odd ? '<p class="small">The numbers don\'t add up yet. It usually means some meals or drinks weren\'t logged. Log everything for a week and it will settle.</p>'
         : `<p class="small">Needs about 3 weeks of your own data. In the last ${ADAPT_DAYS} days:</p>
-      <div class="stats"><div class="stat"><b>${a.weighIns}/8</b><span>weigh-ins</span></div><div class="stat"><b>${a.span}/14</b><span>days between first and last</span></div><div class="stat"><b>${a.foodDays}/12</b><span>days with food logged</span></div></div>`}
+      <div class="stats"><div class="stat"><b>${a.weighIns}/8</b><span>weigh-ins</span></div><div class="stat"><b>${a.span}/14</b><span>days between first and last</span></div><div class="stat"><b>${a.foodDays}/12</b><span>days logged (food or fast)</span></div></div>`}
       <p class="muted small">Then the app works out what you really burn from your weight trend and what you ate, and suggests a calorie target.</p></section>`;
   }
   const dir = a.slopeWeek < 0 ? 'losing' : 'gaining';
@@ -251,7 +256,7 @@ function adaptCard(a, where) {
     ${same ? `<p class="small good-text">✓ Your target of ${st.kcalGoal} kcal is right where it should be.</p>`
       : `<p class="small">Suggested target: <b>${a.suggest} kcal</b> (${a.delta > 0 ? '+' : '−'}${Math.abs(a.delta)} from ${st.kcalGoal})${a.capped ? `, a step of at most ${MAX_STEP} kcal a week towards ${a.ideal}` : ''}. Protein stays at ${st.proteinGoal} g; carbs and fat keep their share.</p>
       <div class="grid2"><button class="primary" data-act="adapt-apply" data-v="${a.suggest}">Use ${a.suggest} kcal</button>${where === 'today' ? '<button data-act="adapt-snooze">Not this week</button>' : '<span></span>'}</div>`}
-    <p class="muted small">Based on ${a.weighIns} weigh-ins and ${a.foodDays} days of food logged. It's only as good as the log: missed snacks or drinks make maintenance look lower than it is. Floors of ${st.sex === 'female' ? '1,200' : '1,500'} kcal always apply.${(S.targetLog || []).length ? ` Last change: ${fmtDate(S.targetLog.at(-1).date)}, ${S.targetLog.at(-1).from} → ${S.targetLog.at(-1).to} kcal.` : ''}</p>
+    <p class="muted small">Based on ${a.weighIns} weigh-ins and ${a.foodDays} days logged${a.fasts ? `, ${a.fasts} of them fast days` : ''}. It's only as good as the log: missed snacks or drinks make maintenance look lower than it is, so mark fast days rather than leaving them blank. Floors of ${st.sex === 'female' ? '1,200' : '1,500'} kcal always apply.${(S.targetLog || []).length ? ` Last change: ${fmtDate(S.targetLog.at(-1).date)}, ${S.targetLog.at(-1).from} → ${S.targetLog.at(-1).to} kcal.` : ''}</p>
   </section>`;
 }
 
@@ -534,7 +539,8 @@ function viewToday() {
     </div>
     ${macroBars(mac)}
     <div class="grid2"><button class="primary" data-act="food-picker">+ Add food</button><button data-act="scan-food">Scan a barcode</button></div>
-    <div class="row wrap">${quickAdd()}<button class="small-btn" data-act="go-fuel">Food log</button></div>
+    ${photoButton()}
+    <div class="row wrap">${quickAdd()}<button class="small-btn" data-act="go-fuel">Food log</button>${fastButton(d)}</div>
   </section>
   <section class="card">
     <h2>Body weight</h2>
@@ -865,21 +871,99 @@ function viewFuelLog() {
   const meals = mealsOn(d);
   return `
   ${dateNav('fuel-date', d)}
-  <section class="card"><h2>Totals</h2>${macroBars(macrosOn(d))}</section>
+  <section class="card"><h2>Totals ${isFast(d) ? '<span class="right">fast day</span>' : ''}</h2>${macroBars(macrosOn(d))}${fastButton(d)}</section>
   <div class="grid2">
     <button class="primary" data-act="food-picker">+ Add food</button>
     <button data-act="oneoff">+ One-off meal</button>
   </div>
-  <button data-act="scan-food">Scan a barcode</button>
+  <div class="grid2"><button data-act="scan-food">Scan a barcode</button>${photoButton(true)}</div>
   ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
   <section class="card">
     <h2>Meals · ${d === today() ? 'today' : fmtDate(d)} <span class="right">${meals.length}</span></h2>
     ${meals.length ? `<div class="list">${meals.map((m) => `<div class="row between">
-        <button class="linkish grow" data-act="edit-meal" data-id="${esc(m.id)}"><b>${esc(m.name)}</b>${(m.servings ?? 1) !== 1 ? ` <span class="chip">×${fmtNum(m.servings)}</span>` : ''}<br><span class="muted small">${esc(m.slot || slotForTime(m.at))} · ${fmtTime(m.at)} · ${macroLine(mealTotals(m))}</span></button>
+        <button class="linkish grow" data-act="edit-meal" data-id="${esc(m.id)}"><b>${esc(m.name)}</b>${(m.servings ?? 1) !== 1 ? ` <span class="chip">×${fmtNum(m.servings)}</span>` : ''}${m.photoId ? ' <span class="chip" title="Has a photo">photo</span>' : ''}<br><span class="muted small">${esc(m.slot || slotForTime(m.at))} · ${fmtTime(m.at)} · ${macroLine(mealTotals(m))}</span></button>
         <button class="icon ghost" data-act="del-meal" data-id="${esc(m.id)}" aria-label="Delete ${esc(m.name)}">✕</button></div>`).join('')}</div>` : '<p class="muted">Nothing logged for this day.</p>'}
     <button class="ghost" data-act="copy-yesterday" data-date="${d}">Copy meals from the day before</button>
     <p class="muted small">Tap a meal to change servings, macros, time or date.</p>
   </section>`;
+}
+
+// ---- fast days: a day on purpose with nothing (or very little) eaten, so the adaptive target counts it
+function fastButton(d) {
+  if (mealsOn(d).length && !isFast(d)) return '';
+  return `<button class="small-btn" data-act="fast-toggle" data-date="${d}" aria-pressed="${isFast(d)}">${isFast(d) ? '✓ Fast day' : 'Mark as a fast day'}</button>`;
+}
+
+// ---- logging from a photo (photos.js stores it; foodai.js asks Claude when there's an API key)
+function photoButton(inline) {
+  return `<label class="btn ${inline ? '' : 'wide'}" for="meal-photo-in">Photo of food or label</label><input id="meal-photo-in" type="file" accept="image/*" capture="environment" class="sr">`;
+}
+let photoState = null; // { rec, url, status: 'ready'|'loading'|'done'|'error', items, notes, kind, error, note, used }
+function openPhotoLog(rec) {
+  photoState = { rec, url: URL.createObjectURL(rec.blob), status: 'ready', items: [], notes: '', kind: '', error: '', note: '' };
+  drawPhoto();
+}
+const CONF = { high: ['sure', 'good'], medium: ['estimate', ''], low: ['rough guess', 'warn'] };
+function drawPhoto() {
+  const ps = photoState;
+  if (!ps) return;
+  const hasKey = !!FoodAI.getKey();
+  const slot = document.getElementById('ph-slot')?.value || slotForTime(new Date().toISOString());
+  const rows = ps.items.map((it, i) => `<div class="excard phrow">
+      <div class="row between"><input value="${esc(it.name)}" aria-label="Food ${i + 1} name" data-ph="${i}|name" class="grow">
+        <button class="icon ghost" data-act="ph-del" data-i="${i}" aria-label="Remove ${esc(it.name)}">✕</button></div>
+      <div class="phnums">
+        <label class="field">grams<input inputmode="decimal" value="${fmtNum(it.grams)}" data-ph="${i}|grams" aria-label="${esc(it.name)} grams"></label>
+        <label class="field">kcal<input inputmode="decimal" value="${fmtNum(it.kcal)}" data-ph="${i}|kcal" aria-label="${esc(it.name)} calories"></label>
+        <label class="field">protein<input inputmode="decimal" value="${fmtNum(it.p)}" data-ph="${i}|p" aria-label="${esc(it.name)} protein"></label>
+        <label class="field">carbs<input inputmode="decimal" value="${fmtNum(it.c)}" data-ph="${i}|c" aria-label="${esc(it.name)} carbs"></label>
+        <label class="field">fat<input inputmode="decimal" value="${fmtNum(it.f)}" data-ph="${i}|f" aria-label="${esc(it.name)} fat"></label>
+      </div>
+      ${it.confidence ? `<span class="small">${chip(CONF[it.confidence][0], CONF[it.confidence][1])}</span>` : ''}
+    </div>`).join('');
+  const tot = ps.items.reduce((t, it) => ({ kcal: t.kcal + (it.kcal || 0), p: t.p + (it.p || 0), c: t.c + (it.c || 0), f: t.f + (it.f || 0) }), { kcal: 0, p: 0, c: 0, f: 0 });
+  const html = `
+    <img class="phprev" src="${ps.url}" alt="Your photo">
+    ${ps.status === 'ready' || ps.status === 'error' ? `
+      <label class="field">Anything the photo doesn't show? (optional)<textarea id="ph-note" placeholder="e.g. cooked in 1 tbsp butter, 250 g steak, half eaten">${esc(ps.note)}</textarea></label>
+      ${ps.error ? `<p class="small warn-text">${esc(ps.error)}</p>` : ''}
+      ${hasKey ? '<button class="primary" data-act="ph-ai">Work it out with Claude</button>' : '<p class="muted small">To have Claude work out the food and its calories from the photo, add your Anthropic API key in Body → Settings.</p>'}
+      <button data-act="ph-manual">Enter it myself</button>` : ''}
+    ${ps.status === 'loading' ? '<p class="small">Reading the photo… this takes a few seconds.</p>' : ''}
+    ${ps.status === 'done' ? `
+      ${ps.kind === 'not_food' || !ps.items.length ? '<p class="small">No food found in this photo. Add it yourself below.</p>' : ''}
+      ${ps.notes ? `<p class="small tip">${esc(ps.notes)}</p>` : ''}
+      ${rows}
+      <button class="small-btn" data-act="ph-add-row">+ Add an item</button>
+      ${ps.items.length ? `<p class="small"><b>Total:</b> ${macroLine(tot)}</p>` : ''}
+      ${slotSelect('ph-slot', slot)}
+      <button class="primary" data-act="ph-save" ${ps.items.length ? '' : 'disabled'}>Add ${ps.items.length} item${ps.items.length === 1 ? '' : 's'} to the log</button>
+      <p class="muted small">Estimates from the photo: change any number before adding. Changing grams scales that item's calories and macros.</p>` : ''}`;
+  const body = document.querySelector('.sheet-wrap .sheet-body');
+  if (body && document.querySelector('.sheet-wrap [aria-label="Log from a photo"]')) body.innerHTML = html;
+  else openSheet('Log from a photo', html);
+}
+async function photoAI() {
+  const ps = photoState;
+  ps.note = document.getElementById('ph-note')?.value || '';
+  Object.assign(ps, { status: 'loading', error: '' });
+  drawPhoto();
+  const res = await FoodAI.analyse(ps.rec.blob, ps.note);
+  if (photoState !== ps) return;
+  if (!res.ok) { Object.assign(ps, { status: 'error', error: res.error }); drawPhoto(); return; }
+  Object.assign(ps, { status: 'done', kind: res.result.kind, notes: res.result.notes || '', items: res.result.items });
+  drawPhoto();
+}
+async function showMealPhoto(id) {
+  try {
+    const rec = await Photos.get(id);
+    const img = document.getElementById('meal-photo');
+    if (rec && img) { const u = URL.createObjectURL(rec.blob); img.src = u; img.hidden = false; img.onload = () => URL.revokeObjectURL(u); }
+  } catch { /* photos unavailable */ }
+}
+// A meal photo is deleted with the last meal that uses it.
+function dropPhotoIfUnused(id) {
+  if (id && !S.meals.some((m) => m.photoId === id)) Photos.remove(id).catch(() => {});
 }
 
 function recipeCard(rcp) {
@@ -1075,6 +1159,14 @@ function viewBodySettings() {
       : '<p class="muted small">Iron &amp; Eggs data isn\'t in this browser. Open this app from the same site and phone as Iron &amp; Eggs to copy it, or restore a backup below.</p>'}
   </section>
   <section class="card">
+    <h2>Photo logging with Claude</h2>
+    <p class="small">Take a photo of a meal, drink, snack, packet, nutrition label or menu and Claude lists each food with its weight, calories and macros for you to check.</p>
+    <label class="field">Your Anthropic API key<input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" value="${FoodAI.getKey() ? '••••••••' : ''}"></label>
+    ${FoodAI.getKey() ? '<button class="ghost danger" data-act="ai-key-clear">Remove the key from this phone</button>' : ''}
+    <label class="field">Model<select id="ai-model">${FoodAI.MODELS.map(([m, l]) => `<option value="${m}" ${FoodAI.getModel() === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    <p class="muted small">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (pay as you go). Each photo is one request: roughly a few pence with Opus 5.5, less with Sonnet or Haiku. The key is kept on this phone only, is never in backups, and is sent only to Anthropic with your photo. Without a key you can still attach a photo and enter the food yourself.</p>
+  </section>
+  <section class="card">
     <h2>Backup</h2>
     <p class="muted small">Everything lives only in this browser. Save a backup file now and then.</p>
     <div class="grid2"><button data-act="backup">Save backup file</button><label class="btn" for="restore-file">Restore…</label></div>
@@ -1096,6 +1188,7 @@ function viewBodySettings() {
 let scanState = null;
 function closeSheet() {
   if (scanState) { Scan.stop(); scanState = null; }
+  if (photoState) { URL.revokeObjectURL(photoState.url); if (!photoState.used) dropPhotoIfUnused(photoState.rec.id); photoState = null; }
   document.querySelector('.sheet-wrap')?.remove();
 }
 function openSheet(title, html) {
@@ -1550,8 +1643,8 @@ document.addEventListener('click', (e) => {
       closeSheet(); toast(`Logged ${food.name.split(':')[0]}`); break;
     }
     case 'oneoff': openSheet('One-off meal', mealForm('oneoff-form', { date: ui.fuelDate || today() }, `<label class="field check-field" style="grid-column:1/-1"><span>Save to my foods too</span><input type="checkbox" name="keep"></label>`)); return;
-    case 'edit-meal': { const m = S.meals.find((x) => x.id === el.dataset.id); if (m) openSheet('Edit meal', mealForm('meal-edit-form', m)); return; }
-    case 'del-meal': S.meals = S.meals.filter((m) => m.id !== el.dataset.id); toast('Meal removed'); break;
+    case 'edit-meal': { const m = S.meals.find((x) => x.id === el.dataset.id); if (m) { openSheet('Edit meal', `${m.photoId ? '<img id="meal-photo" class="phprev" alt="Photo of this meal" hidden>' : ''}${mealForm('meal-edit-form', m)}`); if (m.photoId) showMealPhoto(m.photoId); } return; }
+    case 'del-meal': { const gone = S.meals.find((m) => m.id === el.dataset.id); S.meals = S.meals.filter((m) => m.id !== el.dataset.id); dropPhotoIfUnused(gone?.photoId); toast('Meal removed'); break; }
     case 'copy-yesterday': {
       const d = el.dataset.date, prev = mealsOn(addDays(d, -1));
       if (!prev.length) { toast('Nothing logged the day before'); return; }
@@ -1614,6 +1707,30 @@ document.addEventListener('click', (e) => {
       document.querySelectorAll('.liftchart .pt').forEach((g) => g.classList.toggle('on', g === el));
       return;
     }
+    case 'fast-toggle': {
+      const d = el.dataset.date;
+      if (isFast(d)) delete S.fastDays[d]; else { S.fastDays[d] = true; toast('Fast day: counted as 0 kcal plus anything you log'); }
+      break;
+    }
+    case 'ph-ai': photoAI(); return;
+    case 'ph-manual': {
+      const ps = photoState;
+      const url = ps.url, id = ps.rec.id;
+      // The one-off form takes over: saving it attaches the photo; cancelling drops it (closeSheet).
+      openSheet('One-off meal', `<img class="phprev" src="${url}" alt="Your photo">${mealForm('oneoff-form', { date: ui.fuelDate || today(), name: (document.getElementById('ph-note')?.value || '').slice(0, 80) }, `<input type="hidden" name="photoId" value="${esc(id)}">`)}`);
+      return;
+    }
+    case 'ph-del': photoState.items.splice(Number(el.dataset.i), 1); drawPhoto(); return;
+    case 'ph-add-row': photoState.items.push({ name: 'Food', grams: 100, kcal: 0, p: 0, c: 0, f: 0, confidence: '' }); drawPhoto(); return;
+    case 'ph-save': {
+      const ps = photoState;
+      const d = ui.fuelDate || today(), at = nowOn(d), slot = document.getElementById('ph-slot')?.value || slotForTime(at);
+      for (const it of ps.items) S.meals.push({ id: uid(), date: d, at, name: it.grams ? `${it.name} (${fmtNum(it.grams)} g)` : it.name, kcal: Math.round(it.kcal || 0), p: round1(it.p || 0), c: round1(it.c || 0), f: round1(it.f || 0), servings: 1, ref: null, kind: 'photo', slot, photoId: ps.rec.id });
+      ps.used = true;
+      toast(`${ps.items.length} item${ps.items.length === 1 ? '' : 's'} added`);
+      closeSheet(); break;
+    }
+    case 'ai-key-clear': FoodAI.setKey(''); toast('API key removed from this phone'); render(); return;
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
@@ -1650,6 +1767,24 @@ document.addEventListener('input', (e) => {
     return;
   }
   if (t.dataset.live === 'lib-q') { drawLib(); return; }
+  if (t.dataset.ph && photoState) {
+    const [i, k] = t.dataset.ph.split('|');
+    const it = photoState.items[Number(i)];
+    if (!it) return;
+    if (k === 'name') { it.name = t.value; return; }
+    const v = num(t.value) ?? 0;
+    if (k === 'grams' && it.grams > 0 && v > 0) {
+      // Scale this item from its previous weight, and show the new numbers without redrawing (focus stays put).
+      const r = v / it.grams;
+      for (const m of ['kcal', 'p', 'c', 'f']) {
+        it[m] = m === 'kcal' ? Math.round(it[m] * r) : round1(it[m] * r);
+        const box = document.querySelector(`[data-ph="${i}|${m}"]`);
+        if (box) box.value = fmtNum(it[m]);
+      }
+    }
+    it[k] = v;
+    return;
+  }
   if (t.dataset.live === 'picker-q') {
     const q = t.value.trim().toLowerCase();
     document.querySelectorAll('.picker-list .pick').forEach((b) => { b.hidden = !!q && !b.dataset.name.includes(q); });
@@ -1674,6 +1809,14 @@ document.addEventListener('change', (e) => {
     commit();
     return;
   }
+  if (t.id === 'meal-photo-in') {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) Photos.add(ui.fuelDate || today(), 'meal', file).then(openPhotoLog, () => toast('Couldn\'t save the photo'));
+    return;
+  }
+  if (t.id === 'ai-key') { if (t.value.includes('•')) return; FoodAI.setKey(t.value); toast(t.value.trim() ? 'API key saved on this phone' : 'API key removed'); render(); return; }
+  if (t.id === 'ai-model') { FoodAI.setModel(t.value); toast('Model saved'); return; }
   if (t.classList?.contains('photo-in')) {
     const file = t.files?.[0];
     if (file) Photos.add(today(), t.dataset.pose, file).then(() => { toast(`${cap(t.dataset.pose)} photo saved`); fillPhotos(); }, () => toast('Couldn\'t save the photo'));
@@ -1791,6 +1934,7 @@ document.addEventListener('submit', (e) => {
       if (!m) return;
       Object.assign(m, { name, date, at: atOn(date, fd.get('time')), slot: fd.get('slot'), servings: formNum(fd, 'servings') || 1, ...macrosFrom(fd) });
       if (f.id === 'oneoff-form') {
+        if (fd.get('photoId')) m.photoId = String(fd.get('photoId'));
         S.meals.push(m);
         if (fd.get('keep')) S.myFoods.push({ id: uid(), name, meal: m.slot, serves: 1, kcal: m.kcal, p: m.p, c: m.c, f: m.f, ingredients: [], method: '' });
       }
