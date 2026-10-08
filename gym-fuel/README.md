@@ -67,6 +67,9 @@ again.
     selectable), effort medium, a JSON-schema structured output, and the server-side refusal fallback
     (`fallbacks: "default"`) on Opus and Sonnet.
   Keys are kept in this browser only, outside the app data, so they're never in backups.
+  - **Free (no key):** once the Worker in `worker/` is deployed (see `worker/README.md`), photos go to it instead:
+    it reads them with the owner's Gemini key, kept secret on Cloudflare, capped at 10 photos a day per connection
+    and 200 for everyone. It's the default when the user has no key of their own.
 - **Share my week:** a 1080 × 1350 image of the week so far (weight with this week's and total change and a 4-week
   trend line, sessions, average calories and protein, best lifts as estimated 1-rep max with the change from before
   this week, an optional handle, and the app's address), drawn on a canvas in `share.js`. **Share** opens the

@@ -1,0 +1,23 @@
+# Gym & Fuel free photo logging. Deployed by .github/workflows/deploy-food-ai.yml (or `npx wrangler deploy` here).
+# Secret, set by the workflow from the repo secret of the same name: GEMINI_API_KEY.
+name = "gym-fuel-food-ai"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+# Only the app may call it (comma-separated origins).
+ALLOWED_ORIGINS = "https://eddie144-ai.github.io"
+# Free photos per connection per day, and for everyone per day (keep within the Gemini free tier).
+PER_IP_DAILY = "10"
+DAILY_TOTAL = "200"
+GEMINI_MODEL = "gemini-3.8-flash"
+
+# Exact daily counters (SQLite-backed Durable Object, available on the free plan).
+[[durable_objects.bindings]]
+name = "USAGE"
+class_name = "UsageCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UsageCounter"]

@@ -1059,6 +1059,7 @@ function drawPhoto() {
     ${ps.status === 'done' ? `
       ${ps.kind === 'not_food' || !ps.items.length ? '<p class="small">No food found in this photo. Add it yourself below.</p>' : ''}
       ${ps.notes ? `<p class="small tip">${esc(ps.notes)}</p>` : ''}
+      ${ps.left != null ? `<p class="muted small">${ps.left} free photo${ps.left === 1 ? '' : 's'} left today.</p>` : ''}
       ${rows}
       <button class="small-btn" data-act="ph-add-row">+ Add an item</button>
       ${ps.items.length ? `<p class="small"><b>Total:</b> ${macroLine(tot)}</p>` : ''}
@@ -1077,7 +1078,7 @@ async function photoAI() {
   const res = await FoodAI.analyse(ps.rec.blob, ps.note);
   if (photoState !== ps) return;
   if (!res.ok) { Object.assign(ps, { status: 'error', error: res.error }); drawPhoto(); return; }
-  Object.assign(ps, { status: 'done', kind: res.result.kind, notes: res.result.notes || '', items: res.result.items });
+  Object.assign(ps, { status: 'done', kind: res.result.kind, notes: res.result.notes || '', items: res.result.items, left: res.left ?? null });
   drawPhoto();
 }
 async function showMealPhoto(id) {
@@ -1287,8 +1288,11 @@ function viewBodySettings() {
   <section class="card">
     <h2>Photo logging</h2>
     <p class="small">Take a photo of a meal, drink, snack, packet, nutrition label or menu and the AI lists each food with its weight, calories and macros for you to check.</p>
-    ${segmented('ai-provider', [['gemini', 'Gemini (free)'], ['claude', 'Claude (paid)']], FoodAI.getProvider(), 'Which AI reads the photo')}
-    ${FoodAI.getProvider() === 'gemini' ? `
+    ${segmented('ai-provider', [...(FoodAI.getFreeUrl() ? [['free', 'Free']] : []), ['gemini', FoodAI.getFreeUrl() ? 'My Gemini key' : 'Gemini (free)'], ['claude', 'Claude (paid)']], FoodAI.getProvider(), 'Which AI reads the photo')}
+    ${FoodAI.getProvider() === 'free' ? `
+      <p class="small">No key needed: Gym & Fuel's free service reads the photo with Google's Gemini. Up to 10 photos a day per internet connection.</p>
+      <p class="muted small">On Google's free tier, Google may use what's sent (your food photos and notes) to improve its products. For no daily limit, use your own key instead.</p>`
+    : FoodAI.getProvider() === 'gemini' ? `
       <label class="field">Gemini API key<input id="ai-gkey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" value="${FoodAI.getGeminiKey() ? '••••••••' : ''}"></label>
       ${FoodAI.getGeminiKey() ? '<p class="small good-text">✓ A Gemini key is saved on this phone. It\'s the same one Deliberation Council uses, so a change here changes it there too.</p><button class="ghost danger" data-act="ai-gkey-clear">Remove the Gemini key from this phone</button>' : ''}
       <label class="field">Gemini model<input id="ai-gmodel" autocomplete="off" spellcheck="false" value="${esc(FoodAI.getGeminiModel())}"></label>
@@ -1299,6 +1303,9 @@ function viewBodySettings() {
       <label class="field">Model<select id="ai-model">${FoodAI.MODELS.map(([m, l]) => `<option value="${m}" ${FoodAI.getModel() === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
       <p class="muted small">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (pay as you go). Each photo is one request: roughly a few pence with Opus 5.5, less with Sonnet or Haiku.</p>`}
     <p class="muted small">Keys stay on this phone only, are never in backups, and are sent only to that company with your photo. Without a key you can still attach a photo and enter the food yourself.</p>
+    <details class="small"><summary>Free service address (app owner)</summary>
+      <label class="field">Address of the deployed free service<input id="ai-free-url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://gym-fuel-food-ai.….workers.dev" value="${esc(FoodAI.getFreeUrl())}"></label>
+    </details>
   </section>
   <section class="card">
     <h2>Backup</h2>
@@ -1973,6 +1980,7 @@ document.addEventListener('change', (e) => {
   if (t.id === 'ai-key') { if (t.value.includes('•')) return; FoodAI.setKey(t.value); toast(t.value.trim() ? 'API key saved on this phone' : 'API key removed'); render(); return; }
   if (t.id === 'ai-model') { FoodAI.setModel(t.value); toast('Model saved'); return; }
   if (t.id === 'ai-gkey') { if (t.value.includes('•')) return; FoodAI.setGeminiKey(t.value); toast(t.value.trim() ? 'Gemini key saved on this phone' : 'Gemini key removed'); render(); return; }
+  if (t.id === 'ai-free-url') { FoodAI.setFreeUrl(t.value); toast(FoodAI.getFreeUrl() ? 'Free service address saved' : 'Free service address cleared'); render(); return; }
   if (t.id === 'ai-gmodel') { FoodAI.setGeminiModel(t.value); toast('Gemini model saved'); return; }
   if (t.classList?.contains('photo-in')) {
     const file = t.files?.[0];

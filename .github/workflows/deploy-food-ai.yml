@@ -1,0 +1,58 @@
+# Deploys gym-fuel/worker (free photo logging) to Cloudflare Workers.
+# One-time setup, in the repo's Settings → Secrets and variables → Actions → New repository secret:
+#   CLOUDFLARE_API_TOKEN   a Cloudflare API token from the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account ID
+#   GEMINI_API_KEY         the Gemini key the Worker uses (free tier)
+# Until all three exist, the tests still run and the deploy step is skipped with a notice.
+name: Deploy free food AI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gym-fuel/worker/**'
+      - 'gym-fuel/foodai.js'
+      - '.github/workflows/deploy-food-ai.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Worker tests
+        run: node gym-fuel/worker/test/worker.test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the secrets are set
+        id: check
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GEMINI: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ] && [ -n "$GEMINI" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Not deployed: add the CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and GEMINI_API_KEY repository secrets, then run this workflow again."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v6
+        if: steps.check.outputs.ready == 'true'
+      - name: Deploy the Worker
+        if: steps.check.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: gym-fuel/worker
+          secrets: |
+            GEMINI_API_KEY
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

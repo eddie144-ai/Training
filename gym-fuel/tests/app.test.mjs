@@ -638,6 +638,38 @@ await test('install help, plain background and neutral programme for new users',
   await fresh.ctx.close();
 });
 
+await test('free photo logging: no key needed, uses the Gym & Fuel service, shows photos left and its limits', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true } } });
+  await page.evaluate(() => localStorage.setItem('gymfuel.freeAiUrl', 'https://free-ai.test'));
+  await page.reload();
+  let sent = null, capped = false;
+  await page.route('https://free-ai.test/**', async (r) => {
+    sent = { url: r.request().url(), body: JSON.parse(r.request().postData()) };
+    const cors = { 'access-control-allow-origin': '*' };
+    if (capped) { await r.fulfill({ status: 429, contentType: 'application/json', headers: cors, body: JSON.stringify({ ok: false, error: "That's today's 10 free photos used." }) }); return; }
+    await r.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ ok: true, left: 9, model: 'gemini-3.8-flash', result: { kind: 'meal', notes: '', items: [{ name: 'Porridge', grams: 250, kcal: 260, protein_g: 9, carbs_g: 45, fat_g: 5, confidence: 'medium' }] } }) });
+  });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  assert(await page.getByRole('button', { name: 'Free', exact: true }).getAttribute('aria-pressed') === 'true', 'Free chosen with no key');
+  assert(await page.getByText('Google may use what\'s sent').isVisible(), 'free-tier note');
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByLabel("Anything the photo doesn't show? (optional)").fill('with honey');
+  await page.getByRole('button', { name: 'Work it out with AI' }).click();
+  await page.getByText('9 free photos left today.').waitFor();
+  assert(sent.url === 'https://free-ai.test/analyse' && sent.body.mimeType === 'image/jpeg' && sent.body.image.length > 20 && sent.body.note === 'with honey', `request ${JSON.stringify({ ...sent.body, image: 0 })}`);
+  assert(Object.keys(sent.body).sort().join() === 'image,mimeType,note', 'only the photo and note are sent');
+  assert((await page.getByLabel('Porridge grams').inputValue()) === '250', 'result shown');
+  capped = true;
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByRole('button', { name: 'Work it out with AI' }).click();
+  await page.getByText("That's today's 10 free photos used.").waitFor();
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;
