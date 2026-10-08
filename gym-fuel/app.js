@@ -75,6 +75,7 @@ function freshState() {
     measurements: [],
     targetLog: [],
     fastDays: {},
+    challenge: null,
     notice: null,
   };
 }
@@ -503,6 +504,128 @@ function spark(values) {
 // ===========================================================================
 // TODAY
 // ===========================================================================
+// ===========================================================================
+// Growth: share my week, the 30-day challenge, backups, installing
+// ===========================================================================
+const APP_URL = 'eddie144-ai.github.io/Training/gym-fuel';
+const CHALLENGE_DAYS = 30;
+function challengeDay(d = today()) {
+  const c = S.challenge;
+  return c?.start ? daysBetween(c.start, d) + 1 : 0;
+}
+// Everything the week card shows, for the week so far (Monday to today).
+function weekData(d = today()) {
+  const ws = weekStart(d);
+  const st = S.settings;
+  const list = weightsSorted();
+  const lw = list[list.length - 1];
+  const prevWeek = [...list].reverse().find((w) => w.date < ws);
+  const start = st.startWeight ?? list[0]?.kg ?? null;
+  const sessions = S.workouts.filter((w) => w.date >= ws && w.date <= d);
+  const intake = intakeAvg(ws, d);
+  // Best estimated 1-rep max per lift this week, against the best before this week.
+  const best = new Map(), before = new Map();
+  for (const w of S.workouts) {
+    for (const e of w.entries || []) {
+      const v = entryBest(e);
+      if (!v) continue;
+      const k = exKey(e.name), m = w.date >= ws && w.date <= d ? best : w.date < ws ? before : null;
+      if (m && v > (m.get(k)?.v || 0)) m.set(k, { name: e.name, v });
+    }
+  }
+  const lifts = [...best.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 3).map(([k, l]) => {
+    const was = before.get(k)?.v;
+    const ch = was ? round1(l.v - was) : null;
+    return { name: l.name, value: `${fmtNum(round1(l.v))} kg`, change: ch == null ? '' : ch > 0 ? `▲ +${fmtNum(ch)}` : ch < 0 ? `▼ ${fmtNum(ch)}` : '=' };
+  });
+  const sign = (x) => `${x > 0 ? '+' : x < 0 ? '−' : '±'}${fmtNum(Math.abs(round1(x)))} kg`;
+  const day = challengeDay(d);
+  return {
+    title: `Week of ${parseDate(ws).getDate()} ${MON[parseDate(ws).getMonth()]}`,
+    subtitle: S.challenge && day >= 1 && day <= CHALLENGE_DAYS ? `Cut with me · day ${day} of ${CHALLENGE_DAYS}` : '',
+    handle: (st.handle || '').trim(),
+    weight: {
+      now: lw ? `${fmtNum(lw.kg)} kg` : '—',
+      week: lw && prevWeek && lw.date >= ws ? `${sign(lw.kg - prevWeek.kg)} this week` : '',
+      total: lw && start != null ? `${sign(lw.kg - start)} since start` : '',
+    },
+    trend: list.filter((w) => w.date >= addDays(d, -27)).map((w) => Number(w.kg)),
+    stats: [[String(sessions.length), `session${sessions.length === 1 ? '' : 's'}`], [intake ? String(Math.round(intake.kcal)) : '—', 'avg kcal a day'], [intake ? `${Math.round(intake.p)} g` : '—', 'avg protein a day']],
+    lifts,
+    footer: `Tracked with Gym & Fuel · ${APP_URL}`,
+    background: st.background === 'plain' ? '' : 'bg.jpg',
+  };
+}
+let shareBlob = null;
+async function openShareWeek() {
+  openSheet('Share my week', '<p class="muted small" id="share-wait">Making your card…</p>');
+  try {
+    const cv = await Share.weekCard(weekData());
+    shareBlob = await Share.toBlob(cv);
+  } catch { shareBlob = null; }
+  const body = document.querySelector('.sheet-wrap .sheet-body');
+  if (!body || !document.getElementById('share-wait')) return;
+  if (!shareBlob) { body.innerHTML = '<p class="small warn-text">Couldn\'t make the image in this browser.</p>'; return; }
+  const url = URL.createObjectURL(shareBlob);
+  body.innerHTML = `<img class="sharecard" id="share-img" src="${url}" alt="Your week as an image">
+    <label class="field">Your name or handle on the card (optional)<input id="share-handle" maxlength="40" placeholder="@yourname" value="${esc(S.settings.handle || '')}"></label>
+    <div class="grid2"><button class="primary" data-act="share-week-go">Share</button><button data-act="share-week-save">Save image</button></div>
+    <p class="muted small">Post it each week: weight trend, sessions, food and your best lifts. Nothing leaves your phone unless you share it.</p>`;
+  document.getElementById('share-img').onload = () => URL.revokeObjectURL(url);
+}
+function backupBlob() {
+  return new Blob([JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S })], { type: 'application/json' });
+}
+async function sendBackup(share) {
+  const name = `gym-fuel-${today()}.json`;
+  const how = share ? await Share.file(backupBlob(), name, 'Gym & Fuel backup') : (downloadText(name, JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }), 'application/json'), 'saved');
+  if (how === 'cancelled') return;
+  S.settings.lastBackup = today(); save();
+  toast(how === 'shared' ? 'Backup sent' : 'Backup saved to your downloads');
+  render();
+}
+const hasHistory = () => S.meals.length + S.workouts.length + S.weights.length >= 5;
+const backupDue = () => hasHistory() && (!S.settings.lastBackup || daysBetween(S.settings.lastBackup, today()) >= 7) && !(S.settings.backupSnooze && S.settings.backupSnooze > today());
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; if (ui.tab === 'today') render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; S.settings.installDismissed = true; save(); });
+const isInstalled = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function installSteps() {
+  return isIOS()
+    ? '<ol class="small installsteps"><li>Open this page in <b>Safari</b>.</li><li>Tap <b>Share</b> (the square with an arrow).</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol>'
+    : '<ol class="small installsteps"><li>Open this page in <b>Chrome</b>.</li><li>Tap the <b>⋮</b> menu, top right.</li><li>Tap <b>Install app</b> (or <b>Add to Home screen</b>).</li></ol>';
+}
+function growthCards(d) {
+  const st = S.settings;
+  const out = [];
+  if (st.setupDone && !isInstalled() && !st.installDismissed) {
+    out.push(`<section class="card"><h2>Install Gym & Fuel</h2><p class="small">Put it on your home screen: it opens like an app, full screen, and works offline.</p>
+      ${installPrompt ? '<button class="primary" data-act="install-go">Install</button>' : installSteps()}
+      <button class="ghost" data-act="install-dismiss">Done, or not now</button></section>`);
+  }
+  if (backupDue()) {
+    out.push(`<section class="card"><h2>Back up your log</h2><p class="small">Everything lives only on this phone${st.lastBackup ? `; the last backup was ${fmtDate(st.lastBackup)}` : ' and it has never been backed up'}. Send a copy to Drive, email or a chat so a new phone or a cleared browser can't wipe it.</p>
+      <div class="grid2"><button class="primary" data-act="backup-share">Back up now</button><button data-act="backup-snooze">In a few days</button></div></section>`);
+  }
+  const day = challengeDay(d);
+  if (S.challenge && day >= 1) {
+    const ws = weekStart(d);
+    const sessions = S.workouts.filter((w) => w.date >= ws && w.date <= d).length;
+    const weighs = S.weights.filter((w) => w.date >= ws && w.date <= d).length;
+    out.push(day > CHALLENGE_DAYS
+      ? `<section class="card hero-card"><h2>Cut with me: done</h2><p class="small">You finished the ${CHALLENGE_DAYS}-day challenge. Share your last card, then go again.</p>
+          <div class="grid2"><button class="primary" data-act="share-week">Share my week</button><button data-act="challenge-start">Start another 30 days</button></div>
+          <button class="ghost" data-act="challenge-end">Close the challenge</button></section>`
+      : `<section class="card hero-card"><h2>Cut with me <span class="right">day ${day} of ${CHALLENGE_DAYS}</span></h2>
+          ${bar(day, CHALLENGE_DAYS, 'good')}
+          <div class="stats"><div class="stat"><b>${sessions}/3</b><span>sessions this week</span></div><div class="stat"><b>${weighs}/7</b><span>weigh-ins this week</span></div></div>
+          <p class="small">Three sessions and a daily weigh-in each week, food logged, and a card posted every Sunday.</p>
+          <button class="primary" data-act="share-week">Share my week</button></section>`);
+  }
+  return out.join('');
+}
+
 function viewToday() {
   const d = today();
   const st = S.settings;
@@ -521,6 +644,7 @@ function viewToday() {
   return `
   ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
+  ${growthCards(d)}
   <section class="card hero-card">
     <h2>Training <span class="right">${esc(prog.name)}</span></h2>
     ${done.length
@@ -558,6 +682,8 @@ function viewToday() {
       <div class="stat"><b>${intake ? Math.round(intake.kcal) : '—'}</b><span>avg kcal/day</span></div>
       <div class="stat"><b>${intake ? `${Math.round(intake.p)} g` : '—'}</b><span>avg protein/day</span></div>
     </div>
+    <button data-act="share-week">Share my week</button>
+    ${S.challenge ? '' : '<button class="ghost" data-act="challenge-start">Start a 30-day "Cut with me" challenge</button>'}
   </section>
   ${!storageOk ? '<section class="card alert"><p class="small">This browser is blocking storage, so nothing will be saved. Turn off private mode or allow site data.</p></section>' : ''}`;
 }
@@ -1176,13 +1302,16 @@ function viewBodySettings() {
   </section>
   <section class="card">
     <h2>Backup</h2>
-    <p class="muted small">Everything lives only in this browser. Save a backup file now and then.</p>
+    <p class="muted small">Everything lives only in this browser${st.lastBackup ? `. Last backup: ${fmtDate(st.lastBackup)}` : ''}. Photos aren't in backups.</p>
+    <button class="primary" data-act="backup-share">Send a backup to Drive, email or a chat</button>
     <div class="grid2"><button data-act="backup">Save backup file</button><label class="btn" for="restore-file">Restore…</label></div>
     <input id="restore-file" type="file" accept="application/json,.json" class="sr">
   </section>
   <section class="card">
     <h2>Display</h2>
     <label class="field check-field"><span>High contrast</span><input type="checkbox" id="hc-toggle" ${st.highContrast ? 'checked' : ''}></label>
+    <label class="field">Background<select id="bg-pick"><option value="photo" ${st.background !== 'plain' ? 'selected' : ''}>Photo</option><option value="plain" ${st.background === 'plain' ? 'selected' : ''}>Plain</option></select></label>
+    <label class="field">Name or handle on your share cards<input id="handle-set" maxlength="40" placeholder="@yourname" value="${esc(st.handle || '')}"></label>
   </section>
   <section class="card">
     <h2>Reset</h2>
@@ -1364,7 +1493,8 @@ function setupForm() {
   const st = S.settings;
   const lw = latestWeight();
   const progs = Object.values(S.programs);
-  const progId = st.active[st.family];
+  // New users start on the general 10 lbs programme rather than the owner's own plan.
+  const progId = st.setupDone ? st.active[st.family] : 'tenlbs';
   return `<form id="setup-form" class="grid2" autocomplete="off">
     <p class="small" style="grid-column:1/-1">Tell the app about you and it suggests daily targets. You can change any of it later in Body → Settings.</p>
     <label class="field">Sex<select name="sex"><option value="male" ${st.sex !== 'female' ? 'selected' : ''}>Male</option><option value="female" ${st.sex === 'female' ? 'selected' : ''}>Female</option></select></label>
@@ -1406,6 +1536,7 @@ function showWelcome() {
   openSheet('Welcome to Gym & Fuel', `
     <p>Your training and nutrition in one place: workout programmes and a set logger, a food log with macro targets, recipes, barcode scanning, your weight, measurements and progress photos.</p>
     <p class="muted small">Everything stays on this phone. Nothing is uploaded or shared.</p>
+    ${isInstalled() ? '' : `<details class="small"><summary>Put it on your home screen</summary>${installSteps()}</details>`}
     ${iron ? `<p class="small">Iron &amp; Eggs data is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? Iron &amp; Eggs isn't changed.</p>
       <button class="primary" data-act="bring-iron-now">Bring my Iron &amp; Eggs data</button>
       <button data-act="setup">I'm new: set up my targets</button>`
@@ -1444,6 +1575,7 @@ function toast(msg) {
 
 function render(opts = {}) {
   document.documentElement.dataset.contrast = S.settings.highContrast ? 'high' : 'normal';
+  document.documentElement.dataset.bg = S.settings.background === 'plain' ? 'plain' : 'photo';
   const themeMeta = document.querySelector('meta[name=theme-color]');
   if (themeMeta) themeMeta.content = S.settings.highContrast ? '#000000' : '#121211';
   document.getElementById('title').textContent = ui.tab === 'today' ? 'Gym & Fuel' : TABS.find(([k]) => k === ui.tab)[1];
@@ -1745,7 +1877,20 @@ document.addEventListener('click', (e) => {
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
     case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs data brought over'); break;
-    case 'backup': downloadText(`gym-fuel-${today()}.json`, JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }), 'application/json'); toast('Backup saved'); return;
+    case 'backup': sendBackup(false); return;
+    case 'backup-share': sendBackup(true); return;
+    case 'backup-snooze': S.settings.backupSnooze = addDays(today(), 3); break;
+    case 'share-week': openShareWeek(); return;
+    case 'share-week-go': case 'share-week-save': {
+      if (!shareBlob) return;
+      Share.file(shareBlob, `gym-fuel-week-${today()}.png`, `My week on Gym & Fuel · ${APP_URL}`, a === 'share-week-save')
+        .then((how) => { if (how !== 'cancelled') toast(how === 'shared' ? 'Shared' : 'Image saved'); });
+      return;
+    }
+    case 'challenge-start': S.challenge = { start: today() }; toast(`Day 1 of ${CHALLENGE_DAYS}. Share your first card on Sunday`); break;
+    case 'challenge-end': S.challenge = null; break;
+    case 'install-go': if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice?.finally(() => { installPrompt = null; render(); }); } return;
+    case 'install-dismiss': S.settings.installDismissed = true; break;
     case 'reset-all': ask('Delete all Gym & Fuel data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); }); return;
     default: return;
   }
@@ -1838,6 +1983,12 @@ document.addEventListener('change', (e) => {
   if (t.id === 'chart-ex') { ui.chartEx = t.value; render(); return; }
   // The library list redraws on 'input' only: redrawing again on 'change' (when the search box loses focus to a
   // tap on a result) would replace the result under the finger and lose the tap.
+  if (t.id === 'bg-pick') { S.settings.background = t.value === 'plain' ? 'plain' : 'photo'; commit(); return; }
+  if (t.id === 'handle-set' || t.id === 'share-handle') {
+    S.settings.handle = t.value.trim().slice(0, 40); save();
+    if (t.id === 'share-handle') openShareWeek(); else toast('Saved');
+    return;
+  }
   if (t.id === 'hc-toggle') { S.settings.highContrast = t.checked; commit(); return; }
   if (t.id === 'restore-file') {
     const file = t.files?.[0];
