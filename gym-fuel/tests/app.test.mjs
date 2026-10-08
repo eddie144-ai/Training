@@ -437,7 +437,7 @@ await test('photo logging without a key: attach the photo and enter the food you
   await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
   await page.locator('#meal-photo-in').setInputFiles({ name: 'plate.png', mimeType: 'image/png', buffer: PIXEL });
   const sheet = page.getByRole('dialog', { name: 'Log from a photo' });
-  await sheet.getByText('add your Anthropic API key in Body → Settings').waitFor();
+  await sheet.getByText('add a Gemini (free) or Anthropic API key in Body → Settings').waitFor();
   await sheet.getByRole('button', { name: 'Enter it myself' }).click();
   const f = page.locator('#oneoff-form');
   await f.getByLabel('Name').fill('Chicken and rice');
@@ -517,6 +517,47 @@ await test('photo logging with Claude: sends the photo, lists foods to check, gr
   await page.getByRole('button', { name: 'Close' }).click();
   await page.waitForTimeout(200);
   assert((await page.evaluate(() => Photos.all())).length === 1, 'the unused photo was dropped; the logged one kept');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('photo logging with Gemini: uses the key Deliberation Council saved, sends the photo, reads the answer', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await page.evaluate(() => localStorage.setItem('gemini_api_key', 'AIza-test-key'));
+  await page.reload();
+  let req = null, calls = 0, busy = false;
+  await page.route('https://generativelanguage.googleapis.com/**', async (r) => {
+    calls += 1;
+    req = { url: r.request().url(), headers: r.request().headers(), body: JSON.parse(r.request().postData()) };
+    if (busy) { await r.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: { message: 'Resource exhausted' } }) }); return; }
+    await r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [
+      { thought: true, text: 'Looking at the plate…' },
+      { text: JSON.stringify({ kind: 'label', notes: 'Per 100 g: 60 kcal.', items: [{ name: 'Greek yogurt', grams: 150, kcal: 90, protein_g: 15, carbs_g: 6, fat_g: 0, confidence: 'high' }] }) },
+    ] } }] }) });
+  });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  assert(await page.getByRole('button', { name: 'Gemini (free)' }).getAttribute('aria-pressed') === 'true', 'Gemini chosen because its key is on the phone');
+  assert(await page.getByText('A Gemini key is saved on this phone').isVisible(), 'shared key recognised');
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'label.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByRole('button', { name: 'Work it out with Gemini' }).click();
+  await page.getByText('Per 100 g: 60 kcal.').waitFor();
+  assert(req.url.endsWith('/models/gemini-3.8-flash:generateContent') && req.headers['x-goog-api-key'] === 'AIza-test-key', `request ${req.url}`);
+  const parts = req.body.contents[0].parts;
+  assert(parts[0].inlineData.mimeType === 'image/jpeg' && parts[0].inlineData.data.length > 20 && parts[1].text === 'Log what is in this photo.', 'photo and prompt');
+  assert(req.body.generationConfig.responseMimeType === 'application/json' && req.body.generationConfig.responseJsonSchema.required.includes('items') && req.body.systemInstruction.parts[0].text.includes('nutrition label'), 'structured JSON request');
+  assert((await page.getByLabel('Greek yogurt grams').inputValue()) === '150', 'thought parts skipped, answer read');
+  await page.getByRole('button', { name: 'Add 1 item to the log' }).click();
+  const s = await state(page);
+  assert(s.meals[0].name === 'Greek yogurt (150 g)' && s.meals[0].p === 15 && s.meals[0].photoId, 'logged');
+  assert(!JSON.stringify(s).includes('AIza-test-key'), 'key not in app data');
+  // Free limit reached: a plain message.
+  busy = true;
+  await page.locator('#meal-photo-in').setInputFiles({ name: 'label.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByRole('button', { name: 'Work it out with Gemini' }).click();
+  await page.getByText("Gemini's free limit is used up for now.").waitFor();
+  assert(calls === 2, 'two requests');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

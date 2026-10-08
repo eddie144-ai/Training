@@ -907,7 +907,7 @@ const CONF = { high: ['sure', 'good'], medium: ['estimate', ''], low: ['rough gu
 function drawPhoto() {
   const ps = photoState;
   if (!ps) return;
-  const hasKey = !!FoodAI.getKey();
+  const hasKey = FoodAI.ready();
   const slot = document.getElementById('ph-slot')?.value || slotForTime(new Date().toISOString());
   const rows = ps.items.map((it, i) => `<div class="excard phrow">
       <div class="row between"><input value="${esc(it.name)}" aria-label="Food ${i + 1} name" data-ph="${i}|name" class="grow">
@@ -927,7 +927,7 @@ function drawPhoto() {
     ${ps.status === 'ready' || ps.status === 'error' ? `
       <label class="field">Anything the photo doesn't show? (optional)<textarea id="ph-note" placeholder="e.g. cooked in 1 tbsp butter, 250 g steak, half eaten">${esc(ps.note)}</textarea></label>
       ${ps.error ? `<p class="small warn-text">${esc(ps.error)}</p>` : ''}
-      ${hasKey ? '<button class="primary" data-act="ph-ai">Work it out with Claude</button>' : '<p class="muted small">To have Claude work out the food and its calories from the photo, add your Anthropic API key in Body → Settings.</p>'}
+      ${hasKey ? `<button class="primary" data-act="ph-ai">Work it out with ${FoodAI.providerName()}</button>` : '<p class="muted small">To have AI work out the food and its calories from the photo, add a Gemini (free) or Anthropic API key in Body → Settings.</p>'}
       <button data-act="ph-manual">Enter it myself</button>` : ''}
     ${ps.status === 'loading' ? '<p class="small">Reading the photo… this takes a few seconds.</p>' : ''}
     ${ps.status === 'done' ? `
@@ -1159,12 +1159,20 @@ function viewBodySettings() {
       : '<p class="muted small">Iron &amp; Eggs data isn\'t in this browser. Open this app from the same site and phone as Iron &amp; Eggs to copy it, or restore a backup below.</p>'}
   </section>
   <section class="card">
-    <h2>Photo logging with Claude</h2>
-    <p class="small">Take a photo of a meal, drink, snack, packet, nutrition label or menu and Claude lists each food with its weight, calories and macros for you to check.</p>
-    <label class="field">Your Anthropic API key<input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" value="${FoodAI.getKey() ? '••••••••' : ''}"></label>
-    ${FoodAI.getKey() ? '<button class="ghost danger" data-act="ai-key-clear">Remove the key from this phone</button>' : ''}
-    <label class="field">Model<select id="ai-model">${FoodAI.MODELS.map(([m, l]) => `<option value="${m}" ${FoodAI.getModel() === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
-    <p class="muted small">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (pay as you go). Each photo is one request: roughly a few pence with Opus 5.5, less with Sonnet or Haiku. The key is kept on this phone only, is never in backups, and is sent only to Anthropic with your photo. Without a key you can still attach a photo and enter the food yourself.</p>
+    <h2>Photo logging</h2>
+    <p class="small">Take a photo of a meal, drink, snack, packet, nutrition label or menu and the AI lists each food with its weight, calories and macros for you to check.</p>
+    ${segmented('ai-provider', [['gemini', 'Gemini (free)'], ['claude', 'Claude (paid)']], FoodAI.getProvider(), 'Which AI reads the photo')}
+    ${FoodAI.getProvider() === 'gemini' ? `
+      <label class="field">Gemini API key<input id="ai-gkey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" value="${FoodAI.getGeminiKey() ? '••••••••' : ''}"></label>
+      ${FoodAI.getGeminiKey() ? '<p class="small good-text">✓ A Gemini key is saved on this phone. It\'s the same one Deliberation Council uses, so a change here changes it there too.</p><button class="ghost danger" data-act="ai-gkey-clear">Remove the Gemini key from this phone</button>' : ''}
+      <label class="field">Gemini model<input id="ai-gmodel" autocomplete="off" spellcheck="false" value="${esc(FoodAI.getGeminiModel())}"></label>
+      <p class="muted small">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>. The free tier has daily limits and Google may use what you send (your food photos) to improve its products. Default model ${esc(FoodAI.DEFAULT_GEMINI_MODEL)}; change it if Google retires that one.</p>`
+    : `
+      <label class="field">Your Anthropic API key<input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" value="${FoodAI.getKey() ? '••••••••' : ''}"></label>
+      ${FoodAI.getKey() ? '<button class="ghost danger" data-act="ai-key-clear">Remove the key from this phone</button>' : ''}
+      <label class="field">Model<select id="ai-model">${FoodAI.MODELS.map(([m, l]) => `<option value="${m}" ${FoodAI.getModel() === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <p class="muted small">Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (pay as you go). Each photo is one request: roughly a few pence with Opus 5.5, less with Sonnet or Haiku.</p>`}
+    <p class="muted small">Keys stay on this phone only, are never in backups, and are sent only to that company with your photo. Without a key you can still attach a photo and enter the food yourself.</p>
   </section>
   <section class="card">
     <h2>Backup</h2>
@@ -1731,6 +1739,8 @@ document.addEventListener('click', (e) => {
       closeSheet(); break;
     }
     case 'ai-key-clear': FoodAI.setKey(''); toast('API key removed from this phone'); render(); return;
+    case 'ai-gkey-clear': ask('Remove the Gemini key from this phone? Deliberation Council uses the same key, so it will need it again too.', 'Remove', () => { FoodAI.setGeminiKey(''); toast('Gemini key removed'); }); return;
+    case 'ai-provider': FoodAI.setProvider(el.dataset.v); render(); return;
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
     case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
@@ -1817,6 +1827,8 @@ document.addEventListener('change', (e) => {
   }
   if (t.id === 'ai-key') { if (t.value.includes('•')) return; FoodAI.setKey(t.value); toast(t.value.trim() ? 'API key saved on this phone' : 'API key removed'); render(); return; }
   if (t.id === 'ai-model') { FoodAI.setModel(t.value); toast('Model saved'); return; }
+  if (t.id === 'ai-gkey') { if (t.value.includes('•')) return; FoodAI.setGeminiKey(t.value); toast(t.value.trim() ? 'Gemini key saved on this phone' : 'Gemini key removed'); render(); return; }
+  if (t.id === 'ai-gmodel') { FoodAI.setGeminiModel(t.value); toast('Gemini model saved'); return; }
   if (t.classList?.contains('photo-in')) {
     const file = t.files?.[0];
     if (file) Photos.add(today(), t.dataset.pose, file).then(() => { toast(`${cap(t.dataset.pose)} photo saved`); fillPhotos(); }, () => toast('Couldn\'t save the photo'));
