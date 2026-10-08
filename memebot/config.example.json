@@ -1,0 +1,63 @@
+{
+  "_comment": "Copy to config.json and edit. Only include keys you want to change; everything else uses the defaults in memebot/config.py. Percentages are fractions (0.03 = 3%).",
+
+  "starting_capital": 50,
+  "mode": "paper",
+  "data_dir": "data",
+  "dashboard_every_ticks": 60,
+  "dashboard_clear_screen": false,
+
+  "market": {
+    "source": "simulated",
+    "chains": ["solana"],
+    "watchlist": [],
+    "poll_interval_seconds": 30,
+    "sim_seed": 42
+  },
+
+  "scout": {
+    "min_liquidity_usd": 15000,
+    "min_volume_5m_usd": 2000,
+    "min_price_change_5m": 0.02,
+    "max_price_change_5m": 0.25,
+    "min_price_change_1h": 0.03,
+    "max_price_change_1h": 1.5,
+    "min_buy_sell_ratio": 1.2,
+    "max_candidates_per_tick": 3
+  },
+
+  "safety": {
+    "min_liquidity_usd": 20000,
+    "min_lp_locked_pct": 0.9,
+    "require_mint_authority_revoked": true,
+    "require_freeze_authority_revoked": true,
+    "max_top10_holder_pct": 0.35,
+    "max_single_holder_pct": 0.10,
+    "min_holder_count": 300,
+    "min_token_age_minutes": 30,
+    "max_token_age_hours": 168,
+    "min_volume_24h_usd": 50000,
+    "allow_unknown": ["honeypot", "sell_tax"]
+  },
+
+  "risk": {
+    "risk_per_trade_pct": 0.03,
+    "max_concurrent_positions": 3,
+    "max_total_exposure_pct": 0.15,
+    "daily_loss_limit_pct": 0.10,
+    "max_drawdown_pct": 0.25,
+    "flatten_on_pause": true,
+    "stop_loss_pct": 0.12,
+    "take_profit_pct": 0.30,
+    "trailing_stop_pct": 0.10,
+    "trailing_activation_pct": 0.10,
+    "max_hold_minutes": 180,
+    "reentry_cooldown_minutes": 60
+  },
+
+  "execution": {
+    "fee_pct": 0.0025,
+    "base_slippage_pct": 0.005,
+    "network_fee_usd": 0.002
+  }
+}
