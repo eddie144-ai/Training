@@ -1,5 +1,7 @@
 # Trainer: RPG habit, training and nutrition companion
 
+**[▶ Open Gym & Fuel](https://eddie144-ai.github.io/Training/gym-fuel/)** · training and nutrition, on your phone (open in Chrome or Safari, then install it from the browser menu)
+
 An offline-first web app for the cut from 96.8 kg (1 October 2026) to 77 kg. It combines strict daily
 chains (no coffee first), an 18:6 eating window with extended fasts, Mike Mentzer's
 high-intensity training, the Dolce Diet and your 4-week muscle cycle, with RPG levels and stats.
@@ -137,7 +139,7 @@ then tap **⋮ → Install app**. It works offline after the first load.
   HP and streaks. It reads Trainer's workouts, steps and Gironda meals (see its README).
 - `shredded-trainer/`: Shredded Trainer, Trainer and Shredded System merged for the cut: My 4-Week Program
   with the Gironda diet, carb-up clock, weekly decisions, photos, scanning and reminders (see its README).
-- `gym-fuel/`: Gym & Fuel, Iron & Eggs stripped down to the gym and nutrition: programmes and set logging,
+- `gym-fuel/`: [Gym & Fuel](https://eddie144-ai.github.io/Training/gym-fuel/), Iron & Eggs stripped down to the gym and nutrition: programmes and set logging,
   food log with macro targets, recipes, barcode scanning and weight (see its README).
 - `shredded-system/`: Shredded System, the Gironda Cut from 95 kg to 70–75 kg: research report and full
   guide (PDF), app spec, datasets, log templates and the app at `shredded-system/app/` (see its README).
