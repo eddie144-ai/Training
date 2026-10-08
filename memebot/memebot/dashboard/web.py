@@ -84,6 +84,29 @@ load();setInterval(load,3000);
 </script></body></html>"""
 
 
+API_MAX_TRADES = 100     # the page shows the last 50; keeps replies small on phones
+
+
+def _trim(view: dict) -> dict:
+    """Send only recent trades; totals are already in view["stats"]."""
+    trades = (view.get("portfolio") or {}).get("trades")
+    if not trades or len(trades) <= API_MAX_TRADES:
+        return view
+    view = dict(view)
+    view["portfolio"] = dict(view["portfolio"], trades=trades[-API_MAX_TRADES:])
+    return view
+
+
+class _QuietServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return      # client disconnected; not worth a traceback
+        super().handle_error(request, client_address)
+
+
 def make_handler(get_view: Callable[[], dict]):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, body: bytes, ctype: str) -> None:
@@ -92,14 +115,17 @@ def make_handler(get_view: Callable[[], dict]):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass    # browser went away mid-reply (tab switched, reload): harmless
 
         def do_GET(self):  # noqa: N802
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             elif path == "/api/state":
-                body = json.dumps(get_view() or {}, default=str).encode("utf-8")
+                body = json.dumps(_trim(get_view() or {}), default=str).encode("utf-8")
                 self._send(200, body, "application/json")
             elif path == "/healthz":
                 self._send(200, b"ok", "text/plain")
@@ -114,7 +140,7 @@ def make_handler(get_view: Callable[[], dict]):
 
 def serve(get_view: Callable[[], dict], host: str = "127.0.0.1", port: int = 8050,
           background: bool = True) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), make_handler(get_view))
+    server = _QuietServer((host, port), make_handler(get_view))
     if background:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     else:

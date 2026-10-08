@@ -370,6 +370,13 @@ class OrchestratorTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_web_api_trims_trades(self):
+        from memebot.dashboard.web import API_MAX_TRADES, _trim
+        view = {"portfolio": {"trades": list(range(API_MAX_TRADES + 50))}}
+        out = _trim(view)
+        self.assertEqual(out["portfolio"]["trades"], list(range(50, API_MAX_TRADES + 50)))
+        self.assertEqual(len(view["portfolio"]["trades"]), API_MAX_TRADES + 50)  # input untouched
+
 
 if __name__ == "__main__":
     unittest.main()

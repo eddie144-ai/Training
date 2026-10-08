@@ -84,8 +84,9 @@ def cmd_run(args) -> int:
         print("\nStopping (state saved).")
     if not (every and bot.tick % every == 0):     # avoid printing it twice
         print_dashboard(bot.get_view())
-    if args.web is not None and args.keep_web:
-        print("Run finished; dashboard still serving. Ctrl+C to exit.")
+    if args.web is not None and not args.exit_when_done:
+        # Keep the dashboard up so you can look at a finished run.
+        print(f"Run finished. Dashboard still at http://{args.host}:{args.web}/  (Ctrl+C to exit)")
         try:
             import time
             while True:
@@ -192,7 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--fresh", action="store_true", help="ignore saved live state and start over")
     r.add_argument("--web", type=int, nargs="?", const=8050, help="also serve the web dashboard (port, default 8050)")
     r.add_argument("--host", default="127.0.0.1", help="web dashboard bind address")
-    r.add_argument("--keep-web", action="store_true", help="keep the dashboard up after the run ends")
+    r.add_argument("--exit-when-done", action="store_true",
+                   help="with --web, stop the dashboard when the run ends (default: keep serving)")
+    r.add_argument("--keep-web", action="store_true", help=argparse.SUPPRESS)  # old flag; now the default
     r.add_argument("--verbose", "-v", action="store_true", help="print every decision")
     r.set_defaults(func=cmd_run)
 
