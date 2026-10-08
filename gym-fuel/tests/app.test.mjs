@@ -313,6 +313,100 @@ await test('progress chart: best estimated 1-rep max per session, tap a dot for 
   await ctx.close();
 });
 
+await test('my workouts: create a blank programme, name it, add and reorder, copy a built-in, delete', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: 'My workouts' }).click();
+  await page.getByRole('button', { name: '+ Create a workout programme' }).click();
+  const f = page.locator('#prog-new-form');
+  await f.getByLabel('Name').fill('Push Pull Legs');
+  await f.getByLabel('Days in the programme (for a blank one)').selectOption('3');
+  await f.getByLabel('Rest between sessions').selectOption('1-2');
+  await f.getByRole('button', { name: 'Create' }).click();
+  let s = await state(page);
+  let mine = Object.values(s.programs).filter((p) => p.family === 'custom');
+  assert(mine.length === 1 && mine[0].name === 'Push Pull Legs' && mine[0].days.length === 3 && JSON.stringify(mine[0].restDays) === '[1,2]', `created ${JSON.stringify(mine)}`);
+  assert(s.settings.family === 'custom' && s.settings.active.custom === mine[0].id, 'active');
+  // In edit mode straight away: name the day, add from the library, move it later.
+  await page.getByLabel('Day name').fill('Push');
+  await page.getByLabel('Day name').press('Tab');
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByLabel('Search').fill('dumbbell bench press');
+  await page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Dumbbell Bench Press chest/ }) }).getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Later →' }).click();
+  s = await state(page);
+  mine = Object.values(s.programs).filter((p) => p.family === 'custom');
+  assert(mine[0].days[1].name === 'Push' && mine[0].days[1].exercises[0].name === 'Dumbbell Bench Press', `edited ${JSON.stringify(mine[0].days.map((d) => d.name))}`);
+  await page.getByLabel('Programme name').fill('PPL');
+  await page.getByLabel('Programme name').press('Tab');
+  // A copy of a built-in programme.
+  await page.getByRole('button', { name: '4-Week Cycle' }).click();
+  await page.getByRole('button', { name: 'Edit exercises' }).click();
+  await page.getByRole('button', { name: 'Copy this programme to My workouts' }).click();
+  await page.locator('#prog-new-form').getByRole('button', { name: 'Create' }).click();
+  s = await state(page);
+  mine = Object.values(s.programs).filter((p) => p.family === 'custom');
+  const copy = mine.find((p) => p.name === 'My 4-Week Program (my copy)');
+  assert(mine.some((p) => p.name === 'PPL') && copy && copy.days.length === s.programs.my4week.days.length, 'renamed and copied');
+  assert(copy.days[0].exercises[0].id !== s.programs.my4week.days[0].exercises[0].id, 'copy has its own ids');
+  // Delete the copy.
+  await page.getByRole('button', { name: 'Edit exercises' }).click();
+  await page.getByRole('button', { name: 'Delete this programme' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  s = await state(page);
+  assert(Object.values(s.programs).filter((p) => p.family === 'custom').length === 1, 'deleted');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+// 21 days before today: weight 90 → 89 kg in a straight line, 2,000 kcal eaten every day.
+async function seedTrend(page, settings) {
+  await page.evaluate((settings) => {
+    Object.assign(S.settings, settings);
+    for (let i = 21; i >= 1; i -= 1) {
+      const d = addDays(today(), -i);
+      S.weights.push({ date: d, kg: Math.round((90 - (21 - i) * 0.05) * 100) / 100 });
+      S.meals.push({ id: `m${i}`, date: d, at: atOn(d, '12:00'), name: 'Food', kcal: 2000, p: 150, c: 200, f: 67, servings: 1, ref: null, slot: 'Lunch' });
+    }
+    save();
+  }, settings);
+  await page.reload();
+}
+
+await test('adaptive target: real maintenance from the trend, a capped weekly step, apply keeps protein', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await seedTrend(page, { kcalGoal: 2400, proteinGoal: 180, carbGoal: 200, fatGoal: 70, target: 80, sex: 'male' });
+  // Maintenance = 2,000 + 0.05 kg/day × 7,700 = 2,385; to lose 0.5 kg a week: 2,385 − 550 = 1,835.
+  const a = await page.evaluate(() => adaptive());
+  assert(a.ready && Math.abs(a.tdee - 2385) < 1 && Math.abs(a.slopeWeek + 0.35) < 0.001 && Math.abs(a.intake - 2000) < 0.01, `maths ${JSON.stringify(a)}`);
+  assert(a.goal === 'lose' && Math.abs(a.ideal - 1835) <= 5 && a.suggest === 2100 && a.capped, `suggestion ${JSON.stringify(a)}`);
+  const card = page.locator('#adapt-card');
+  assert(await card.getByText(`eat about ${a.ideal} kcal`).isVisible(), 'ideal target shown');
+  assert(await card.getByText('Suggested target: 2100 kcal').isVisible(), 'capped at 300 a week');
+  await card.getByRole('button', { name: 'Use 2100 kcal' }).click();
+  const s = await state(page);
+  // Rest after protein = 2,100 − 720 = 1,380, split as now (carbs 800 kcal : fat 630 kcal).
+  assert(s.settings.kcalGoal === 2100 && s.settings.proteinGoal === 180 && s.settings.carbGoal === 193 && s.settings.fatGoal === 68, `macros ${JSON.stringify(s.settings)}`);
+  assert(s.targetLog.length === 1 && s.targetLog[0].from === 2400, 'change logged');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('adaptive target: Not this week hides it from Today; too little data shows what is missing', async () => {
+  const { page, ctx } = await open({ own: { v: 1, settings: { setupDone: true } } });
+  await page.evaluate(() => { S.weights.push({ date: addDays(today(), -3), kg: 90 }); save(); });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  assert(await page.getByText('1/8').isVisible() && await page.getByText('0/12').isVisible(), 'progress towards enough data');
+  await seedTrend(page, { kcalGoal: 2400, target: 80 });
+  await page.locator('nav').getByRole('button', { name: 'Today' }).click();
+  await page.getByRole('button', { name: 'Not this week' }).click();
+  assert(!(await page.locator('#adapt-card').count()), 'hidden on Today');
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  assert(await page.locator('#adapt-card').isVisible(), 'still in Body');
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

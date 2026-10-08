@@ -21,6 +21,18 @@ again.
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
   a half-logged session survives the app closing. Edit exercises, days and supersets; reset to the original.
+- **My workouts (Train):** a third tab next to the 4-week cycles and Mentzer HIT. **+ Create a workout programme**
+  makes a blank one (1–7 days, optional rest between sessions) or a copy of any programme; it opens in Edit,
+  where you name the programme and each day, add exercises from the library or your own, set sets, reps,
+  supersets and techniques, move days earlier or later, add or delete days, and delete the programme. Any
+  built-in programme can be copied to My workouts from Edit.
+- **Adaptive calorie target:** from 8+ weigh-ins over 14+ days and 12+ days of food logged in the last 21 days,
+  the app works out your real maintenance (average intake − weight trend × 7,700 kcal per kg, the trend being a
+  straight line through the weigh-ins) and suggests a target to lose 0.5 kg a week, gain 0.25 kg a week or hold,
+  moving at most 300 kcal a week and never below 1,500 kcal (men) or 1,200 kcal (women). **Use** changes the
+  calories, keeps protein and splits the rest between carbs and fat as they are now. It shows on Today when a
+  change of 100+ kcal is due (**Not this week** hides it until Monday) and always in Body → Weight, with what's
+  still needed before it can work.
 - **Exercise library:** 876 exercises from [free-exercise-db](https://github.com/yuhonas/free-exercise-db)
   (public domain, `exercises.json`, trimmed; licence in `exercises-LICENSE.md`), loaded the first time Train opens.
   Each exercise in a workout has **How to do it** (start and end pictures, muscles worked, equipment, level and
