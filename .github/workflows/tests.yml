@@ -1,0 +1,76 @@
+# Runs every app's tests on each pull request and on pushes to main.
+# When you add an app with tests, add a step here and a row to the table in CLAUDE.md.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-and-python:
+    name: Node and Python apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: MASSA
+        working-directory: massa
+        run: node --test
+      - name: Memebot
+        working-directory: memebot
+        run: python3 -m unittest discover -s tests
+      - name: Gym & Fuel worker
+        run: node gym-fuel/worker/test/worker.test.mjs
+
+  browser-apps:
+    name: Phone apps (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright and Chromium
+        run: |
+          npm i --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+      - name: Iron & Eggs
+        run: node shredded-trainer/tests/app.test.mjs
+      - name: Gym & Fuel
+        if: ${{ !cancelled() }}
+        run: node gym-fuel/tests/app.test.mjs
+      - name: Shredded System
+        if: ${{ !cancelled() }}
+        run: node shredded-system/tests/app.test.mjs
+      - name: Life RPG
+        if: ${{ !cancelled() }}
+        run: node liferpg/tests/liferpg.test.mjs
+      - name: Council
+        if: ${{ !cancelled() }}
+        run: node council/tests/coach.test.mjs
+
+  deliberation-council:
+    name: Deliberation Council typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deliberation-council
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: deliberation-council/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
