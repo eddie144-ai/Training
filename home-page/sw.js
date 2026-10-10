@@ -2,14 +2,14 @@
 // Network first for every same-origin file, so a deploy is picked up on the next online load and a missed
 // VERSION bump can't leave anyone on an old shell; the cache is only the offline fallback.
 // Open Food Facts lookups (another origin) are never touched; the background photo is cached.
-const VERSION = 'v1.8';
+const VERSION = 'v1.10';
 // One origin, two copies (the site root and /Training/shredded-trainer/): each keeps its own cache.
 const ROOT = !self.registration.scope.includes('/Training/');
 const PREFIX = ROOT ? 'ironeggs-' : 'shtrainer-';
 const CACHE = PREFIX + VERSION;
 // The background photo lives on Wikimedia Commons; it's cached on first view so it works offline.
 const PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
-const FILES = ['./', './index.html', './data.js', './photos.js', './scan.js', './reminders.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+const FILES = ['./', './index.html', './data.js', './photos.js', './scan.js', './reminders.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo-mark.png', './icons/logo.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));

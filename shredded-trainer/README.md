@@ -68,6 +68,19 @@ Shredded Trainer saves a small summary of your chains (`shtrainer.chains`: name,
 today's status) whenever they change. The home page at **https://eddie144-ai.github.io/** (repository
 `eddie144-ai.github.io`) reads it to show every chain at a glance. It never leaves the phone.
 
+The built-in chains restarted on 10 Oct 2026 (`CHAINS_RESET` in `app.js`): that day is day 1 for the daily chains
+and the weekly ones count from that week. Your own "No ___" chains keep their count. Nothing in the log is changed,
+and best streaks, XP and achievements are kept.
+
+Your own chains in Trainer on the same phone are added automatically when Iron & Eggs opens, with their check-ins
+(each one once, so a chain deleted here stays deleted). A slip copied from Trainer breaks the chain even before
+the day the chain was added here.
+Gym & Fuel shows the same list on its Today screen.
+
+## Logo
+The Iron and Eggs logo (cast-iron pan with a fried egg) is `icons/logo.jpg`, shown at the top of Today. The pan and
+egg cut out as a circle make the header mark (`icons/logo-mark.png`) and the home-screen icons (`icons/icon-*.png`).
+
 ## Background photo
 Vince Gironda, *Tomorrow's Man*, June 1953, Irvin Johnson Health Studio. Public domain in the US
 (published 1931–63, copyright not renewed), loaded from

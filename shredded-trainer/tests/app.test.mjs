@@ -539,6 +539,33 @@ await test('Garmin import: reads the export zip into Garmin days, steps and slee
   await ctx.close();
 });
 
+await test('Every chain restarts at day 1 on 10 Oct 2026, best streaks and XP kept', async () => {
+  const own = await seeded(() => {});
+  const before = await open({ own, time: '2026-10-09T20:00:00+01:00' });
+  const was = await before.page.evaluate(() => ({ coffee: chainStreak('coffee').cur }));
+  await before.ctx.close();
+  assert(was.coffee >= 8, `coffee was counting: ${was.coffee}`);
+  const { ctx, page } = await open({ own, time: '2026-10-10T10:00:00+01:00' });
+  const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')).chains);
+  assert(sum.every((c) => c.day <= 1), `all at day 1 or less: ${JSON.stringify(sum.map((c) => [c.id, c.day]))}`);
+  eq(sum.find((c) => c.id === 'coffee').day, 1, 'no coffee: day 1');
+  assert(sum.find((c) => c.id === 'coffee').best >= 8, 'coffee best kept');
+  eq(await page.evaluate(() => S.days['2026-10-09']?.chains?.coffee), undefined, 'no slip written to the log');
+  await ctx.close();
+});
+
+await test('Own chains from Trainer are added automatically, keep their count through the reset, and stay deleted', async () => {
+  const trainer = { ...TRAINER, customChains: [{ id: 'cc-w', name: 'No weed', since: '2026-08-01', created: '2026-09-01' }, { id: 'cc-e', name: 'No energy drinks', since: '2026-09-01', created: '2026-09-01' }], days: { '2026-09-15': { chains: { 'cc-w': false } } } };
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own, trainer, time: '2026-10-10T10:00:00+01:00' });
+  const sum = await page.evaluate(() => Object.fromEntries(JSON.parse(localStorage.getItem('shtrainer.chains')).chains.map((c) => [c.name, c.day])));
+  eq([sum['No weed'], sum['No energy drinks'], sum['No coffee']], [25, 40, 1], 'own chains keep counting, built-in restarted');
+  await page.evaluate(() => { S.customChains = S.customChains.filter((c) => c.id !== 'cc-e'); save(); });
+  await page.reload();
+  eq(await page.evaluate(() => S.customChains.map((c) => c.name)), ['No weed'], 'a deleted chain is not added back');
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;
