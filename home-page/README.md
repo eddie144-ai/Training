@@ -1,4 +1,7 @@
-# eddie144-ai.github.io: Iron & Eggs
+# eddie144-ai.github.io: Iron & Eggs Classic
+
+Renamed from Iron & Eggs on 10 Oct 2026: the cut-down app at `/Training/gym-fuel/` now carries the Iron & Eggs name
+and logo. Data is unchanged.
 
 The main training and diet app, live at **https://eddie144-ai.github.io/**: Today · Plan · Train · Fuel ·
 Body · Hero across the bottom, with Hero → **Apps** for the other apps and a one-tap backup of all of them.
