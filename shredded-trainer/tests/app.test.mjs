@@ -554,6 +554,18 @@ await test('Every chain restarts at day 1 on 10 Oct 2026, best streaks and XP ke
   await ctx.close();
 });
 
+await test('Own chains from Trainer are added automatically, keep their count through the reset, and stay deleted', async () => {
+  const trainer = { ...TRAINER, customChains: [{ id: 'cc-w', name: 'No weed', since: '2026-08-01', created: '2026-09-01' }, { id: 'cc-e', name: 'No energy drinks', since: '2026-09-01', created: '2026-09-01' }], days: { '2026-09-15': { chains: { 'cc-w': false } } } };
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own, trainer, time: '2026-10-10T10:00:00+01:00' });
+  const sum = await page.evaluate(() => Object.fromEntries(JSON.parse(localStorage.getItem('shtrainer.chains')).chains.map((c) => [c.name, c.day])));
+  eq([sum['No weed'], sum['No energy drinks'], sum['No coffee']], [25, 40, 1], 'own chains keep counting, built-in restarted');
+  await page.evaluate(() => { S.customChains = S.customChains.filter((c) => c.id !== 'cc-e'); save(); });
+  await page.reload();
+  eq(await page.evaluate(() => S.customChains.map((c) => c.name)), ['No weed'], 'a deleted chain is not added back');
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

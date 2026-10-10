@@ -630,25 +630,48 @@ function growthCards(d) {
   return out.join('');
 }
 
-// ---- Your chains from Iron & Eggs on this phone, read from the summary it writes for the home page.
-// Clean chains (no coffee and your own "No ___" chains) keep counting until you report a slip, so they move on
-// by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. Every chain restarted at day 1
-// on 10 Oct 2026 (best streaks kept), so a summary from before then counts from that day.
-const CHAINS_KEY = 'shtrainer.chains';
+// ---- Your chains from Iron & Eggs on this phone, read from the summary it writes for the home page, plus any of
+// your own "No ___" chains that are only in Trainer so far. Clean chains (no coffee and your own) keep counting until
+// you report a slip, so they move on by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left
+// them. The built-in chains restarted at day 1 on 10 Oct 2026 (best streaks kept); your own chains kept their count.
+const CHAINS_KEY = 'shtrainer.chains', TRAINER_KEY = 'trainer.v1';
 const CHAINS_RESET = '2026-10-10';
 const LOGGED_CHAINS = ['diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
+const BUILT_IN_CHAINS = ['coffee', ...LOGGED_CHAINS];
+const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
+// A Trainer "No ___" chain: clean from `since` (or the day it was added), reset by each slip.
+function trainerChains(d) {
+  let t = null;
+  try { t = JSON.parse(rawKey(TRAINER_KEY) || 'null'); } catch { /* unreadable */ }
+  const days = t?.days && typeof t.days === 'object' ? t.days : {};
+  return (Array.isArray(t?.customChains) ? t.customChains : []).filter((c) => c && c.active !== false && typeof c.name === 'string').map((c) => {
+    const from = isoDay(c.since) ? c.since : isoDay(c.created) ? c.created : null;
+    if (!from || from > d) return null;
+    const slips = Object.keys(days).filter((x) => isoDay(x) && x >= from && x <= d && days[x]?.chains?.[c.id] === false).sort();
+    let best = 0, runFrom = from;
+    for (const x of slips) { best = Math.max(best, daysBetween(runFrom, x)); runFrom = addDays(x, 1); }
+    const day = slips[slips.length - 1] === d ? 0 : daysBetween(runFrom, d) + 1;
+    return { id: c.id, name: c.name, day, best: Math.max(best, day), unit: 'day' };
+  }).filter(Boolean);
+}
 function ironChains(d) {
   let sum = null;
-  try { sum = JSON.parse(rawKey(CHAINS_KEY) || 'null'); } catch { /* unreadable: no card */ }
-  if (!sum?.chains?.length || !sum.date) return null;
-  const gap = Math.max(0, daysBetween(sum.date, d));
-  const chains = sum.chains.map((c) => {
+  try { sum = JSON.parse(rawKey(CHAINS_KEY) || 'null'); } catch { /* unreadable */ }
+  const ok = !!(sum?.chains?.length && isoDay(sum.date));
+  const gap = ok ? Math.max(0, daysBetween(sum.date, d)) : 0;
+  const chains = (ok ? sum.chains : []).map((c) => {
     let day = Number(c.day) || 0, best = Number(c.best) || 0;
-    if (sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = c.unit === 'wk' ? 0 : daysBetween(CHAINS_RESET, d) + 1;
+    if (BUILT_IN_CHAINS.includes(c.id) && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = c.unit === 'wk' ? 0 : daysBetween(CHAINS_RESET, d) + 1;
     else if (c.unit !== 'wk' && !LOGGED_CHAINS.includes(c.id)) { day += gap; best = Math.max(best, day); }
     return { ...c, day, best };
   });
-  return { date: sum.date, stale: gap > 0, chains };
+  const have = (c) => chains.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());
+  const extra = trainerChains(d).filter((c) => !have(c));
+  // Your own chains go straight after No coffee, as in Iron & Eggs.
+  const at = chains.findIndex((c) => c.id === 'coffee') + 1;
+  chains.splice(at, 0, ...extra);
+  if (!chains.length) return null;
+  return { date: ok ? sum.date : null, stale: gap > 0, chains };
 }
 function chainsCard(d) {
   const sum = ironChains(d);

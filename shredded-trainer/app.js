@@ -13,7 +13,7 @@ const STORE_KEY = 'shtrainer.v1';
 const OLD_KEY = 'shtrainer.v2-backup';
 const TRAINER_KEY = 'trainer.v1'; // read once, on request, to copy your Trainer history in
 const CHAINS_KEY = 'shtrainer.chains'; // a small summary of your chains, read by the home page at eddie144-ai.github.io
-const CHAINS_RESET = '2026-10-10'; // every chain restarts here at day 1; best streaks and XP are kept (see chainStreak)
+const CHAINS_RESET = '2026-10-10'; // the built-in chains restart here at day 1 (your own keep counting); bests and XP kept
 // Background: Vince Gironda in Tomorrow's Man, June 1953 (Irvin Johnson Health Studio). Public domain in the US
 // (published 1931-63, copyright not renewed). Loaded from Wikimedia Commons and cached by the service worker.
 const GIRONDA_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
@@ -561,7 +561,7 @@ function chainStatus(date, id) {
     if (def.since && date < def.since) return 'off';
     // Days before the chain was added (or before the clean chains began) are carried in from `since`.
     const carryEnd = def.created && def.created > cleanStart() ? def.created : cleanStart();
-    if (date < carryEnd) return def.since ? 'done' : 'off';
+    if (date < carryEnd) return S.days[date]?.chains?.[id] === false ? 'miss' : def.since ? 'done' : 'off'; // a slip copied from Trainer still counts
   } else if (date < (isClean(def) ? cleanStart() : chainStart())) return 'off';
   const o = S.days[date]?.chains?.[id];
   if (o === true) return 'done';
@@ -589,7 +589,7 @@ function chainStreak(id) {
   }
   const from = def?.custom && def.since ? def.since : isClean(def) ? cleanStart() : chainStart();
   for (let d = from; d <= t; d = addDays(d, 1)) {
-    if (d === CHAINS_RESET) cur = 0;
+    if (d === CHAINS_RESET && !def?.custom) cur = 0; // your own "No ___" chains keep their count
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
   }
@@ -1570,6 +1570,35 @@ function bringTrainer() {
   n.notice = null;
   S = n;
   toast(`Brought over ${S.weights.length} weigh-ins, ${S.workouts.length} sessions and ${S.meals.length} meals. Trainer is unchanged.`);
+}
+
+// Copy your own chains (and their check-ins) from Trainer. auto: only chains not offered before, only their
+// check-ins, and the coffee start is left alone. Never changes Trainer. Returns null when there's no Trainer data.
+function copyTrainerChains(auto) {
+  let t = null;
+  try { t = JSON.parse(localStorage.getItem(TRAINER_KEY)); } catch { t = null; }
+  if (!t || typeof t !== 'object') return null;
+  const seen = (S.settings.trainerChainsSeen ||= []);
+  let added = 0, marks = 0;
+  const ids = new Set();
+  for (const c of Array.isArray(t.customChains) ? t.customChains : []) {
+    if (!c || typeof c.name !== 'string' || typeof c.id !== 'string') continue;
+    if (auto && seen.includes(c.id)) continue;
+    if (!seen.includes(c.id)) seen.push(c.id);
+    ids.add(c.id);
+    if (!S.customChains.some((x) => x.id === c.id || x.name.toLowerCase() === c.name.toLowerCase())) { S.customChains.push({ active: true, ...c }); added++; }
+  }
+  // Chain check-ins (kept / slipped) for days this app hasn't set itself.
+  for (const [d, r] of Object.entries(t.days && typeof t.days === 'object' ? t.days : {})) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !r?.chains || typeof r.chains !== 'object') continue;
+    for (const [id, v] of Object.entries(r.chains)) {
+      if (auto && !ids.has(id)) continue;
+      if ((v === true || v === false) && dayRec(d).chains?.[id] === undefined) { (dayRec(d).chains ||= {})[id] = v; marks++; }
+    }
+  }
+  if (!auto && t.settings?.coffeeStart && /^\d{4}-\d{2}-\d{2}$/.test(t.settings.coffeeStart)) S.settings.coffeeStart = t.settings.coffeeStart;
+  chainMemo = null;
+  return { added, marks };
 }
 
 // Chain summary for the home page (eddie144-ai.github.io). Written only when it changes.
@@ -3677,21 +3706,9 @@ document.addEventListener('click', (e) => {
     case 'bg': S.settings.background = el.dataset.v; break;
     case 'trainer-all': ask('Replace everything in Shredded Trainer with a copy of your Trainer data? Trainer isn\'t changed.', 'Copy everything', () => bringTrainer()); return;
     case 'trainer-chains': {
-      let t = null;
-      try { t = JSON.parse(localStorage.getItem(TRAINER_KEY)); } catch { t = null; }
-      if (!t || typeof t !== 'object') { toast('No Trainer data found in this browser'); return; }
-      let added = 0, marks = 0;
-      for (const c of Array.isArray(t.customChains) ? t.customChains : []) {
-        if (!c || typeof c.name !== 'string') continue;
-        if (!S.customChains.some((x) => x.id === c.id || x.name.toLowerCase() === c.name.toLowerCase())) { S.customChains.push({ ...c }); added++; }
-      }
-      // Chain check-ins (kept / slipped) for days this app hasn't set itself.
-      for (const [d, r] of Object.entries(t.days && typeof t.days === 'object' ? t.days : {})) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !r?.chains || typeof r.chains !== 'object') continue;
-        for (const [id, v] of Object.entries(r.chains)) if ((v === true || v === false) && dayRec(d).chains?.[id] === undefined) { (dayRec(d).chains ||= {})[id] = v; marks++; }
-      }
-      if (t.settings?.coffeeStart && /^\d{4}-\d{2}-\d{2}$/.test(t.settings.coffeeStart)) S.settings.coffeeStart = t.settings.coffeeStart;
-      toast(`Copied ${added} chain${added === 1 ? '' : 's'} and ${marks} check-in${marks === 1 ? '' : 's'} from Trainer`);
+      const r = copyTrainerChains(false);
+      if (!r) { toast('No Trainer data found in this browser'); return; }
+      toast(`Copied ${r.added} chain${r.added === 1 ? '' : 's'} and ${r.marks} check-in${r.marks === 1 ? '' : 's'} from Trainer`);
       break;
     }
     case 'bring-trainer': bringTrainer(); closeSheet(); break;
@@ -4483,6 +4500,9 @@ function showStart() {
       <div class="grid2"><button class="primary" data-act="bring-trainer">Bring over my Trainer data</button><button data-act="sheet-close">Start fresh</button></div>`
       : '<button class="primary" data-act="sheet-close">Start</button>'}`);
 }
+// Your own "No ___" chains from Trainer on this phone are added here automatically (once each, so a chain you
+// delete here stays deleted), with their kept/slipped check-ins.
+try { if (copyTrainerChains(true)?.added) save(); } catch { /* Trainer data unreadable: skip */ }
 render();
 if (S.notice === 'v3') showWelcome();
 if (S.notice === 'start') showStart();

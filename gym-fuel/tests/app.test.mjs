@@ -707,13 +707,18 @@ const SUMMARY = { v: 1, at: '2026-10-08T20:00:00.000Z', date: '2026-10-08', chai
   { id: 'diet', name: 'Diet', day: 4, best: 4, today: 'pending', unit: 'day' },
   { id: 'sessions', name: 'Sessions', day: 1, best: 1, today: 'pending', unit: 'wk' },
 ] };
-await test('My chains on Today: every Iron & Eggs chain, all restarted at day 1 on 10 Oct', async () => {
-  const { page, ctx, errors } = await open({ iron: IRON, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
+await test('My chains on Today: Iron & Eggs and Trainer chains; built-in ones restarted on 10 Oct, own ones kept', async () => {
+  const trainer = { customChains: [{ id: 'cc-w', name: 'No weed', since: '2026-08-01' }, { id: 'cc-e', name: 'No energy drinks', since: '2026-09-01' }, { id: 'cc-1', name: 'No sugar', since: '2026-01-01' }], days: { '2026-09-20': { chains: { 'cc-e': false } } } };
+  const { page, ctx, errors } = await open({ iron: IRON, extra: { 'shtrainer.chains': SUMMARY, 'trainer.v1': trainer }, time: '2026-10-11T12:00:00+01:00' });
   const card = page.locator('section', { has: page.getByRole('heading', { name: /My chains/ }) });
   const day = async (name) => card.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
   assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
   assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 8').isVisible(), 'coffee best kept');
-  assert(await day('No sugar') === 'Day 2', `own chain restarted: ${await day('No sugar')}`);
+  assert(await day('No sugar') === 'Day 23', `own chain keeps counting: ${await day('No sugar')}`);
+  assert(await day('No weed') === 'Day 72', `Trainer chain: ${await day('No weed')}`);
+  assert(await day('No energy drinks') === 'Day 21', `Trainer chain after a slip: ${await day('No energy drinks')}`);
+  const names = await card.locator('.chainrow b').allTextContents();
+  assert(JSON.stringify(names) === JSON.stringify(['No coffee', 'No weed', 'No energy drinks', 'No sugar', 'Diet', 'Sessions']), `order, no duplicates: ${names}`);
   assert(await day('Diet') === 'Day 2', 'diet restarted');
   assert(await day('Sessions') === '0 weeks', 'weekly chain restarted');
   assert(await card.getByText('last updated these').isVisible(), 'stale note');
