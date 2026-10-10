@@ -137,9 +137,9 @@ then tap **⋮ → Install app**. It works offline after the first load.
 - `n8n/`: workflows.
 - `liferpg/`: Life RPG, the 4 pillars (health, wealth, family, tech) as one-tap quests with stats,
   HP and streaks. It reads Trainer's workouts, steps and Gironda meals (see its README).
-- `shredded-trainer/`: Shredded Trainer, Trainer and Shredded System merged for the cut: My 4-Week Program
+- `shredded-trainer/`: Iron & Eggs Classic (Shredded Trainer), Trainer and Shredded System merged for the cut: My 4-Week Program
   with the Gironda diet, carb-up clock, weekly decisions, photos, scanning and reminders (see its README).
-- `gym-fuel/`: [Iron & Eggs](https://eddie144-ai.github.io/Training/gym-fuel/) (was Gym & Fuel), the original Iron & Eggs stripped down to the gym and nutrition: programmes and set logging,
+- `gym-fuel/`: [Iron & Eggs](https://eddie144-ai.github.io/Training/gym-fuel/) (was Gym & Fuel), Iron & Eggs Classic stripped down to the gym and nutrition: programmes and set logging,
   food log with macro targets, recipes, barcode scanning and weight (see its README).
 - `shredded-system/`: Shredded System, the Gironda Cut from 95 kg to 70–75 kg: research report and full
   guide (PDF), app spec, datasets, log templates and the app at `shredded-system/app/` (see its README).

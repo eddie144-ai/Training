@@ -1,7 +1,7 @@
 // Offline cache for the Iron & Eggs (gym-fuel/) app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.12';
+const VERSION = 'gymfuel-v1.13';
 const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './foodai.js', './share.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo-mark.png', './icons/logo.jpg'];
 
 self.addEventListener('install', (e) => {
