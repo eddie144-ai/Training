@@ -1,4 +1,4 @@
-// Gym & Fuel tests. Runs the real app in Chromium against a local server.
+// Iron & Eggs (gym-fuel/) tests. Runs the real app in Chromium against a local server.
 // Needs Playwright:  npm i playwright   Run from the repo root:  node gym-fuel/tests/app.test.mjs
 import { chromium } from 'playwright';
 import http from 'node:http';
@@ -58,7 +58,7 @@ const state = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('gym
 
 await test('first open shows the welcome and every tab renders without errors', async () => {
   const { page, ctx, errors } = await open();
-  assert(await page.getByRole('dialog', { name: 'Welcome to Gym & Fuel' }).isVisible(), 'welcome sheet');
+  assert(await page.getByRole('dialog', { name: 'Welcome to Iron & Eggs' }).isVisible(), 'welcome sheet');
   await page.getByRole('dialog').getByRole('button', { name: 'Set up my targets' }).click();
   await page.getByRole('button', { name: 'Close' }).click();
   assert(await page.getByText('Your calorie, protein and target weight are still the app\'s defaults').isVisible(), 'setup reminder on Today');
@@ -75,7 +75,7 @@ await test('first open shows the welcome and every tab renders without errors', 
 
 await test('brings Iron & Eggs data over without changing it', async () => {
   const { page, ctx } = await open({ iron: IRON });
-  await page.getByRole('button', { name: 'Bring my Iron & Eggs data' }).click();
+  await page.getByRole('button', { name: 'Bring over my data' }).click();
   const s = await state(page);
   assert(s.weights.length === 2 && s.workouts.length === 1 && s.meals.length === 1, 'copied records');
   assert(s.settings.kcalGoal === 1800, 'targets copied');
@@ -588,7 +588,7 @@ await test('share my week: draws a 1080 × 1350 card from the week and saves it'
   assert(size[0] === 1080 && size[1] === 1350, `card size ${size}`);
   const dl = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save image' }).click();
-  assert((await dl).suggestedFilename().startsWith('gym-fuel-week-'), 'image saved');
+  assert((await dl).suggestedFilename().startsWith('iron-and-eggs-week-'), 'image saved');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });
@@ -616,7 +616,7 @@ await test('backups: a reminder once there is a log to lose, cleared by backing 
   const dl = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Back up now' }).click();
   const file = await dl;
-  assert(file.suggestedFilename().startsWith('gym-fuel-') && file.suggestedFilename().endsWith('.json'), 'backup file');
+  assert(file.suggestedFilename().startsWith('iron-and-eggs-') && file.suggestedFilename().endsWith('.json'), 'backup file');
   await page.waitForTimeout(200);
   assert(!(await page.getByText('Back up your log').count()), 'reminder cleared');
   assert((await state(page)).settings.lastBackup, 'date recorded');
@@ -625,10 +625,10 @@ await test('backups: a reminder once there is a log to lose, cleared by backing 
 
 await test('install help, plain background and neutral programme for new users', async () => {
   const { page, ctx } = await open({ own: { v: 1, settings: { setupDone: true } } });
-  assert(await page.getByRole('heading', { name: 'Install Gym & Fuel' }).isVisible(), 'install card');
+  assert(await page.getByRole('heading', { name: 'Install Iron & Eggs' }).isVisible(), 'install card');
   assert(await page.getByText('Install app').first().isVisible(), 'Android steps');
   await page.getByRole('button', { name: 'Done, or not now' }).click();
-  assert(!(await page.getByRole('heading', { name: 'Install Gym & Fuel' }).count()), 'dismissed');
+  assert(!(await page.getByRole('heading', { name: 'Install Iron & Eggs' }).count()), 'dismissed');
   await page.locator('nav').getByRole('button', { name: 'Body' }).click();
   await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
   await page.getByLabel('Background').selectOption('plain');
@@ -674,7 +674,7 @@ await test('free photo logging: no key needed, uses the Gym & Fuel service, show
 
 await test('Gironda bar: one tap logs each meal, a second tap takes it off; hidden for a friend, switchable', async () => {
   const { page, ctx, errors } = await open({ iron: IRON });
-  await page.getByRole('button', { name: 'Bring my Iron & Eggs data' }).click();
+  await page.getByRole('button', { name: 'Bring over my data' }).click();
   await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
   const bar = page.locator('section', { has: page.getByRole('heading', { name: /Gironda bar/ }) });
   assert(await bar.getByText('1/2 today').isVisible(), 'Meal 1 from Iron & Eggs already counts');
@@ -704,36 +704,54 @@ await test('Gironda bar: one tap logs each meal, a second tap takes it off; hidd
 const SUMMARY = { v: 1, at: '2026-10-08T20:00:00.000Z', date: '2026-10-08', chains: [
   { id: 'coffee', name: 'No coffee', day: 8, best: 8, today: 'pending', unit: 'day' },
   { id: 'cc-1', name: 'No sugar', day: 20, best: 20, today: 'pending', unit: 'day' },
-  { id: 'diet', name: 'Diet', day: 4, best: 4, today: 'pending', unit: 'day' },
-  { id: 'sessions', name: 'Sessions', day: 1, best: 1, today: 'pending', unit: 'wk' },
+  { id: 'diet', name: 'Diet dialled in', day: 4, best: 4, today: 'pending', unit: 'day' },
+  { id: 'cut', name: 'Cut day', day: 3, best: 6, today: 'pending', unit: 'day' },
+  { id: 'sessions', name: '4 sessions this week', day: 1, best: 1, today: 'pending', unit: 'wk' },
+  { id: 'steps', name: 'Steps', day: 0, best: 0, today: 'pending', unit: 'wk' },
 ] };
-await test('My chains on Today: Iron & Eggs and Trainer chains; built-in ones restarted on 10 Oct, own ones kept', async () => {
+await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut and sessions worked out here', async () => {
   const trainer = { customChains: [{ id: 'cc-w', name: 'No weed', since: '2026-08-01' }, { id: 'cc-e', name: 'No energy drinks', since: '2026-09-01' }, { id: 'cc-1', name: 'No sugar', since: '2026-01-01' }], days: { '2026-09-20': { chains: { 'cc-e': false } } } };
-  const { page, ctx, errors } = await open({ iron: IRON, extra: { 'shtrainer.chains': SUMMARY, 'trainer.v1': trainer }, time: '2026-10-11T12:00:00+01:00' });
+  const sess = (id, date) => ({ ...IRON.workouts[0], id, date, at: `${date}T17:00:00.000Z` });
+  const iron = { ...IRON, workouts: [...IRON.workouts, sess('w2', '2026-10-07'), sess('w3', '2026-10-08'), sess('w4', '2026-10-09')], days: { '2026-10-10': { chains: { cut: false } } } };
+  const { page, ctx, errors } = await open({ iron, extra: { 'shtrainer.chains': SUMMARY, 'trainer.v1': trainer }, time: '2026-10-11T12:00:00+01:00' });
   const card = page.locator('section', { has: page.getByRole('heading', { name: /My chains/ }) });
   const day = async (name) => card.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
+  const names = await card.locator('.chainrow b').allTextContents();
+  assert(JSON.stringify(names) === JSON.stringify(['No coffee', 'No sugar', 'No weed', 'No energy drinks', 'Cut day', '4 sessions this week']), `only these chains: ${names}`);
   assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
   assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 8').isVisible(), 'coffee best kept');
   assert(await day('No sugar') === 'Day 23', `own chain keeps counting: ${await day('No sugar')}`);
   assert(await day('No weed') === 'Day 72', `Trainer chain: ${await day('No weed')}`);
   assert(await day('No energy drinks') === 'Day 21', `Trainer chain after a slip: ${await day('No energy drinks')}`);
-  const names = await card.locator('.chainrow b').allTextContents();
-  assert(JSON.stringify(names) === JSON.stringify(['No coffee', 'No weed', 'No energy drinks', 'No sugar', 'Diet', 'Sessions']), `order, no duplicates: ${names}`);
-  assert(await day('Diet') === 'Day 2', 'diet restarted');
-  assert(await day('Sessions') === '0 weeks', 'weekly chain restarted');
-  assert(await card.getByText('last updated these').isVisible(), 'stale note');
+  assert(await day('Cut day') === 'Day 1', `cut broken yesterday in the original app, today pending: ${await day('Cut day')}`);
+  assert(await card.locator('.chainrow', { hasText: 'Cut day' }).getByText('best 6').isVisible(), 'cut best from the summary');
+  assert(await day('4 sessions') === '1 week', `four sessions Mon–Sun: ${await day('4 sessions')}`);
+  assert(await card.getByText('4/4 this week').isVisible(), 'this week count');
+  assert(await card.getByText('were last checked in').isVisible(), 'stale note');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
-  const fresh = await open({ iron: IRON, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-11', chains: [{ ...SUMMARY.chains[0], day: 2 }] } }, time: '2026-10-11T12:00:00+01:00' });
-  // and before the reset, an own chain keeps counting by the days since the summary
-  const early = await open({ iron: IRON, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-06' } }, time: '2026-10-08T12:00:00+01:00' });
-  const sugar = await early.page.locator('.chainrow', { hasText: 'No sugar' }).locator('.daybadge').getAttribute('aria-label');
-  assert(sugar === 'Day 22', `clean chain moves on: ${sugar}`);
-  await early.ctx.close();
-  const c2 = fresh.page.locator('section', { has: fresh.page.getByRole('heading', { name: /My chains/ }) });
-  assert(await c2.locator('.daybadge').getAttribute('aria-label') === 'Day 2', 'a fresh summary is shown as is');
-  assert(!(await c2.getByText('last updated these').count()), 'no stale note');
-  await fresh.ctx.close();
+  // A Gironda meal logged here and a non-Gironda one: cut day broken today.
+  const own = { v: 1, settings: { setupDone: true, installDismissed: true }, meals: [{ id: 'x1', date: '2026-10-11', at: '2026-10-11T09:00:00.000Z', name: 'Toast', kcal: 200, p: 5, c: 30, f: 5, servings: 1 }] };
+  const b = await open({ own, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
+  assert(await b.page.locator('.chainrow', { hasText: 'Cut day' }).locator('.daybadge').getAttribute('aria-label') === 'Day 0', 'off-plan food breaks the cut day');
+  await b.ctx.close();
+  const friend = await open({ own: { v: 1, settings: { setupDone: true } } });
+  assert(!(await friend.page.getByRole('heading', { name: /My chains/ }).count()), 'no chains on a friend\'s phone');
+  await friend.ctx.close();
+});
+
+await test('previous weights from the other apps become starting points when newer', async () => {
+  const iron = { ...IRON, baselines: { squat: { name: 'Barbell Squat', date: '2026-09-23', sets: [{ kg: 110, reps: 8 }] }, 'leg press': { name: 'Leg Press', date: '2026-09-23', sets: [{ kg: 113, reps: 8 }] } } };
+  const trainer = { workouts: [{ id: 't1', date: '2026-09-30', entries: [{ name: 'Barbell Squat', sets: [{ kg: 115, reps: 6 }] }] }] };
+  const own = { v: 1, settings: { setupDone: true, installDismissed: true }, workouts: [{ id: 'o1', date: '2026-10-01', at: '2026-10-01T17:00:00.000Z', programId: 'my4week', dayId: 'x', dayName: 'Legs', entries: [{ name: 'Leg Press', sets: [{ kg: 120, reps: 8 }] }] }] };
+  const { page, ctx, errors } = await open({ iron, own, extra: { 'trainer.v1': trainer } });
+  const r = await page.evaluate(() => ({ squat: lastEntryFor('Barbell Squat'), bench: lastEntryFor('Reverse Grip Bench Press'), press: lastEntryFor('Leg Press') }));
+  assert(r.squat.entry.sets[0].kg === 115 && r.squat.entry.note.includes('Trainer'), `newest squat from Trainer: ${JSON.stringify(r.squat)}`);
+  assert(r.bench.entry.sets[0].kg === 27.5 && r.bench.date === '2026-10-06', `bench from the original app's session: ${JSON.stringify(r.bench)}`);
+  assert(r.press.entry.sets[0].kg === 120 && !r.press.baseline, 'your own newer session wins');
+  assert(JSON.parse(await page.evaluate(() => localStorage.getItem('shtrainer.v1'))).baselines.squat.sets[0].kg === 110, 'the original app is not changed');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
 });
 
 await browser.close();

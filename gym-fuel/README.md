@@ -1,9 +1,12 @@
-# Gym & Fuel
+# Iron & Eggs (`gym-fuel/`)
 
-Iron & Eggs (`shredded-trainer/`) stripped down to just the gym and nutrition. An offline-first web app with no
+Was Gym & Fuel; renamed Iron & Eggs (logo: the cast-iron pan with a fried egg, `icons/logo.jpg`, shown on Today
+and the welcome sheet, with the round mark in the header and as the home-screen icon). The original Iron & Eggs app
+(`shredded-trainer/`) stripped down to just the gym and nutrition. The folder, the `gymfuel.*` storage keys and the
+backup format keep their old names so installed phones and old backups keep working. An offline-first web app with no
 build step and no dependencies; data lives in the browser's `localStorage` under `gymfuel.*`.
 
-**[▶ Open Gym & Fuel](https://eddie144-ai.github.io/Training/gym-fuel/)**: open it in Chrome on Android and tap **⋮ → Install app**,
+**[▶ Open Iron & Eggs](https://eddie144-ai.github.io/Training/gym-fuel/)**: open it in Chrome on Android and tap **⋮ → Install app**,
 or in Safari on iPhone and tap **Share → Add to Home Screen**.
 
 ## Sharing it
@@ -18,13 +21,20 @@ again.
 - **Today:** the next session of your active programme with a Start button, today's calories and protein left
   with macro bars, quick add and barcode scan, today's weight, and the week so far (sessions, average kcal and
   protein).
-- **My chains (Today):** every chain from Iron & Eggs (No coffee, your own "No ___" chains, diet, cut, fasting,
-  protein, training, sessions, steps, sleep, plan) with its day count and best, read from the summary Iron & Eggs
-  writes (`shtrainer.chains`), plus your own chains that are only in Trainer so far (counted from their clean-since
-  date and last slip). Clean chains (No coffee and your own) keep counting by the days since Iron & Eggs last
-  wrote; the rest show where Iron & Eggs left them. The built-in chains restarted at day 1 on 10 Oct 2026 (best
-  streaks kept); your own chains kept their count. Check-ins and slips stay in Iron & Eggs (**Open Iron & Eggs**).
-  Hidden on phones with neither app.
+- **My chains (Today):** No coffee, your own "No ___" chains (such as No weed and No energy drinks), Cut day and
+  4 sessions this week, each with its day (or week) count and best. The other chains aren't shown.
+  - No coffee and your own chains come from the original app's summary (`shtrainer.chains`) and from Trainer
+    (counted from their clean-since date and last slip). They keep counting by the days since the summary was
+    written; check-ins and slips stay in the original app (**Check in on my chains**).
+  - Cut day (only the two Gironda meals; a carb-up day or a day marked kept or broken in the original app wins) and
+    4 sessions this week (Monday to Sunday) are worked out here from the food and sessions logged in this app and
+    the original, counted from 10 Oct 2026, with the best from the summary kept.
+  - Hidden on phones with neither the original app nor Trainer.
+- **Previous weights from your other apps:** each time the app opens it reads the original Iron & Eggs app (its
+  sessions and the Grok-tracker starting weights built into it) and Trainer (`trainer.v1`), and for each exercise
+  the newest weight becomes the starting point when it's newer than anything logged here ("From Trainer" or "From
+  Iron & Eggs (original app)"). Your own newer sessions always win; the other apps are only read. Shredded System
+  isn't read: its exercise names don't match the programmes here. The old Trainer V6 app kept no lifts.
 - **Gironda bar (Fuel → Log):** one tap logs Gironda Meal 1 (6 eggs + 3 pork patties) or Meal 2 (6 eggs + 250 g
   steak) for the day on screen, tap again to take it off, with a 0/2 count. On when Iron & Eggs is on the phone or
   a Gironda meal has been logged; **Body → Settings → Gironda bar in Fuel** switches it. Those two meals then

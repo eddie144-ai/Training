@@ -1,7 +1,7 @@
 {
-  "name": "Gym & Fuel",
-  "short_name": "Gym & Fuel",
-  "description": "Iron & Eggs stripped down to training and nutrition.",
+  "name": "Iron & Eggs",
+  "short_name": "Iron & Eggs",
+  "description": "Training and nutrition: programmes, set logging, food log and the Gironda cut.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

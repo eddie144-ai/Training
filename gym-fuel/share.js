@@ -41,7 +41,7 @@ const Share = (() => {
     ctx.textBaseline = 'alphabetic';
     // Header
     ctx.fillStyle = C.accent; ctx.font = `800 40px ${DISPLAY}`; ctx.letterSpacing = '4px';
-    ctx.fillText('GYM & FUEL', L, 112);
+    ctx.fillText('IRON & EGGS', L, 112);
     ctx.letterSpacing = '0px';
     ctx.fillStyle = C.text; ctx.font = `800 104px ${DISPLAY}`;
     ctx.fillText(fitText(ctx, d.title.toUpperCase(), R - L), L, 216);

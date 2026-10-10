@@ -1,5 +1,5 @@
 'use strict';
-/* Gym & Fuel: Iron & Eggs stripped down to the gym and nutrition.
+/* Iron & Eggs (this folder was Gym & Fuel): the original Iron & Eggs app cut down to the gym and nutrition.
    Kept: the training programmes and set logger (4-week cycles and Mentzer HIT), personal records,
    the food log with macro targets, the Dolce recipes, barcode scanning and the weight log.
    Dropped: chains, XP and levels, goals, journal, fasting, carb-ups, Garmin, the channel and the other apps.
@@ -10,7 +10,7 @@
 // ===========================================================================
 const STORE_KEY = 'gymfuel.v1';
 const DRAFTS_KEY = 'gymfuel.drafts';
-const IRON_KEY = 'shtrainer.v1'; // Iron & Eggs, read once on request to bring your history over
+const IRON_KEY = 'shtrainer.v1'; // the original Iron & Eggs app (shredded-trainer/): history to bring over, lifts and chains
 
 const LOG_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dressing', 'Juice'];
@@ -318,16 +318,42 @@ function records() {
   return Object.values(out).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Last time you did an exercise, falling back to a starting point brought over from Iron & Eggs.
+// Last time you did an exercise: your newest session here, or a newer weight found in your other apps.
 function lastEntryFor(name) {
   const k = exKey(name);
   const ws = [...S.workouts].sort((a, b) => b.at.localeCompare(a.at));
+  let own = null;
   for (const w of ws) {
     const e = (w.entries || []).find((x) => exKey(x.name) === k && x.sets?.some(hasData));
-    if (e) return { entry: e, date: w.date };
+    if (e) { own = { entry: e, date: w.date }; break; }
   }
   const b = S.baselines[k];
-  return b ? { entry: b, date: b.date, baseline: true } : null;
+  return b && (!own || b.date > own.date) ? { entry: b, date: b.date, baseline: true } : own;
+}
+
+// Previous weights from your other apps on this phone: the original Iron & Eggs (its sessions, and the starting
+// weights from the Grok tracker built into it) and Trainer. For each exercise the newest one becomes the starting
+// point here when it's newer than anything this app has. The other apps are only read.
+function gatherLifts() {
+  const ownDate = {};
+  for (const w of S.workouts) for (const e of w.entries || []) if (e.sets?.some(hasData)) { const k = exKey(e.name); if (!ownDate[k] || w.date > ownDate[k]) ownDate[k] = w.date; }
+  let found = 0;
+  for (const [key, label] of [[IRON_KEY, 'Iron & Eggs (original app)'], [TRAINER_KEY, 'Trainer']]) {
+    const src = readKey(key);
+    if (!src || typeof src !== 'object') continue;
+    const cands = [];
+    for (const w of Array.isArray(src.workouts) ? src.workouts : []) for (const e of w?.entries || []) cands.push({ name: e?.name, date: w.date, sets: e?.sets });
+    for (const b of Object.values(src.baselines && typeof src.baselines === 'object' ? src.baselines : {})) cands.push(b || {});
+    for (const c of cands) {
+      if (typeof c.name !== 'string' || !isoDay(c.date) || !Array.isArray(c.sets)) continue;
+      const sets = c.sets.filter((x) => x && typeof x === 'object').map((x) => ({ kg: num(x.kg), reps: num(x.reps), hold: num(x.hold) })).filter(hasData);
+      const k = exKey(c.name);
+      if (!sets.length || (ownDate[k] && ownDate[k] >= c.date) || (S.baselines[k]?.date && S.baselines[k].date >= c.date)) continue;
+      S.baselines[k] = { name: c.name, date: c.date, note: `From ${label}${c.note ? `: ${c.note}` : ''}`, sets };
+      found++;
+    }
+  }
+  return found;
 }
 
 function repRange(reps) {
@@ -556,7 +582,7 @@ function weekData(d = today()) {
     trend: list.filter((w) => w.date >= addDays(d, -27)).map((w) => Number(w.kg)),
     stats: [[String(sessions.length), `session${sessions.length === 1 ? '' : 's'}`], [intake ? String(Math.round(intake.kcal)) : '—', 'avg kcal a day'], [intake ? `${Math.round(intake.p)} g` : '—', 'avg protein a day']],
     lifts,
-    footer: `Tracked with Gym & Fuel · ${APP_URL}`,
+    footer: `Tracked with Iron & Eggs · ${APP_URL}`,
     background: st.background === 'plain' ? '' : 'bg.jpg',
   };
 }
@@ -581,8 +607,8 @@ function backupBlob() {
   return new Blob([JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S })], { type: 'application/json' });
 }
 async function sendBackup(share) {
-  const name = `gym-fuel-${today()}.json`;
-  const how = share ? await Share.file(backupBlob(), name, 'Gym & Fuel backup') : (downloadText(name, JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }), 'application/json'), 'saved');
+  const name = `iron-and-eggs-${today()}.json`;
+  const how = share ? await Share.file(backupBlob(), name, 'Iron & Eggs backup') : (downloadText(name, JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }), 'application/json'), 'saved');
   if (how === 'cancelled') return;
   S.settings.lastBackup = today(); save();
   toast(how === 'shared' ? 'Backup sent' : 'Backup saved to your downloads');
@@ -604,7 +630,7 @@ function growthCards(d) {
   const st = S.settings;
   const out = [];
   if (st.setupDone && !isInstalled() && !st.installDismissed) {
-    out.push(`<section class="card"><h2>Install Gym & Fuel</h2><p class="small">Put it on your home screen: it opens like an app, full screen, and works offline.</p>
+    out.push(`<section class="card"><h2>Install Iron & Eggs</h2><p class="small">Put it on your home screen: it opens like an app, full screen, and works offline.</p>
       ${installPrompt ? '<button class="primary" data-act="install-go">Install</button>' : installSteps()}
       <button class="ghost" data-act="install-dismiss">Done, or not now</button></section>`);
   }
@@ -630,19 +656,20 @@ function growthCards(d) {
   return out.join('');
 }
 
-// ---- Your chains from Iron & Eggs on this phone, read from the summary it writes for the home page, plus any of
-// your own "No ___" chains that are only in Trainer so far. Clean chains (no coffee and your own) keep counting until
-// you report a slip, so they move on by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left
-// them. The built-in chains restarted at day 1 on 10 Oct 2026 (best streaks kept); your own chains kept their count.
+// ---- My chains: No coffee and your own "No ___" chains (No weed, No energy drinks…) from the original Iron & Eggs
+// app and Trainer on this phone, plus Cut day and 4 sessions this week worked out here from the food and training
+// logged in this app and the original. The other chains aren't shown. The clean chains keep counting until you
+// report a slip there, so they move on by the days since the original app last wrote its summary.
+// Cut day and 4 sessions restarted at day 1 on 10 Oct 2026 (best streaks kept); your own chains kept their count.
 const CHAINS_KEY = 'shtrainer.chains', TRAINER_KEY = 'trainer.v1';
 const CHAINS_RESET = '2026-10-10';
-const LOGGED_CHAINS = ['diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
-const BUILT_IN_CHAINS = ['coffee', ...LOGGED_CHAINS];
+const BUILT_IN_CHAINS = ['coffee', 'diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
+const SESSIONS_A_WEEK = 4;
 const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
+const readKey = (k) => { try { return JSON.parse(rawKey(k) || 'null'); } catch { return null; } };
 // A Trainer "No ___" chain: clean from `since` (or the day it was added), reset by each slip.
 function trainerChains(d) {
-  let t = null;
-  try { t = JSON.parse(rawKey(TRAINER_KEY) || 'null'); } catch { /* unreadable */ }
+  const t = readKey(TRAINER_KEY);
   const days = t?.days && typeof t.days === 'object' ? t.days : {};
   return (Array.isArray(t?.customChains) ? t.customChains : []).filter((c) => c && c.active !== false && typeof c.name === 'string').map((c) => {
     const from = isoDay(c.since) ? c.since : isoDay(c.created) ? c.created : null;
@@ -654,33 +681,71 @@ function trainerChains(d) {
     return { id: c.id, name: c.name, day, best: Math.max(best, day), unit: 'day' };
   }).filter(Boolean);
 }
-function ironChains(d) {
-  let sum = null;
-  try { sum = JSON.parse(rawKey(CHAINS_KEY) || 'null'); } catch { /* unreadable */ }
+// Records from this app and the original Iron & Eggs, each once (a brought-over record keeps its id).
+function mergedById(mine, theirs) {
+  const ids = new Set(mine.map((x) => x.id));
+  return [...mine, ...(Array.isArray(theirs) ? theirs : []).filter((x) => x && isoDay(x.date) && !ids.has(x.id))];
+}
+// Cut day: only the two Gironda meals. A day marked kept or broken in the original app, or a carb-up day there, wins.
+function cutChain(d, iron) {
+  const meals = mergedById(S.meals, iron?.meals);
+  const status = (x) => {
+    const o = iron?.days?.[x]?.chains?.cut;
+    if (o === true || o === false) return o ? 'done' : 'miss';
+    const refeed = !!iron?.days?.[x]?.refeed;
+    const on = meals.filter((m) => m.date === x);
+    if (!refeed && on.some((m) => !GIRONDA_MEALS.some(([id]) => id === m.ref))) return 'miss';
+    if (refeed || GIRONDA_MEALS.every(([id]) => on.some((m) => m.ref === id))) return 'done';
+    return x < d ? 'done' : 'pending';
+  };
+  let cur = 0, best = 0, st = 'off';
+  for (let x = CHAINS_RESET; x <= d; x = addDays(x, 1)) {
+    st = status(x);
+    if (st === 'done') { cur++; best = Math.max(best, cur); } else if (st === 'miss') cur = 0;
+  }
+  if (d < CHAINS_RESET) return null;
+  const today_ = meals.filter((m) => m.date === d);
+  const sub = GIRONDA_MEALS.map(([id], i) => `Meal ${i + 1} ${today_.some((m) => m.ref === id) ? '✓' : '—'}`).join(' · ');
+  return { id: 'cut', name: 'Cut day', day: st === 'miss' ? 0 : st === 'done' ? cur : cur + 1, best: Math.max(best, cur + (st === 'pending' ? 1 : 0)), unit: 'day', sub };
+}
+// 4 sessions this week: Monday to Sunday, from the sessions logged here and in the original app.
+function sessionsChain(d, iron) {
+  if (d < CHAINS_RESET) return null;
+  const dates = mergedById(S.workouts, iron?.workouts).map((w) => w.date);
+  let cur = 0, best = 0, count = 0;
+  for (let ws = weekStart(CHAINS_RESET); ws <= d; ws = addDays(ws, 7)) {
+    count = dates.filter((x) => x >= ws && x <= addDays(ws, 6)).length;
+    if (count >= SESSIONS_A_WEEK) { cur++; best = Math.max(best, cur); } else if (addDays(ws, 6) < d) cur = 0;
+  }
+  return { id: 'sessions', name: `${SESSIONS_A_WEEK} sessions this week`, day: cur, best, unit: 'wk', sub: `${Math.min(count, SESSIONS_A_WEEK)}/${SESSIONS_A_WEEK} this week` };
+}
+function myChains(d) {
+  const sum = readKey(CHAINS_KEY);
+  const iron = ironData();
   const ok = !!(sum?.chains?.length && isoDay(sum.date));
   const gap = ok ? Math.max(0, daysBetween(sum.date, d)) : 0;
-  const chains = (ok ? sum.chains : []).map((c) => {
+  // From the summary: No coffee and your own chains, moved on by the days since it was written.
+  const clean = (ok ? sum.chains : []).filter((c) => c.unit !== 'wk' && (c.id === 'coffee' || !BUILT_IN_CHAINS.includes(c.id))).map((c) => {
     let day = Number(c.day) || 0, best = Number(c.best) || 0;
-    if (BUILT_IN_CHAINS.includes(c.id) && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = c.unit === 'wk' ? 0 : daysBetween(CHAINS_RESET, d) + 1;
-    else if (c.unit !== 'wk' && !LOGGED_CHAINS.includes(c.id)) { day += gap; best = Math.max(best, day); }
+    if (c.id === 'coffee' && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = daysBetween(CHAINS_RESET, d) + 1;
+    else { day += gap; best = Math.max(best, day); }
     return { ...c, day, best };
   });
-  const have = (c) => chains.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());
-  const extra = trainerChains(d).filter((c) => !have(c));
-  // Your own chains go straight after No coffee, as in Iron & Eggs.
-  const at = chains.findIndex((c) => c.id === 'coffee') + 1;
-  chains.splice(at, 0, ...extra);
-  if (!chains.length) return null;
-  return { date: ok ? sum.date : null, stale: gap > 0, chains };
+  const have = (c) => clean.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());
+  clean.push(...trainerChains(d).filter((c) => !have(c)));
+  if (!clean.length && !iron) return null; // nobody else's chains on a friend's phone
+  const bestFromSummary = (id) => Number((ok ? sum.chains : []).find((c) => c.id === id)?.best) || 0;
+  const logged = [cutChain(d, iron), sessionsChain(d, iron)].filter(Boolean).map((c) => ({ ...c, best: Math.max(c.best, bestFromSummary(c.id)) }));
+  return { date: ok ? sum.date : null, stale: gap > 0, chains: [...clean, ...logged] };
 }
 function chainsCard(d) {
-  const sum = ironChains(d);
-  if (!sum) return '';
+  const sum = myChains(d);
+  if (!sum?.chains.length) return '';
   return `<section class="card"><h2>My chains <span class="right">${sum.chains.length}</span></h2>
-    <div class="list">${sum.chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
+    <div class="list">${sum.chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.sub ? `${esc(c.sub)} · ` : ''}best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
       <span class="daybadge ${c.day ? '' : 'zero'}" aria-label="${c.unit === 'wk' ? `${c.day} week${c.day === 1 ? '' : 's'}` : `Day ${c.day}`}"><small>${c.unit === 'wk' ? 'Weeks' : 'Day'}</small>${c.day}</span></div>`).join('')}</div>
-    <p class="muted small">${sum.stale ? `Iron & Eggs last updated these ${fmtDate(sum.date)}. ` : ''}Check in or report a slip in Iron & Eggs.</p>
-    <a class="btn" href="../shredded-trainer/">Open Iron & Eggs</a></section>`;
+    <p class="muted small">Cut day and sessions count from what you log here.${sum.stale ? ` No coffee and your own chains were last checked in ${fmtDate(sum.date)}.` : ''} Check in or report a slip in the original app.</p>
+    <a class="btn" href="../shredded-trainer/">Check in on my chains</a></section>`;
 }
 
 function viewToday() {
@@ -699,6 +764,7 @@ function viewToday() {
   const intake = intakeAvg(ws, d);
   const inProgress = draftStarted(prog.id, next.id);
   return `
+  <img class="logo-banner" src="icons/logo.jpg" alt="Iron and Eggs: training and nutrition" width="960" height="524">
   ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
   ${growthCards(d)}
@@ -1366,7 +1432,7 @@ function viewBodySettings() {
     <p class="small">Take a photo of a meal, drink, snack, packet, nutrition label or menu and the AI lists each food with its weight, calories and macros for you to check.</p>
     ${segmented('ai-provider', [...(FoodAI.getFreeUrl() ? [['free', 'Free']] : []), ['gemini', FoodAI.getFreeUrl() ? 'My Gemini key' : 'Gemini (free)'], ['claude', 'Claude (paid)']], FoodAI.getProvider(), 'Which AI reads the photo')}
     ${FoodAI.getProvider() === 'free' ? `
-      <p class="small">No key needed: Gym & Fuel's free service reads the photo with Google's Gemini. Up to 10 photos a day per internet connection.</p>
+      <p class="small">No key needed: the app's free service reads the photo with Google's Gemini. Up to 10 photos a day per internet connection.</p>
       <p class="muted small">On Google's free tier, Google may use what's sent (your food photos and notes) to improve its products. For no daily limit, use your own key instead.</p>`
     : FoodAI.getProvider() === 'gemini' ? `
       <label class="field">Gemini API key<input id="ai-gkey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" value="${FoodAI.getGeminiKey() ? '••••••••' : ''}"></label>
@@ -1617,12 +1683,13 @@ function openSetup() {
 
 function showWelcome() {
   const iron = ironData();
-  openSheet('Welcome to Gym & Fuel', `
+  openSheet('Welcome to Iron & Eggs', `
+    <img class="logo-banner" src="icons/logo.jpg" alt="Iron and Eggs: training and nutrition" width="960" height="524">
     <p>Your training and nutrition in one place: workout programmes and a set logger, a food log with macro targets, recipes, barcode scanning, your weight, measurements and progress photos.</p>
     <p class="muted small">Everything stays on this phone. Nothing is uploaded or shared.</p>
     ${isInstalled() ? '' : `<details class="small"><summary>Put it on your home screen</summary>${installSteps()}</details>`}
-    ${iron ? `<p class="small">Iron &amp; Eggs data is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? Iron &amp; Eggs isn't changed.</p>
-      <button class="primary" data-act="bring-iron-now">Bring my Iron &amp; Eggs data</button>
+    ${iron ? `<p class="small">Your data from the original Iron &amp; Eggs app is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? The original app isn't changed.</p>
+      <button class="primary" data-act="bring-iron-now">Bring over my data</button>
       <button data-act="setup">I'm new: set up my targets</button>`
       : '<button class="primary" data-act="setup">Set up my targets</button>'}`);
 }
@@ -1662,7 +1729,7 @@ function render(opts = {}) {
   document.documentElement.dataset.bg = S.settings.background === 'plain' ? 'plain' : 'photo';
   const themeMeta = document.querySelector('meta[name=theme-color]');
   if (themeMeta) themeMeta.content = S.settings.highContrast ? '#000000' : '#121211';
-  document.getElementById('title').textContent = ui.tab === 'today' ? 'Gym & Fuel' : TABS.find(([k]) => k === ui.tab)[1];
+  document.getElementById('title').textContent = ui.tab === 'today' ? 'Iron & Eggs' : TABS.find(([k]) => k === ui.tab)[1];
   const mac = macrosOn(today());
   document.getElementById('kcal-pill').textContent = `${Math.round(mac.kcal)} / ${S.settings.kcalGoal} kcal`;
   const subs = SUBTABS[ui.tab];
@@ -1725,7 +1792,7 @@ function downloadText(name, text, type) {
 function restoreFrom(txt) {
   let data;
   try { data = JSON.parse(txt || ''); } catch { data = null; }
-  if (!data || data.kind !== 'gym-fuel-backup' || !data.state?.settings) { toast('That isn\'t a Gym & Fuel backup file'); return; }
+  if (!data || data.kind !== 'gym-fuel-backup' || !data.state?.settings) { toast('That isn\'t a backup from this app'); return; }
   ask('Replace all current data with this backup?', 'Replace', () => { S = normalise(data.state); toast('Backup restored'); });
 }
 
@@ -1965,7 +2032,7 @@ document.addEventListener('click', (e) => {
     case 'ai-provider': FoodAI.setProvider(el.dataset.v); render(); return;
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
-    case 'bring-iron': ask('Replace everything in Gym & Fuel with your Iron & Eggs data?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
+    case 'bring-iron': ask('Replace everything here with your data from the original Iron & Eggs app?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
     case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs data brought over'); break;
     case 'backup': sendBackup(false); return;
     case 'backup-share': sendBackup(true); return;
@@ -1973,7 +2040,7 @@ document.addEventListener('click', (e) => {
     case 'share-week': openShareWeek(); return;
     case 'share-week-go': case 'share-week-save': {
       if (!shareBlob) return;
-      Share.file(shareBlob, `gym-fuel-week-${today()}.png`, `My week on Gym & Fuel · ${APP_URL}`, a === 'share-week-save')
+      Share.file(shareBlob, `iron-and-eggs-week-${today()}.png`, `My week on Iron & Eggs · ${APP_URL}`, a === 'share-week-save')
         .then((how) => { if (how !== 'cancelled') toast(how === 'shared' ? 'Shared' : 'Image saved'); });
       return;
     }
@@ -1981,7 +2048,7 @@ document.addEventListener('click', (e) => {
     case 'challenge-end': S.challenge = null; break;
     case 'install-go': if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice?.finally(() => { installPrompt = null; render(); }); } return;
     case 'install-dismiss': S.settings.installDismissed = true; break;
-    case 'reset-all': ask('Delete all Gym & Fuel data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); }); return;
+    case 'reset-all': ask('Delete all of this app\'s data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); }); return;
     default: return;
   }
   commit();
@@ -2219,6 +2286,7 @@ document.addEventListener('keydown', (e) => {
 // Coming back to the app on a new day shows the new day.
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); });
 
+try { if (gatherLifts()) save(); } catch { /* another app's data unreadable: skip */ }
 render();
 if (S.notice === 'start') { S.notice = null; save(); showWelcome(); }
 
