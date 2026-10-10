@@ -539,7 +539,7 @@ await test('Garmin import: reads the export zip into Garmin days, steps and slee
   await ctx.close();
 });
 
-await test('Every chain restarts at day 1 on 10 Oct 2026, best streaks and XP kept', async () => {
+await test('Every chain restarts at day 1 on 10 Oct 2026; No coffee best 5, Cut day best 0', async () => {
   const own = await seeded(() => {});
   const before = await open({ own, time: '2026-10-09T20:00:00+01:00' });
   const was = await before.page.evaluate(() => ({ coffee: chainStreak('coffee').cur }));
@@ -549,7 +549,7 @@ await test('Every chain restarts at day 1 on 10 Oct 2026, best streaks and XP ke
   const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')).chains);
   assert(sum.every((c) => c.day <= 1), `all at day 1 or less: ${JSON.stringify(sum.map((c) => [c.id, c.day]))}`);
   eq(sum.find((c) => c.id === 'coffee').day, 1, 'no coffee: day 1');
-  assert(sum.find((c) => c.id === 'coffee').best >= 8, 'coffee best kept');
+  eq([sum.find((c) => c.id === 'coffee').best, sum.find((c) => c.id === 'cut').best], [5, 0], 'bests set at the reset: No coffee 5, Cut day 0');
   eq(await page.evaluate(() => S.days['2026-10-09']?.chains?.coffee), undefined, 'no slip written to the log');
   await ctx.close();
 });

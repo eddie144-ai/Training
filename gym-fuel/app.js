@@ -663,6 +663,7 @@ function growthCards(d) {
 // Cut day and 4 sessions restarted at day 1 on 10 Oct 2026 (best streaks kept); your own chains kept their count.
 const CHAINS_KEY = 'shtrainer.chains', TRAINER_KEY = 'trainer.v1';
 const CHAINS_RESET = '2026-10-10';
+const COFFEE_BEST = 5; // No coffee's best streak was set to 5 days at the reset; Cut day's best to 0
 const BUILT_IN_CHAINS = ['coffee', 'diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
 const SESSIONS_A_WEEK = 4;
 const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
@@ -706,7 +707,8 @@ function cutChain(d, iron) {
   if (d < CHAINS_RESET) return null;
   const today_ = meals.filter((m) => m.date === d);
   const sub = GIRONDA_MEALS.map(([id], i) => `Meal ${i + 1} ${today_.some((m) => m.ref === id) ? '✓' : '—'}`).join(' · ');
-  return { id: 'cut', name: 'Cut day', day: st === 'miss' ? 0 : st === 'done' ? cur : cur + 1, best: Math.max(best, cur + (st === 'pending' ? 1 : 0)), unit: 'day', sub };
+  // Days kept so far: today counts once both meals are logged (Cut day was reset to 0, best 0, on 10 Oct 2026).
+  return { id: 'cut', name: 'Cut day', day: st === 'miss' ? 0 : cur, best, unit: 'day', sub };
 }
 // 4 sessions this week: Monday to Sunday, from the sessions logged here and in Iron & Eggs Classic.
 function sessionsChain(d, iron) {
@@ -730,14 +732,17 @@ function myChains(d) {
     if (c.id === 'coffee' && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = daysBetween(CHAINS_RESET, d) + 1;
     else { day += gap; best = Math.max(best, day); }
     // No coffee restarted on the reset day, whatever an older copy of the app wrote.
-    if (c.id === 'coffee' && d >= CHAINS_RESET) day = Math.min(day, daysBetween(CHAINS_RESET, d) + 1);
+    if (c.id === 'coffee' && d >= CHAINS_RESET) {
+      day = Math.min(day, daysBetween(CHAINS_RESET, d) + 1);
+      best = Math.max(COFFEE_BEST, day, sum.date > CHAINS_RESET ? Number(c.best) || 0 : 0);
+    }
     return { ...c, day, best };
   });
   const have = (c) => clean.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());
   clean.push(...trainerChains(d).filter((c) => !have(c)));
   if (!clean.length && !iron) return null; // nobody else's chains on a friend's phone
   const bestFromSummary = (id) => Number((ok ? sum.chains : []).find((c) => c.id === id)?.best) || 0;
-  const logged = [cutChain(d, iron), sessionsChain(d, iron)].filter(Boolean).map((c) => ({ ...c, best: Math.max(c.best, bestFromSummary(c.id)) }));
+  const logged = [cutChain(d, iron), sessionsChain(d, iron)].filter(Boolean).map((c) => (c.id === 'cut' ? c : { ...c, best: Math.max(c.best, bestFromSummary(c.id)) }));
   return { date: ok ? sum.date : null, stale: gap > 0, chains: [...clean, ...logged] };
 }
 function chainsCard(d) {
