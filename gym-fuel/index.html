@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121211">
-<meta name="description" content="Gym &amp; Fuel: Iron &amp; Eggs stripped down to training and nutrition. Programmes, set logging, food log, recipes and weight.">
+<meta name="description" content="Iron &amp; Eggs: training and nutrition. Programmes, set logging, food log, recipes and weight.">
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Barlow:wght@400;500;600;700&display=swap">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<title>Gym &amp; Fuel</title>
+<title>Iron &amp; Eggs</title>
 <style>
   /* Layout: one column of cards under a sticky header, five-tab bar fixed at the bottom. */
   :root {
@@ -137,6 +137,8 @@
   .list > * { padding: 10px 0; border-top: var(--border-w) solid var(--border); min-width: 0; }
   .list > *:first-child { border-top: 0; }
   .list > [hidden] { display: none; }
+  .logo-mark { width: 34px; height: 34px; border-radius: 50%; flex: none; }
+  .logo-banner { display: block; width: 100%; height: auto; aspect-ratio: 960 / 524; object-fit: cover; border-radius: 14px; margin-bottom: 12px; }
   .daybadge { display: grid; justify-items: center; min-width: 64px; padding: 6px 10px; border-radius: 14px; background: var(--raised); box-shadow: inset 0 0 0 2px var(--good); font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; flex: none; }
   .daybadge small { font-size: 10.5px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
   .daybadge.zero { box-shadow: inset 0 0 0 2px var(--border); color: var(--muted); }
@@ -300,7 +302,8 @@
 </head>
 <body>
 <header>
-  <h1 id="title">Gym &amp; Fuel</h1>
+  <img class="logo-mark" src="icons/logo-mark.png" alt="" width="34" height="34">
+  <h1 id="title">Iron &amp; Eggs</h1>
   <span class="kcal-pill" id="kcal-pill"></span>
 </header>
 <main id="view" aria-live="polite"></main>

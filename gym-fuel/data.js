@@ -1,5 +1,5 @@
 'use strict';
-/* Gym & Fuel: built-in content, taken from Iron & Eggs (training programmes, staples, Dolce recipes,
+/* Iron & Eggs (gym-fuel/): built-in content, taken from the original Iron & Eggs app (training programmes, staples, Dolce recipes,
    recipe methods, Mentzer levels and techniques). The app copies programmes into your own data on first
    run so you can edit them without losing the originals. */
 
