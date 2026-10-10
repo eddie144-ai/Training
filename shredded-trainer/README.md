@@ -1,4 +1,7 @@
-# Iron & Eggs (Shredded Trainer)
+# Iron & Eggs Classic (Shredded Trainer)
+
+The original Iron & Eggs app, renamed Iron & Eggs Classic (home-screen name "I&E Classic") when `gym-fuel/` took the
+Iron & Eggs name. Data and storage keys are unchanged.
 
 Trainer and Shredded System in one app, set up for the cut: **My 4-Week Program** (your modified
 "10 lbs of muscle in 4 weeks") paired with the **Gironda diet**, from 95 kg toward 70–75 kg.

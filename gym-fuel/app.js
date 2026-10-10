@@ -1,5 +1,5 @@
 'use strict';
-/* Iron & Eggs (this folder was Gym & Fuel): the original Iron & Eggs app cut down to the gym and nutrition.
+/* Iron & Eggs (this folder was Gym & Fuel): Iron & Eggs Classic cut down to the gym and nutrition.
    Kept: the training programmes and set logger (4-week cycles and Mentzer HIT), personal records,
    the food log with macro targets, the Dolce recipes, barcode scanning and the weight log.
    Dropped: chains, XP and levels, goals, journal, fasting, carb-ups, Garmin, the channel and the other apps.
@@ -10,7 +10,7 @@
 // ===========================================================================
 const STORE_KEY = 'gymfuel.v1';
 const DRAFTS_KEY = 'gymfuel.drafts';
-const IRON_KEY = 'shtrainer.v1'; // the original Iron & Eggs app (shredded-trainer/): history to bring over, lifts and chains
+const IRON_KEY = 'shtrainer.v1'; // Iron & Eggs Classic (shredded-trainer/): history to bring over, lifts and chains
 
 const LOG_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dressing', 'Juice'];
@@ -115,8 +115,8 @@ function save() {
 }
 const rawKey = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
-// Bring weigh-ins, measurements, sessions, exercise weights, programmes, meals, foods and macro targets over from Iron & Eggs.
-// Iron & Eggs itself is only read, never changed.
+// Bring weigh-ins, measurements, sessions, exercise weights, programmes, meals, foods and macro targets over from Iron & Eggs Classic.
+// Iron & Eggs Classic itself is only read, never changed.
 function ironData() {
   try { const d = JSON.parse(rawKey(IRON_KEY) || 'null'); return d && d.settings ? d : null; } catch { return null; }
 }
@@ -331,14 +331,14 @@ function lastEntryFor(name) {
   return b && (!own || b.date > own.date) ? { entry: b, date: b.date, baseline: true } : own;
 }
 
-// Previous weights from your other apps on this phone: the original Iron & Eggs (its sessions, and the starting
+// Previous weights from your other apps on this phone: Iron & Eggs Classic (its sessions, and the starting
 // weights from the Grok tracker built into it) and Trainer. For each exercise the newest one becomes the starting
 // point here when it's newer than anything this app has. The other apps are only read.
 function gatherLifts() {
   const ownDate = {};
   for (const w of S.workouts) for (const e of w.entries || []) if (e.sets?.some(hasData)) { const k = exKey(e.name); if (!ownDate[k] || w.date > ownDate[k]) ownDate[k] = w.date; }
   let found = 0;
-  for (const [key, label] of [[IRON_KEY, 'Iron & Eggs (original app)'], [TRAINER_KEY, 'Trainer']]) {
+  for (const [key, label] of [[IRON_KEY, 'Iron & Eggs Classic'], [TRAINER_KEY, 'Trainer']]) {
     const src = readKey(key);
     if (!src || typeof src !== 'object') continue;
     const cands = [];
@@ -656,10 +656,10 @@ function growthCards(d) {
   return out.join('');
 }
 
-// ---- My chains: No coffee and your own "No ___" chains (No weed, No energy drinks…) from the original Iron & Eggs
+// ---- My chains: No coffee and your own "No ___" chains (No weed, No energy drinks…) from Iron & Eggs Classic
 // app and Trainer on this phone, plus Cut day and 4 sessions this week worked out here from the food and training
-// logged in this app and the original. The other chains aren't shown. The clean chains keep counting until you
-// report a slip there, so they move on by the days since the original app last wrote its summary.
+// logged in this app and Iron & Eggs Classic. The other chains aren't shown. The clean chains keep counting until you
+// report a slip there, so they move on by the days since Iron & Eggs Classic last wrote its summary.
 // Cut day and 4 sessions restarted at day 1 on 10 Oct 2026 (best streaks kept); your own chains kept their count.
 const CHAINS_KEY = 'shtrainer.chains', TRAINER_KEY = 'trainer.v1';
 const CHAINS_RESET = '2026-10-10';
@@ -681,12 +681,12 @@ function trainerChains(d) {
     return { id: c.id, name: c.name, day, best: Math.max(best, day), unit: 'day' };
   }).filter(Boolean);
 }
-// Records from this app and the original Iron & Eggs, each once (a brought-over record keeps its id).
+// Records from this app and Iron & Eggs Classic, each once (a brought-over record keeps its id).
 function mergedById(mine, theirs) {
   const ids = new Set(mine.map((x) => x.id));
   return [...mine, ...(Array.isArray(theirs) ? theirs : []).filter((x) => x && isoDay(x.date) && !ids.has(x.id))];
 }
-// Cut day: only the two Gironda meals. A day marked kept or broken in the original app, or a carb-up day there, wins.
+// Cut day: only the two Gironda meals. A day marked kept or broken in Iron & Eggs Classic, or a carb-up day there, wins.
 function cutChain(d, iron) {
   const meals = mergedById(S.meals, iron?.meals);
   const status = (x) => {
@@ -708,7 +708,7 @@ function cutChain(d, iron) {
   const sub = GIRONDA_MEALS.map(([id], i) => `Meal ${i + 1} ${today_.some((m) => m.ref === id) ? '✓' : '—'}`).join(' · ');
   return { id: 'cut', name: 'Cut day', day: st === 'miss' ? 0 : st === 'done' ? cur : cur + 1, best: Math.max(best, cur + (st === 'pending' ? 1 : 0)), unit: 'day', sub };
 }
-// 4 sessions this week: Monday to Sunday, from the sessions logged here and in the original app.
+// 4 sessions this week: Monday to Sunday, from the sessions logged here and in Iron & Eggs Classic.
 function sessionsChain(d, iron) {
   if (d < CHAINS_RESET) return null;
   const dates = mergedById(S.workouts, iron?.workouts).map((w) => w.date);
@@ -729,6 +729,8 @@ function myChains(d) {
     let day = Number(c.day) || 0, best = Number(c.best) || 0;
     if (c.id === 'coffee' && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = daysBetween(CHAINS_RESET, d) + 1;
     else { day += gap; best = Math.max(best, day); }
+    // No coffee restarted on the reset day, whatever an older copy of the app wrote.
+    if (c.id === 'coffee' && d >= CHAINS_RESET) day = Math.min(day, daysBetween(CHAINS_RESET, d) + 1);
     return { ...c, day, best };
   });
   const have = (c) => clean.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());
@@ -744,7 +746,7 @@ function chainsCard(d) {
   return `<section class="card"><h2>My chains <span class="right">${sum.chains.length}</span></h2>
     <div class="list">${sum.chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.sub ? `${esc(c.sub)} · ` : ''}best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
       <span class="daybadge ${c.day ? '' : 'zero'}" aria-label="${c.unit === 'wk' ? `${c.day} week${c.day === 1 ? '' : 's'}` : `Day ${c.day}`}"><small>${c.unit === 'wk' ? 'Weeks' : 'Day'}</small>${c.day}</span></div>`).join('')}</div>
-    <p class="muted small">Cut day and sessions count from what you log here.${sum.stale ? ` No coffee and your own chains were last checked in ${fmtDate(sum.date)}.` : ''} Check in or report a slip in the original app.</p>
+    <p class="muted small">Cut day and sessions count from what you log here.${sum.stale ? ` No coffee and your own chains were last checked in ${fmtDate(sum.date)}.` : ''} Check in or report a slip in Iron &amp; Eggs Classic.</p>
     <a class="btn" href="../shredded-trainer/">Check in on my chains</a></section>`;
 }
 
@@ -1140,7 +1142,7 @@ function viewFuelLog() {
 }
 
 // ---- Gironda bar: the two maximum-definition meals one tap away. Tap again to take it back off.
-// On when Iron & Eggs is on this phone or a Gironda meal has been logged; switch it in Body → Settings.
+// On when Iron & Eggs Classic is on this phone or a Gironda meal has been logged; switch it in Body → Settings.
 function girondaBar(d) {
   if (!girondaOn()) return '';
   const meals = mealsOn(d);
@@ -1421,11 +1423,11 @@ function viewBodySettings() {
     <button class="ghost" data-act="setup">Work out targets from my stats again</button>
   </section>
   <section class="card">
-    <h2>From Iron &amp; Eggs</h2>
+    <h2>From Iron &amp; Eggs Classic</h2>
     ${iron
       ? `<p class="small">Bring over your weigh-ins (${(iron.weights || []).length}), measurements (${(iron.measurements || []).length}), sessions (${(iron.workouts || []).length}), exercise weights, programmes, meals (${(iron.meals || []).length}), your foods and macro targets. Iron &amp; Eggs isn't changed.</p>
-         <button data-act="bring-iron">Replace this app's data with Iron &amp; Eggs data</button>`
-      : '<p class="muted small">Iron &amp; Eggs data isn\'t in this browser. Open this app from the same site and phone as Iron &amp; Eggs to copy it, or restore a backup below.</p>'}
+         <button data-act="bring-iron">Replace this app's data with Iron &amp; Eggs Classic data</button>`
+      : '<p class="muted small">Iron &amp; Eggs Classic data isn\'t in this browser. Open this app from the same site and phone as Iron &amp; Eggs Classic to copy it, or restore a backup below.</p>'}
   </section>
   <section class="card">
     <h2>Photo logging</h2>
@@ -1688,7 +1690,7 @@ function showWelcome() {
     <p>Your training and nutrition in one place: workout programmes and a set logger, a food log with macro targets, recipes, barcode scanning, your weight, measurements and progress photos.</p>
     <p class="muted small">Everything stays on this phone. Nothing is uploaded or shared.</p>
     ${isInstalled() ? '' : `<details class="small"><summary>Put it on your home screen</summary>${installSteps()}</details>`}
-    ${iron ? `<p class="small">Your data from the original Iron &amp; Eggs app is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? The original app isn't changed.</p>
+    ${iron ? `<p class="small">Your data from Iron &amp; Eggs Classic is in this browser. Bring over your sessions, exercise weights, programmes, meals, weigh-ins, measurements and targets? Iron &amp; Eggs Classic isn't changed.</p>
       <button class="primary" data-act="bring-iron-now">Bring over my data</button>
       <button data-act="setup">I'm new: set up my targets</button>`
       : '<button class="primary" data-act="setup">Set up my targets</button>'}`);
@@ -2032,8 +2034,8 @@ document.addEventListener('click', (e) => {
     case 'ai-provider': FoodAI.setProvider(el.dataset.v); render(); return;
     case 'del-meas': S.measurements = S.measurements.filter((m) => m.date !== el.dataset.date); toast('Measurements removed'); break;
     case 'del-weight': S.weights = S.weights.filter((w) => w.date !== el.dataset.date); break;
-    case 'bring-iron': ask('Replace everything here with your data from the original Iron & Eggs app?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs data brought over'); }); return;
-    case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs data brought over'); break;
+    case 'bring-iron': ask('Replace everything here with your data from Iron & Eggs Classic?', 'Replace', () => { if (bringIron()) toast('Iron & Eggs Classic data brought over'); }); return;
+    case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs Classic data brought over'); break;
     case 'backup': sendBackup(false); return;
     case 'backup-share': sendBackup(true); return;
     case 'backup-snooze': S.settings.backupSnooze = addDays(today(), 3); break;

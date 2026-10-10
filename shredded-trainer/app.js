@@ -1,5 +1,5 @@
 'use strict';
-/* Iron & Eggs (built as Shredded Trainer): Trainer and Shredded System in one app, set up for the cut.
+/* Iron & Eggs Classic (built as Shredded Trainer; renamed when gym-fuel/ became Iron & Eggs): Trainer and Shredded System in one app, set up for the cut.
    Served at eddie144-ai.github.io/ (the main copy) and at /Training/shredded-trainer/; both share one store.
    Trainer's chains, programmes, fasting, recipes, goals and journal, plus the Gironda carb-up clock, the weekly
    decision rules, red-flag symptoms, progress photos, barcode scanning and calendar reminders.
@@ -1821,7 +1821,7 @@ function viewToday(P) {
       <div class="stat"><b>${(fl / 1000).toFixed(1)} L</b><span>Fluids / ${(fg / 1000).toFixed(1)}</span></div>
     </div>
   </section>
-  ${location.pathname.startsWith('/Training/shredded-trainer') ? `<section class="card slim"><p class="small"><b>This app is now Iron &amp; Eggs</b> at <a href="https://eddie144-ai.github.io/">eddie144-ai.github.io</a>. Same data. Open it there and add that one to your home screen.</p></section>` : ''}
+  ${location.pathname.startsWith('/Training/shredded-trainer') ? `<section class="card slim"><p class="small"><b>This app is now Iron &amp; Eggs Classic</b> at <a href="https://eddie144-ai.github.io/">eddie144-ai.github.io</a>. Same data. Open it there and add that one to your home screen.</p></section>` : ''}
   ${backupDue() && S.workouts.length + S.meals.length + S.weights.length ? `<section class="card slim"><p class="small">💾 No backup for a week. <button class="linkish inline" data-act="go-apps">Back up everything</button></p></section>` : ''}
   ${fastingCard()}
   <section class="card">
@@ -3093,7 +3093,7 @@ const OTHER_APPS = [
 ];
 // Every app's saved data in one file. A fixed list, so no API key ever leaves the phone; photos (IndexedDB) aren't included.
 const BACKUP_KEYS = ['shtrainer.v1', 'shtrainer.chains', 'shtrainer.drafts', 'council.v1', 'council.sessions.v1', 'liferpg.v1', 'shredded.v1', 'trainer.v1', 'massa.v1', 'trainer.v2-backup', 'shtrainer.v2-backup'];
-const BACKUP_NAMES = { 'shtrainer.v1': 'Iron & Eggs', 'council.v1': 'Council', 'council.sessions.v1': 'Deliberation audits', 'liferpg.v1': 'Life RPG', 'shredded.v1': 'Shredded System', 'trainer.v1': 'Trainer', 'massa.v1': 'MASSA' };
+const BACKUP_NAMES = { 'shtrainer.v1': 'Iron & Eggs Classic', 'council.v1': 'Council', 'council.sessions.v1': 'Deliberation audits', 'liferpg.v1': 'Life RPG', 'shredded.v1': 'Shredded System', 'trainer.v1': 'Trainer', 'massa.v1': 'MASSA' };
 const LAST_BACKUP_KEY = 'hq.lastBackup';
 const rawKey = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lastBackup = () => rawKey(LAST_BACKUP_KEY);
@@ -3456,7 +3456,7 @@ function render(opts = {}) {
   if (themeMeta) themeMeta.content = S.settings.highContrast ? '#000000' : '#121211';
   document.getElementById('contrast-btn').setAttribute('aria-pressed', String(S.settings.highContrast));
   document.getElementById('lvl-pill').textContent = `Lv ${P.level} · ${P.total} XP`;
-  document.getElementById('title').textContent = ui.tab === 'today' ? 'Iron & Eggs' : TABS.find(([k]) => k === ui.tab)[1];
+  document.getElementById('title').textContent = ui.tab === 'today' ? 'Iron & Eggs Classic' : TABS.find(([k]) => k === ui.tab)[1];
   const subs = SUBTABS[ui.tab];
   document.getElementById('view').innerHTML =
     (subs ? `<div class="subtabs">${segmented('sub', subs, ui.sub[ui.tab], 'Section')}</div>` : '') + viewFor(P);
@@ -4490,7 +4490,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) rend
 function showStart() {
   let hasTrainer = false;
   try { hasTrainer = !!localStorage.getItem(TRAINER_KEY); } catch { hasTrainer = false; }
-  openSheet('Welcome to Iron & Eggs', `
+  openSheet('Welcome to Iron & Eggs Classic', `
     <p>Trainer and Shredded System in one app, set up for the cut: <b>My 4-Week Program</b> paired with the <b>Gironda diet</b>, a carb-up every ${S.settings.carbupHours} hours, and a ${S.settings.goalLow}–${S.settings.target} kg goal.</p>
     <ul class="small">
       <li>All of Trainer: chains, both programme families, the eating window and fasts, recipes, goals, journal and Garmin.</li>

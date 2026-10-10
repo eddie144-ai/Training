@@ -431,7 +431,7 @@ await test('Iron & Eggs: Apps tab backs up every app in one file and restores it
   const own = await seeded((s) => { s.weights.push({ date: '2026-10-07', kg: 94.4 }); });
   const { ctx, page, errors } = await open({ own });
   await page.evaluate(() => { localStorage.setItem('council.v1', '{"commits":[]}'); localStorage.setItem('council.anthropicKey', 'SECRET'); });
-  eq(await page.locator('#title').textContent(), 'Iron & Eggs', 'branded');
+  eq(await page.locator('#title').textContent(), 'Iron & Eggs Classic', 'branded');
   assert(await page.locator('text=No backup for a week').count(), 'backup nudge on Today');
   await page.click('[data-act="go-apps"]');
   assert(await page.locator('a.applink', { hasText: 'Council' }).count(), 'other apps listed');
