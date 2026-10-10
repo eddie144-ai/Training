@@ -68,6 +68,13 @@ Shredded Trainer saves a small summary of your chains (`shtrainer.chains`: name,
 today's status) whenever they change. The home page at **https://eddie144-ai.github.io/** (repository
 `eddie144-ai.github.io`) reads it to show every chain at a glance. It never leaves the phone.
 
+No coffee restarted on 10 Oct 2026: a one-time update records a coffee slip on 9 Oct, so that's day 1. The coffee
+best and every other chain keep their counts. Gym & Fuel shows the same list on its Today screen.
+
+## Logo
+The Iron and Eggs logo (cast-iron pan with a fried egg) is `icons/logo.jpg`, shown at the top of Today. The pan and
+egg cut out as a circle make the header mark (`icons/logo-mark.png`) and the home-screen icons (`icons/icon-*.png`).
+
 ## Background photo
 Vince Gironda, *Tomorrow's Man*, June 1953, Irvin Johnson Health Studio. Public domain in the US
 (published 1931–63, copyright not renewed), loaded from

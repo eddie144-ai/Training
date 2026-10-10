@@ -166,11 +166,15 @@ function foodLibrary() {
 }
 const findFood = (id) => foodLibrary().find((f) => f.id === id);
 
+const GIRONDA_MEALS = [['gironda1', 'Eggs + patties', '6 eggs · 3 pork patties'], ['gironda2', 'Steak + eggs', '6 eggs · 250 g steak']];
+const hasIron = !!rawKey(IRON_KEY);
+const girondaOn = () => S.settings.girondaBar ?? (hasIron || S.meals.some((m) => GIRONDA_MEALS.some(([id]) => id === m.ref)));
 // Quick-add buttons: the foods this person logs most (last 30 days), so nobody sees someone else's staples.
 function quickFoods(max = 3) {
   const from = addDays(today(), -29);
   const count = {};
-  for (const m of S.meals) if (m.ref && m.date >= from) count[m.ref] = (count[m.ref] || 0) + 1;
+  const bar = girondaOn();
+  for (const m of S.meals) if (m.ref && m.date >= from && !(bar && GIRONDA_MEALS.some(([id]) => id === m.ref))) count[m.ref] = (count[m.ref] || 0) + 1;
   return Object.entries(count).sort((a, b) => b[1] - a[1]).map(([id]) => findFood(id)).filter(Boolean).slice(0, max);
 }
 function quickAdd() {
@@ -626,6 +630,35 @@ function growthCards(d) {
   return out.join('');
 }
 
+// ---- Your chains from Iron & Eggs on this phone, read from the summary it writes for the home page.
+// Clean chains (no coffee and your own "No ___" chains) keep counting until you report a slip, so they move on
+// by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. No coffee restarts on 10 Oct 2026.
+const CHAINS_KEY = 'shtrainer.chains';
+const COFFEE_RESTART = '2026-10-10';
+const LOGGED_CHAINS = ['diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
+function ironChains(d) {
+  let sum = null;
+  try { sum = JSON.parse(rawKey(CHAINS_KEY) || 'null'); } catch { /* unreadable: no card */ }
+  if (!sum?.chains?.length || !sum.date) return null;
+  const gap = Math.max(0, daysBetween(sum.date, d));
+  const chains = sum.chains.map((c) => {
+    let day = Number(c.day) || 0, best = Number(c.best) || 0;
+    if (c.id === 'coffee' && sum.date < COFFEE_RESTART && d >= COFFEE_RESTART) day = daysBetween(COFFEE_RESTART, d) + 1;
+    else if (c.unit !== 'wk' && !LOGGED_CHAINS.includes(c.id)) { day += gap; best = Math.max(best, day); }
+    return { ...c, day, best };
+  });
+  return { date: sum.date, stale: gap > 0, chains };
+}
+function chainsCard(d) {
+  const sum = ironChains(d);
+  if (!sum) return '';
+  return `<section class="card"><h2>My chains <span class="right">${sum.chains.length}</span></h2>
+    <div class="list">${sum.chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
+      <span class="daybadge ${c.day ? '' : 'zero'}" aria-label="${c.unit === 'wk' ? `${c.day} week${c.day === 1 ? '' : 's'}` : `Day ${c.day}`}"><small>${c.unit === 'wk' ? 'Weeks' : 'Day'}</small>${c.day}</span></div>`).join('')}</div>
+    <p class="muted small">${sum.stale ? `Iron & Eggs last updated these ${fmtDate(sum.date)}. ` : ''}Check in or report a slip in Iron & Eggs.</p>
+    <a class="btn" href="../shredded-trainer/">Open Iron & Eggs</a></section>`;
+}
+
 function viewToday() {
   const d = today();
   const st = S.settings;
@@ -645,6 +678,7 @@ function viewToday() {
   ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
   ${growthCards(d)}
+  ${chainsCard(d)}
   <section class="card hero-card">
     <h2>Training <span class="right">${esc(prog.name)}</span></h2>
     ${done.length
@@ -1003,6 +1037,7 @@ function viewFuelLog() {
     <button data-act="oneoff">+ One-off meal</button>
   </div>
   <div class="grid2"><button data-act="scan-food">Scan a barcode</button>${photoButton(true)}</div>
+  ${girondaBar(d)}
   ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
   <section class="card">
     <h2>Meals · ${d === today() ? 'today' : fmtDate(d)} <span class="right">${meals.length}</span></h2>
@@ -1012,6 +1047,23 @@ function viewFuelLog() {
     <button class="ghost" data-act="copy-yesterday" data-date="${d}">Copy meals from the day before</button>
     <p class="muted small">Tap a meal to change servings, macros, time or date.</p>
   </section>`;
+}
+
+// ---- Gironda bar: the two maximum-definition meals one tap away. Tap again to take it back off.
+// On when Iron & Eggs is on this phone or a Gironda meal has been logged; switch it in Body → Settings.
+function girondaBar(d) {
+  if (!girondaOn()) return '';
+  const meals = mealsOn(d);
+  const btns = GIRONDA_MEALS.map(([id, label, sub]) => {
+    const f = findFood(id);
+    const n = meals.filter((m) => m.ref === id).length;
+    return `<button class="gbtn ${n ? 'done' : ''}" data-act="gironda" data-id="${id}" data-date="${d}" aria-pressed="${!!n}">
+      <b>${n ? '✓ ' : ''}${label}</b><span class="small">${sub}</span><span class="muted small">${f.kcal} kcal · ${f.p} g protein</span></button>`;
+  }).join('');
+  const done = GIRONDA_MEALS.filter(([id]) => meals.some((m) => m.ref === id)).length;
+  return `<section class="card"><h2>Gironda bar <span class="right">${done}/2 today</span></h2>
+    <div class="grid2">${btns}</div>
+    <p class="muted small">Maximum definition: steak and eggs, nothing else. Tap a meal to log it, tap again to take it off.</p></section>`;
 }
 
 // ---- fast days: a day on purpose with nothing (or very little) eaten, so the adaptive target counts it
@@ -1317,6 +1369,7 @@ function viewBodySettings() {
   <section class="card">
     <h2>Display</h2>
     <label class="field check-field"><span>High contrast</span><input type="checkbox" id="hc-toggle" ${st.highContrast ? 'checked' : ''}></label>
+    <label class="field check-field"><span>Gironda bar in Fuel</span><input type="checkbox" id="gironda-toggle" ${girondaOn() ? 'checked' : ''}></label>
     <label class="field">Background<select id="bg-pick"><option value="photo" ${st.background !== 'plain' ? 'selected' : ''}>Photo</option><option value="plain" ${st.background === 'plain' ? 'selected' : ''}>Plain</option></select></label>
     <label class="field">Name or handle on your share cards<input id="handle-set" maxlength="40" placeholder="@yourname" value="${esc(st.handle || '')}"></label>
   </section>
@@ -1784,6 +1837,12 @@ document.addEventListener('click', (e) => {
       if (food) openServings(food, slot);
       return;
     }
+    case 'gironda': {
+      const d = el.dataset.date, mine = mealsOn(d).filter((m) => m.ref === el.dataset.id);
+      const food = findFood(el.dataset.id), name = food.name.split(':')[0];
+      if (mine.length) { const gone = mine[mine.length - 1]; S.meals = S.meals.filter((m) => m !== gone); toast(`${name} taken off`); } else { addMealFromFood(food, 1, d); toast(`Logged ${name}`); }
+      break;
+    }
     case 'log-food': {
       const food = findFood(el.dataset.id);
       addMealFromFood(food, Number(el.dataset.servings), null, document.getElementById('serv-slot')?.value);
@@ -1998,6 +2057,7 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (t.id === 'hc-toggle') { S.settings.highContrast = t.checked; commit(); return; }
+  if (t.id === 'gironda-toggle') { S.settings.girondaBar = t.checked; commit(); return; }
   if (t.id === 'restore-file') {
     const file = t.files?.[0];
     if (file) file.text().then(restoreFrom);

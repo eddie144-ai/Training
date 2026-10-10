@@ -37,16 +37,17 @@ const IRON = {
   baselines: {}, programs: {}, myFoods: [], journal: { secret: 'not copied' },
 };
 
-async function open({ iron, own } = {}) {
+async function open({ iron, own, extra = {}, time = '2026-10-07T12:00:00+01:00' } = {}) {
   const ctx = await browser.newContext({ serviceWorkers: 'block', permissions: ['camera'] });
-  await ctx.addInitScript(([iron, own]) => {
+  await ctx.addInitScript(([iron, own, extra]) => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
     localStorage.clear();
     if (iron) localStorage.setItem('shtrainer.v1', JSON.stringify(iron));
     if (own) localStorage.setItem('gymfuel.v1', JSON.stringify(own));
-  }, [iron, own]);
-  await ctx.clock?.setFixedTime?.(new Date('2026-10-07T12:00:00+01:00'));
+    for (const [k, v] of Object.entries(extra)) localStorage.setItem(k, JSON.stringify(v));
+  }, [iron, own, extra]);
+  await ctx.clock?.setFixedTime?.(new Date(time));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -121,7 +122,8 @@ await test('food log: add a recipe, a one-off meal and see the totals', async ()
   assert(s.meals.length === 2, 'two meals');
   assert(s.meals[1].kcal === 100, 'kcal from macros');
   assert((await page.locator('#kcal-pill').textContent()).startsWith('1033 / 2000'), 'header total');
-  assert(await page.getByRole('button', { name: 'Gironda Meal 1', exact: true }).isVisible(), 'their own most-logged food becomes a quick add');
+  assert(await page.getByRole('heading', { name: /Gironda bar/ }).isVisible(), 'logging a Gironda meal brings up the Gironda bar');
+  assert(!(await page.getByRole('button', { name: 'Gironda Meal 1', exact: true }).count()), 'and it is not repeated as a quick add');
   await ctx.close();
 });
 
@@ -668,6 +670,60 @@ await test('free photo logging: no key needed, uses the Gym & Fuel service, show
   await page.getByText("That's today's 10 free photos used.").waitFor();
   assert(!errors.length, errors.join('; '));
   await ctx.close();
+});
+
+await test('Gironda bar: one tap logs each meal, a second tap takes it off; hidden for a friend, switchable', async () => {
+  const { page, ctx, errors } = await open({ iron: IRON });
+  await page.getByRole('button', { name: 'Bring my Iron & Eggs data' }).click();
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  const bar = page.locator('section', { has: page.getByRole('heading', { name: /Gironda bar/ }) });
+  assert(await bar.getByText('1/2 today').isVisible(), 'Meal 1 from Iron & Eggs already counts');
+  assert(await bar.getByRole('button', { name: /Eggs \+ patties/ }).getAttribute('aria-pressed') === 'true', 'shown as logged');
+  await bar.getByRole('button', { name: /Steak \+ eggs/ }).click();
+  let s = await state(page);
+  const today = s.meals.filter((m) => m.date === '2026-10-07' && m.ref?.startsWith('gironda'));
+  assert(today.length === 2 && today.some((m) => m.kcal === 952 && m.p === 93), `logged both: ${JSON.stringify(today)}`);
+  assert(await bar.getByText('2/2 today').isVisible(), 'count');
+  await bar.getByRole('button', { name: /Steak \+ eggs/ }).click();
+  s = await state(page);
+  assert(s.meals.filter((m) => m.date === '2026-10-07' && m.ref === 'gironda2').length === 0, 'second tap takes it off');
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Gironda bar in Fuel').uncheck();
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  assert(!(await page.getByRole('heading', { name: /Gironda bar/ }).count()), 'switched off');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+  const friend = await open();
+  await friend.page.getByRole('button', { name: 'Close' }).click();
+  await friend.page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  assert(!(await friend.page.getByRole('heading', { name: /Gironda bar/ }).count()), 'not shown to a friend without Iron & Eggs');
+  await friend.ctx.close();
+});
+
+const SUMMARY = { v: 1, at: '2026-10-08T20:00:00.000Z', date: '2026-10-08', chains: [
+  { id: 'coffee', name: 'No coffee', day: 8, best: 8, today: 'pending', unit: 'day' },
+  { id: 'cc-1', name: 'No sugar', day: 20, best: 20, today: 'pending', unit: 'day' },
+  { id: 'diet', name: 'Diet', day: 4, best: 4, today: 'pending', unit: 'day' },
+  { id: 'sessions', name: 'Sessions', day: 1, best: 1, today: 'pending', unit: 'wk' },
+] };
+await test('My chains on Today: every Iron & Eggs chain still counted, No coffee restarted on 10 Oct', async () => {
+  const { page, ctx, errors } = await open({ iron: IRON, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
+  const card = page.locator('section', { has: page.getByRole('heading', { name: /My chains/ }) });
+  const day = async (name) => card.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
+  assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
+  assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 8').isVisible(), 'coffee best kept');
+  assert(await day('No sugar') === 'Day 23', `clean chain keeps counting: ${await day('No sugar')}`);
+  assert(await day('Diet') === 'Day 4', 'logged chain as Iron & Eggs left it');
+  assert(await day('Sessions') === '1 week', 'weekly chain');
+  assert(await card.getByText('last updated these').isVisible(), 'stale note');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+  const fresh = await open({ iron: IRON, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-11', chains: [{ ...SUMMARY.chains[0], day: 2 }] } }, time: '2026-10-11T12:00:00+01:00' });
+  const c2 = fresh.page.locator('section', { has: fresh.page.getByRole('heading', { name: /My chains/ }) });
+  assert(await c2.locator('.daybadge').getAttribute('aria-label') === 'Day 2', 'a fresh summary is shown as is');
+  assert(!(await c2.getByText('last updated these').count()), 'no stale note');
+  await fresh.ctx.close();
 });
 
 await browser.close();

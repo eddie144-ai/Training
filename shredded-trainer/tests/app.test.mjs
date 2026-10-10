@@ -539,6 +539,20 @@ await test('Garmin import: reads the export zip into Garmin days, steps and slee
   await ctx.close();
 });
 
+await test('No coffee restarts on 10 Oct 2026: day 1 that day, best kept, other chains untouched, applied once', async () => {
+  const own = await seeded(() => {});
+  const { ctx, page } = await open({ own, time: '2026-10-10T10:00:00+01:00' });
+  const r = await page.evaluate(() => ({ slip: S.days['2026-10-09']?.chains?.coffee, coffee: chainStreak('coffee'), diet: chainStreak('diet').cur, flag: S.settings.coffeeRestart }));
+  eq([r.slip, r.coffee.cur, r.coffee.today, r.flag], [false, 0, 'pending', true], 'restarted');
+  assert(r.coffee.best >= 8, 'best kept');
+  const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')).chains.find((c) => c.id === 'coffee'));
+  eq(sum.day, 1, 'home page shows day 1');
+  await page.evaluate(() => { delete S.days['2026-10-09'].chains.coffee; save(); });
+  await page.reload();
+  eq(await page.evaluate(() => S.days['2026-10-09']?.chains?.coffee), undefined, 'not re-applied');
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

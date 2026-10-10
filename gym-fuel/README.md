@@ -18,6 +18,15 @@ again.
 - **Today:** the next session of your active programme with a Start button, today's calories and protein left
   with macro bars, quick add and barcode scan, today's weight, and the week so far (sessions, average kcal and
   protein).
+- **My chains (Today):** on a phone with Iron & Eggs, every chain from it (No coffee, your own "No ___" chains,
+  diet, cut, fasting, protein, training, sessions, steps, sleep, plan) with its day count and best, read from the
+  summary Iron & Eggs writes (`shtrainer.chains`). Clean chains (No coffee and your own) keep counting by the
+  days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. No coffee restarts on 10 Oct 2026.
+  Check-ins and slips stay in Iron & Eggs (**Open Iron & Eggs**). Hidden on phones without it.
+- **Gironda bar (Fuel → Log):** one tap logs Gironda Meal 1 (6 eggs + 3 pork patties) or Meal 2 (6 eggs + 250 g
+  steak) for the day on screen, tap again to take it off, with a 0/2 count. On when Iron & Eggs is on the phone or
+  a Gironda meal has been logged; **Body → Settings → Gironda bar in Fuel** switches it. Those two meals then
+  stay out of quick add.
 - **Train → Workout:** the 4-week cycles (My 4-Week Program, 10 lbs of Muscle in 4 Weeks) and Mentzer HIT
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and

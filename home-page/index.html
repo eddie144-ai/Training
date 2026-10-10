@@ -57,6 +57,8 @@
     background: var(--surface); border-bottom: var(--border-w) solid var(--border);
   }
   header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .logo-mark { width: 34px; height: 34px; border-radius: 50%; flex: none; margin-right: -2px; }
+  .logo-banner { display: block; width: 100%; height: auto; aspect-ratio: 960 / 524; object-fit: cover; border-radius: 18px; margin-bottom: 12px; }
   .lvl-pill { font-size: 13px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: var(--raised); border: var(--border-w) solid var(--border); color: var(--text); font-variant-numeric: tabular-nums; }
   main { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
   .card { background: var(--card); border: var(--border-w) solid var(--border); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; min-width: 0; }
@@ -393,6 +395,7 @@
 </head>
 <body>
 <header>
+  <img class="logo-mark" src="icons/logo-mark.png" alt="" width="34" height="34">
   <h1 id="title">Iron &amp; Eggs</h1>
   <span class="lvl-pill" id="lvl-pill"></span>
   <button class="icon ghost" id="contrast-btn" aria-label="Toggle high contrast" aria-pressed="false">
