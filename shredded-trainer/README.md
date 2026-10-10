@@ -68,8 +68,9 @@ Shredded Trainer saves a small summary of your chains (`shtrainer.chains`: name,
 today's status) whenever they change. The home page at **https://eddie144-ai.github.io/** (repository
 `eddie144-ai.github.io`) reads it to show every chain at a glance. It never leaves the phone.
 
-No coffee restarted on 10 Oct 2026: a one-time update records a coffee slip on 9 Oct, so that's day 1. The coffee
-best and every other chain keep their counts. Gym & Fuel shows the same list on its Today screen.
+Every chain restarted on 10 Oct 2026 (`CHAINS_RESET` in `app.js`): that day is day 1 for the daily chains and the
+weekly ones count from that week. Nothing in the log is changed, and best streaks, XP and achievements are kept.
+Gym & Fuel shows the same list on its Today screen.
 
 ## Logo
 The Iron and Eggs logo (cast-iron pan with a fried egg) is `icons/logo.jpg`, shown at the top of Today. The pan and

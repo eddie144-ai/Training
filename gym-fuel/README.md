@@ -21,7 +21,8 @@ again.
 - **My chains (Today):** on a phone with Iron & Eggs, every chain from it (No coffee, your own "No ___" chains,
   diet, cut, fasting, protein, training, sessions, steps, sleep, plan) with its day count and best, read from the
   summary Iron & Eggs writes (`shtrainer.chains`). Clean chains (No coffee and your own) keep counting by the
-  days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. No coffee restarts on 10 Oct 2026.
+  days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. Every chain restarted at day 1 on
+  10 Oct 2026 (best streaks kept).
   Check-ins and slips stay in Iron & Eggs (**Open Iron & Eggs**). Hidden on phones without it.
 - **Gironda bar (Fuel → Log):** one tap logs Gironda Meal 1 (6 eggs + 3 pork patties) or Meal 2 (6 eggs + 250 g
   steak) for the day on screen, tap again to take it off, with a 0/2 count. On when Iron & Eggs is on the phone or

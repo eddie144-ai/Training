@@ -707,19 +707,24 @@ const SUMMARY = { v: 1, at: '2026-10-08T20:00:00.000Z', date: '2026-10-08', chai
   { id: 'diet', name: 'Diet', day: 4, best: 4, today: 'pending', unit: 'day' },
   { id: 'sessions', name: 'Sessions', day: 1, best: 1, today: 'pending', unit: 'wk' },
 ] };
-await test('My chains on Today: every Iron & Eggs chain still counted, No coffee restarted on 10 Oct', async () => {
+await test('My chains on Today: every Iron & Eggs chain, all restarted at day 1 on 10 Oct', async () => {
   const { page, ctx, errors } = await open({ iron: IRON, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
   const card = page.locator('section', { has: page.getByRole('heading', { name: /My chains/ }) });
   const day = async (name) => card.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
   assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
   assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 8').isVisible(), 'coffee best kept');
-  assert(await day('No sugar') === 'Day 23', `clean chain keeps counting: ${await day('No sugar')}`);
-  assert(await day('Diet') === 'Day 4', 'logged chain as Iron & Eggs left it');
-  assert(await day('Sessions') === '1 week', 'weekly chain');
+  assert(await day('No sugar') === 'Day 2', `own chain restarted: ${await day('No sugar')}`);
+  assert(await day('Diet') === 'Day 2', 'diet restarted');
+  assert(await day('Sessions') === '0 weeks', 'weekly chain restarted');
   assert(await card.getByText('last updated these').isVisible(), 'stale note');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
   const fresh = await open({ iron: IRON, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-11', chains: [{ ...SUMMARY.chains[0], day: 2 }] } }, time: '2026-10-11T12:00:00+01:00' });
+  // and before the reset, an own chain keeps counting by the days since the summary
+  const early = await open({ iron: IRON, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-06' } }, time: '2026-10-08T12:00:00+01:00' });
+  const sugar = await early.page.locator('.chainrow', { hasText: 'No sugar' }).locator('.daybadge').getAttribute('aria-label');
+  assert(sugar === 'Day 22', `clean chain moves on: ${sugar}`);
+  await early.ctx.close();
   const c2 = fresh.page.locator('section', { has: fresh.page.getByRole('heading', { name: /My chains/ }) });
   assert(await c2.locator('.daybadge').getAttribute('aria-label') === 'Day 2', 'a fresh summary is shown as is');
   assert(!(await c2.getByText('last updated these').count()), 'no stale note');

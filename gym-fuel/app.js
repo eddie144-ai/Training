@@ -632,9 +632,10 @@ function growthCards(d) {
 
 // ---- Your chains from Iron & Eggs on this phone, read from the summary it writes for the home page.
 // Clean chains (no coffee and your own "No ___" chains) keep counting until you report a slip, so they move on
-// by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. No coffee restarts on 10 Oct 2026.
+// by the days since Iron & Eggs last wrote; the rest show where Iron & Eggs left them. Every chain restarted at day 1
+// on 10 Oct 2026 (best streaks kept), so a summary from before then counts from that day.
 const CHAINS_KEY = 'shtrainer.chains';
-const COFFEE_RESTART = '2026-10-10';
+const CHAINS_RESET = '2026-10-10';
 const LOGGED_CHAINS = ['diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
 function ironChains(d) {
   let sum = null;
@@ -643,7 +644,7 @@ function ironChains(d) {
   const gap = Math.max(0, daysBetween(sum.date, d));
   const chains = sum.chains.map((c) => {
     let day = Number(c.day) || 0, best = Number(c.best) || 0;
-    if (c.id === 'coffee' && sum.date < COFFEE_RESTART && d >= COFFEE_RESTART) day = daysBetween(COFFEE_RESTART, d) + 1;
+    if (sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = c.unit === 'wk' ? 0 : daysBetween(CHAINS_RESET, d) + 1;
     else if (c.unit !== 'wk' && !LOGGED_CHAINS.includes(c.id)) { day += gap; best = Math.max(best, day); }
     return { ...c, day, best };
   });

@@ -13,7 +13,7 @@ const STORE_KEY = 'shtrainer.v1';
 const OLD_KEY = 'shtrainer.v2-backup';
 const TRAINER_KEY = 'trainer.v1'; // read once, on request, to copy your Trainer history in
 const CHAINS_KEY = 'shtrainer.chains'; // a small summary of your chains, read by the home page at eddie144-ai.github.io
-const COFFEE_RESTART = '2026-10-10'; // the no-coffee chain restarts here (see normalise)
+const CHAINS_RESET = '2026-10-10'; // every chain restarts here at day 1; best streaks and XP are kept (see chainStreak)
 // Background: Vince Gironda in Tomorrow's Man, June 1953 (Irvin Johnson Health Studio). Public domain in the US
 // (published 1931-63, copyright not renewed). Loaded from Wikimedia Commons and cached by the service worker.
 const GIRONDA_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
@@ -296,13 +296,6 @@ function normalise(s) {
   if (!s.settings?.cycleFixed) {
     if (out.settings.cycleStart === '2026-10-05') out.settings.cycleStart = '2026-10-01';
     out.settings.cycleFixed = true;
-  }
-  // One-time: the no-coffee chain restarts on 10 Oct 2026 (a slip on the day before, so that's day 1).
-  // Every other chain keeps its count, and the coffee best is kept.
-  if (!s.settings?.coffeeRestart && today() >= COFFEE_RESTART) {
-    const prev = addDays(COFFEE_RESTART, -1);
-    ((out.days[prev] ||= {}).chains ||= {}).coffee = false;
-    out.settings.coffeeRestart = true;
   }
   return out;
 }
@@ -587,6 +580,7 @@ function chainStreak(id) {
     if (t < chainStart()) return (chainMemo[id] = { cur, best, days, today: 'off', unit: 'wk' });
     let week = null;
     for (let ws = weekStart(chainStart()); ws <= t; ws = addDays(ws, 7)) {
+      if (ws === weekStart(CHAINS_RESET)) cur = 0;
       week = weekResult(id, ws);
       days += week.count;
       if (week.status === 'done') { cur++; best = Math.max(best, cur); } else if (week.status === 'miss') cur = 0;
@@ -595,6 +589,7 @@ function chainStreak(id) {
   }
   const from = def?.custom && def.since ? def.since : isClean(def) ? cleanStart() : chainStart();
   for (let d = from; d <= t; d = addDays(d, 1)) {
+    if (d === CHAINS_RESET) cur = 0;
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
   }
