@@ -719,12 +719,12 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   const names = await card.locator('.chainrow b').allTextContents();
   assert(JSON.stringify(names) === JSON.stringify(['No coffee', 'No sugar', 'No weed', 'No energy drinks', 'Cut day', '4 sessions this week']), `only these chains: ${names}`);
   assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
-  assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 8').isVisible(), 'coffee best kept');
+  assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 5').isVisible(), 'coffee best set to 5 at the reset');
   assert(await day('No sugar') === 'Day 23', `own chain keeps counting: ${await day('No sugar')}`);
   assert(await day('No weed') === 'Day 72', `Trainer chain: ${await day('No weed')}`);
   assert(await day('No energy drinks') === 'Day 21', `Trainer chain after a slip: ${await day('No energy drinks')}`);
-  assert(await day('Cut day') === 'Day 1', `cut broken yesterday in the original app, today pending: ${await day('Cut day')}`);
-  assert(await card.locator('.chainrow', { hasText: 'Cut day' }).getByText('best 6').isVisible(), 'cut best from the summary');
+  assert(await day('Cut day') === 'Day 0', `cut broken yesterday in the original app, today not kept yet: ${await day('Cut day')}`);
+  assert(await card.locator('.chainrow', { hasText: 'Cut day' }).getByText('best 0').isVisible(), 'cut best reset to 0');
   assert(await day('4 sessions') === '1 week', `four sessions Mon–Sun: ${await day('4 sessions')}`);
   assert(await card.getByText('4/4 this week').isVisible(), 'this week count');
   assert(await card.getByText('were last checked in').isVisible(), 'stale note');
