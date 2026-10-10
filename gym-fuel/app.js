@@ -729,6 +729,8 @@ function myChains(d) {
     let day = Number(c.day) || 0, best = Number(c.best) || 0;
     if (c.id === 'coffee' && sum.date < CHAINS_RESET && d >= CHAINS_RESET) day = daysBetween(CHAINS_RESET, d) + 1;
     else { day += gap; best = Math.max(best, day); }
+    // No coffee restarted on the reset day, whatever an older copy of the app wrote.
+    if (c.id === 'coffee' && d >= CHAINS_RESET) day = Math.min(day, daysBetween(CHAINS_RESET, d) + 1);
     return { ...c, day, best };
   });
   const have = (c) => clean.some((x) => x.id === c.id || String(x.name).toLowerCase() === c.name.toLowerCase());

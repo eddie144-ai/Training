@@ -735,6 +735,10 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   const b = await open({ own, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
   assert(await b.page.locator('.chainrow', { hasText: 'Cut day' }).locator('.daybadge').getAttribute('aria-label') === 'Day 0', 'off-plan food breaks the cut day');
   await b.ctx.close();
+  // An older copy of the app (the home page) wrote today's summary without the reset: No coffee is still day 1.
+  const old = await open({ own, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-10', chains: [{ ...SUMMARY.chains[0], day: 10, best: 10 }] } }, time: '2026-10-10T12:00:00+01:00' });
+  assert(await old.page.locator('.chainrow', { hasText: 'No coffee' }).locator('.daybadge').getAttribute('aria-label') === 'Day 1', 'No coffee held to day 1 from 10 Oct');
+  await old.ctx.close();
   const friend = await open({ own: { v: 1, settings: { setupDone: true } } });
   assert(!(await friend.page.getByRole('heading', { name: /My chains/ }).count()), 'no chains on a friend\'s phone');
   await friend.ctx.close();
