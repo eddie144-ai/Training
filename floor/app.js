@@ -44,16 +44,18 @@ function normalise(o) {
   }
   return { meta, days };
 }
-function lsLoad() { try { const v = localStorage.getItem(LS); if (v) S = normalise(JSON.parse(v)); } catch (e) { /* keep defaults */ } }
+let lastRaw = null; // the stored data as this window last read or wrote it, to spot a change made by Daily
+function lsLoad() { try { const v = localStorage.getItem(LS); lastRaw = v; if (v) S = normalise(JSON.parse(v)); } catch (e) { /* keep defaults */ } }
+function lsWrite() { const v = JSON.stringify(S); localStorage.setItem(LS, v); lastRaw = v; }
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { localStorage.setItem(LS, JSON.stringify(S)); setSaved('Saved on this phone'); }
+    try { lsWrite(); setSaved('Saved on this phone'); }
     catch (e) { setSaved('Couldn\'t save. Storage may be full or blocked.'); }
   }, 150);
 }
-function flush() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} } }
+function flush() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; try { lsWrite(); } catch (e) {} } }
 window.addEventListener('pagehide', flush);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
 function setSaved(t) { $('saveState').textContent = t; }
@@ -242,7 +244,7 @@ function mergeIn(raw) {
   const addedEntries = S.meta.contacts.length + S.meta.parked.length - before;
   if (!S.meta.oneProject && inc.meta.oneProject) S.meta.oneProject = inc.meta.oneProject;
   if (!S.meta.name && inc.meta.name) S.meta.name = inc.meta.name;
-  flush(); try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {}
+  flush(); try { lsWrite(); } catch (e) {}
   renderAll();
   return { addedDays, addedEntries };
 }
@@ -296,7 +298,15 @@ function renderAll() {
 
 // An installed app can stay open past midnight: roll over to the new day when it comes back.
 function checkRollover() { const k = keyOf(new Date()); if (k !== today) { today = k; $('gDate').value = today; renderAll(); } }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkRollover(); });
+// Daily (daily/) ticks boxes in this data while this app may be open in the background: pick that up
+// before anything is saved over it. Changes still waiting to be saved here stay and win.
+function reloadIfChanged() {
+  let v; try { v = localStorage.getItem(LS); } catch (e) { return false; }
+  if (saveTimer || !v || v === lastRaw) return false;
+  lsLoad(); renderAll(); return true;
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { reloadIfChanged(); checkRollover(); } });
+window.addEventListener('storage', (e) => { if (e.key === LS) reloadIfChanged(); });
 setInterval(checkRollover, 60000);
 
 lsLoad();

@@ -58,6 +58,9 @@ jobs:
       - name: The Floor
         if: ${{ !cancelled() }}
         run: node floor/tests/app.test.mjs
+      - name: Daily
+        if: ${{ !cancelled() }}
+        run: node daily/tests/app.test.mjs
       - name: Council
         if: ${{ !cancelled() }}
         run: node council/tests/coach.test.mjs

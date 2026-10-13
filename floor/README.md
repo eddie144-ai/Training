@@ -14,6 +14,11 @@ installs on the phone like Iron & Eggs.
   90-day counts and "copy record as text".
 - **Parked:** the one project, plus ideas parked for seven days before you can act on them.
 
+## Daily
+[Daily](../daily/) shows The Floor's six with Iron & Eggs on one screen and writes ticks and the evening
+fields straight into this app's data. The Floor reloads its data when it comes back to the front or Daily
+changes it, so it never saves over Daily's ticks.
+
 ## Settings and backup
 Steps target, screens-off time, your name (only used in the copied record) and what counts as a
 brick. **Save backup** shares or downloads a JSON file; **Restore backup** (or paste) merges one in
