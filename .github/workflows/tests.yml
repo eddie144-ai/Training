@@ -61,6 +61,9 @@ jobs:
       - name: Daily
         if: ${{ !cancelled() }}
         run: node daily/tests/app.test.mjs
+      - name: AI 90
+        if: ${{ !cancelled() }}
+        run: node ai90/tests/app.test.mjs
       - name: Council
         if: ${{ !cancelled() }}
         run: node council/tests/coach.test.mjs
