@@ -96,9 +96,11 @@ function normalise(s) {
 }
 
 let storageOk = true;
+let lastRaw = null; // the stored data as this window last read or wrote it, to spot a change made by another app
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
+    lastRaw = raw;
     if (!raw) return { ...freshState(), notice: 'start' };
     const parsed = JSON.parse(raw);
     // Anyone who used the app before the setup sheet existed has already set their targets.
@@ -111,7 +113,15 @@ function load() {
 }
 let S = load();
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); storageOk = true; } catch { storageOk = false; }
+  try { const raw = JSON.stringify(S); localStorage.setItem(STORE_KEY, raw); lastRaw = raw; storageOk = true; } catch { storageOk = false; }
+}
+// Daily (daily/) logs meals and weigh-ins into this data while this app may be open in the background.
+// Pick that up before anything is saved over it.
+function reloadIfChanged() {
+  const raw = rawKey(STORE_KEY);
+  if (!raw || raw === lastRaw) return false;
+  S = load();
+  return true;
 }
 const rawKey = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
@@ -2291,7 +2301,9 @@ document.addEventListener('keydown', (e) => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('.liftchart .pt')) { e.preventDefault(); e.target.closest('.pt').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
 });
 // Coming back to the app on a new day shows the new day.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); });
+const idle = () => !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { reloadIfChanged(); if (idle()) render(); } });
+window.addEventListener('storage', (e) => { if (e.key === STORE_KEY && reloadIfChanged() && idle()) render(); });
 
 try { if (gatherLifts()) save(); } catch { /* another app's data unreadable: skip */ }
 render();

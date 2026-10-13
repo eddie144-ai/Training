@@ -122,6 +122,11 @@ again.
 - **Body → Settings:** calorie and macro targets, start and target weight, height, sex, redo the setup, cycle start, copy from Iron & Eggs,
   backup and restore, high contrast, delete all data.
 
+## Daily
+[Daily](../daily/) puts this app and The Floor on one screen and can log the Gironda meals and today's weigh-in
+into this app's data. Iron & Eggs reloads its data when it comes back to the front or Daily changes it, so it
+never saves over what Daily logged.
+
 ## Left out from Iron & Eggs
 Chains, XP and levels, goals, journal and dreams, fasting and the eating window, carb-up clock and cut check-ins,
 Garmin, sleep, fluids, planning and shopping, the channel and the other apps.
