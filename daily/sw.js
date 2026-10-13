@@ -1,7 +1,7 @@
 // Offline cache for Daily (daily/). Bump VERSION whenever a file below changes.
 // Network first for same-origin files, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Google Fonts are cache first so the type still loads offline.
-const VERSION = 'daily-v1.0';
+const VERSION = 'daily-v1.1';
 const FILES = ['./', './index.html', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 
