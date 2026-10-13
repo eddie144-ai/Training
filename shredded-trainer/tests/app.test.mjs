@@ -539,19 +539,20 @@ await test('Garmin import: reads the export zip into Garmin days, steps and slee
   await ctx.close();
 });
 
-await test('Every chain restarts at day 1 on 10 Oct 2026; No coffee best 5, Cut day best 0', async () => {
+await test('Chains restart on 10 Oct 2026; No coffee and Cut day start 14 Oct with bests 5 and 0', async () => {
   const own = await seeded(() => {});
-  const before = await open({ own, time: '2026-10-09T20:00:00+01:00' });
-  const was = await before.page.evaluate(() => ({ coffee: chainStreak('coffee').cur }));
-  await before.ctx.close();
-  assert(was.coffee >= 8, `coffee was counting: ${was.coffee}`);
   const { ctx, page } = await open({ own, time: '2026-10-10T10:00:00+01:00' });
   const sum = await page.evaluate(() => JSON.parse(localStorage.getItem('shtrainer.chains')).chains);
   assert(sum.every((c) => c.day <= 1), `all at day 1 or less: ${JSON.stringify(sum.map((c) => [c.id, c.day]))}`);
-  eq(sum.find((c) => c.id === 'coffee').day, 1, 'no coffee: day 1');
+  eq([sum.find((c) => c.id === 'coffee').day, sum.find((c) => c.id === 'cut').day], [0, 0], 'No coffee and Cut day wait for 14 Oct');
   eq([sum.find((c) => c.id === 'coffee').best, sum.find((c) => c.id === 'cut').best], [5, 0], 'bests set at the reset: No coffee 5, Cut day 0');
   eq(await page.evaluate(() => S.days['2026-10-09']?.chains?.coffee), undefined, 'no slip written to the log');
   await ctx.close();
+  const later = await open({ own, time: '2026-10-15T10:00:00+01:00' });
+  const c = await later.page.evaluate(() => ({ coffee: chainStreak('coffee'), cut: chainStreak('cut') }));
+  eq([c.coffee.cur, c.coffee.today, c.coffee.best], [1, 'pending', 5], 'No coffee from 14 Oct: day 2 today, best 5');
+  assert(c.cut.cur <= 1 && c.cut.best <= 1, `Cut day counts from 14 Oct: ${JSON.stringify(c.cut)}`);
+  await later.ctx.close();
 });
 
 await test('Own chains from Trainer are added automatically, keep their count through the reset, and stay deleted', async () => {
@@ -559,7 +560,7 @@ await test('Own chains from Trainer are added automatically, keep their count th
   const own = await seeded(() => {});
   const { ctx, page } = await open({ own, trainer, time: '2026-10-10T10:00:00+01:00' });
   const sum = await page.evaluate(() => Object.fromEntries(JSON.parse(localStorage.getItem('shtrainer.chains')).chains.map((c) => [c.name, c.day])));
-  eq([sum['No weed'], sum['No energy drinks'], sum['No coffee']], [25, 40, 1], 'own chains keep counting, built-in restarted');
+  eq([sum['No weed'], sum['No energy drinks'], sum['No coffee']], [25, 40, 0], 'own chains keep counting, No coffee waits for 14 Oct');
   await page.evaluate(() => { S.customChains = S.customChains.filter((c) => c.id !== 'cc-e'); save(); });
   await page.reload();
   eq(await page.evaluate(() => S.customChains.map((c) => c.name)), ['No weed'], 'a deleted chain is not added back');

@@ -674,6 +674,7 @@ function growthCards(d) {
 const CHAINS_KEY = 'shtrainer.chains', TRAINER_KEY = 'trainer.v1';
 const CHAINS_RESET = '2026-10-10';
 const COFFEE_BEST = 5; // No coffee's best streak was set to 5 days at the reset; Cut day's best to 0
+const CHAIN_STARTS = { coffee: '2026-10-14', cut: '2026-10-14' }; // both start again here: day 1 that day, day 0 until then
 const BUILT_IN_CHAINS = ['coffee', 'diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
 const SESSIONS_A_WEEK = 4;
 const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
@@ -710,7 +711,7 @@ function cutChain(d, iron) {
     return x < d ? 'done' : 'pending';
   };
   let cur = 0, best = 0, st = 'off';
-  for (let x = CHAINS_RESET; x <= d; x = addDays(x, 1)) {
+  for (let x = CHAIN_STARTS.cut; x <= d; x = addDays(x, 1)) {
     st = status(x);
     if (st === 'done') { cur++; best = Math.max(best, cur); } else if (st === 'miss') cur = 0;
   }
@@ -743,8 +744,8 @@ function myChains(d) {
     else { day += gap; best = Math.max(best, day); }
     // No coffee restarted on the reset day, whatever an older copy of the app wrote.
     if (c.id === 'coffee' && d >= CHAINS_RESET) {
-      day = Math.min(day, daysBetween(CHAINS_RESET, d) + 1);
-      best = Math.max(COFFEE_BEST, day, sum.date > CHAINS_RESET ? Number(c.best) || 0 : 0);
+      day = d < CHAIN_STARTS.coffee ? 0 : Math.min(day, daysBetween(CHAIN_STARTS.coffee, d) + 1);
+      best = Math.max(COFFEE_BEST, day, sum.date > CHAIN_STARTS.coffee ? Number(c.best) || 0 : 0);
     }
     return { ...c, day, best };
   });
