@@ -17,7 +17,7 @@
 :root{
   --bg:#ECEAF0; --surface:#F8F7FA; --ink:#1C1A24; --muted:#615D6E; --line:#D3D0DA;
   --accent:#5B3FD1; --accent-ink:#F8F7FA; --good:#1E6B57; --warn:#9A5B12; --warn-bg:#F3E6D2; --bad:#9B2F2F;
-  --claude:#B4532A; --gemini:#2B5FC4; --grok:#2A2730; --you:#1E6B57;
+  --claude:#B4532A; --gemini:#2B5FC4; --grok:#2A2730; --perplexity:#1F6F78; --you:#1E6B57;
   --display:"Barlow Condensed","Arial Narrow",Impact,sans-serif;
   --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
@@ -26,11 +26,11 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#14131A; --surface:#1D1B25; --ink:#E9E7EF; --muted:#9C97AB; --line:#2F2C3A;
   --accent:#A08CFF; --accent-ink:#14131A; --good:#5DBE9E; --warn:#E3A857; --warn-bg:#2A2117; --bad:#E07A7A;
-  --claude:#E58A5E; --gemini:#7FA6F0; --grok:#CFCBDA; --you:#5DBE9E; color-scheme:dark}}
+  --claude:#E58A5E; --gemini:#7FA6F0; --grok:#CFCBDA; --perplexity:#5FC4CC; --you:#5DBE9E; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#14131A; --surface:#1D1B25; --ink:#E9E7EF; --muted:#9C97AB; --line:#2F2C3A;
   --accent:#A08CFF; --accent-ink:#14131A; --good:#5DBE9E; --warn:#E3A857; --warn-bg:#2A2117; --bad:#E07A7A;
-  --claude:#E58A5E; --gemini:#7FA6F0; --grok:#CFCBDA; --you:#5DBE9E; color-scheme:dark}
+  --claude:#E58A5E; --gemini:#7FA6F0; --grok:#CFCBDA; --perplexity:#5FC4CC; --you:#5DBE9E; color-scheme:dark}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);
@@ -60,7 +60,7 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .iconbtn:disabled{opacity:.35}
 .badges{display:flex;gap:6px;flex-wrap:wrap}
 .badge{font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:3px;color:var(--surface);background:var(--muted)}
-.badge.claude{background:var(--claude)} .badge.gemini{background:var(--gemini)} .badge.grok{background:var(--grok)} .badge.you{background:var(--you)}
+.badge.claude{background:var(--claude)} .badge.gemini{background:var(--gemini)} .badge.grok{background:var(--grok)} .badge.perplexity{background:var(--perplexity)} .badge.you{background:var(--you)}
 .badge.plain{background:transparent;color:var(--muted);border:1px solid var(--line)}
 ol,ul{margin:0;padding-left:20px}
 li{margin:2px 0}
@@ -88,8 +88,9 @@ textarea{min-height:90px;resize:vertical}
 .dot.today{outline:2px solid var(--accent);outline-offset:1px}
 .dot.ship{border-style:double;border-width:3px}
 .phase{margin-top:6px}
-.tally{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.tally{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
 .tally div{border:1px solid var(--line);border-radius:4px;padding:8px}
+.tally .badge{font-size:10px;padding:3px 5px}
 .tally strong{display:block;font:800 26px var(--display)}
 .list{display:flex;flex-direction:column}
 .list .it{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 0;border-bottom:1px solid var(--line);align-items:center}
@@ -101,6 +102,8 @@ textarea{min-height:90px;resize:vertical}
 .stages{display:flex;gap:6px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .stages b{color:var(--ink)}
 .empty{color:var(--muted);font-size:14px}
+.rule{margin:0;font-size:13px;color:var(--muted);border-left:3px solid var(--accent);padding:2px 0 2px 10px}
+.rule b{color:var(--ink)}
 .saved{text-align:center;color:var(--muted);font-size:12px}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:4px;opacity:0;transition:.2s;pointer-events:none;max-width:90vw;z-index:9}
 .toast.on{opacity:1;transform:translate(-50%,0)}
@@ -113,7 +116,7 @@ details summary{cursor:pointer;font-weight:600}
   <header>
     <div>
       <h1>AI 90</h1>
-      <p class="sub" id="phaseLine">Learn the three. Then make them pay.</p>
+      <p class="sub" id="phaseLine">Learn the tools. Then make them pay.</p>
     </div>
     <div class="daybox"><div class="label">Day</div><strong class="mono" id="dayNum">1</strong><span class="mono"> / 90</span></div>
   </header>
@@ -155,15 +158,22 @@ details summary{cursor:pointer;font-weight:600}
       </label>
       <button class="btn primary" id="doneBtn">Mark done</button>
     </div>
+    <p class="rule"><b>The one rule:</b> today's task before any new AI video, prompt collection or project. New ideas go in Plan → Parked.</p>
   </section>
 
   <section id="panel-plan" class="wrap" hidden>
     <div class="card">
       <h3>Bake-off wins</h3>
-      <p class="sub">Every fifth day you give all three the same job and pick the best.</p>
+      <p class="sub">Every fifth day you give all four the same job and pick the best.</p>
       <div class="tally" id="tally"></div>
     </div>
     <div class="card"><div id="weeks" class="weeks"></div></div>
+    <div class="card">
+      <h3>Parked until Day 90</h3>
+      <p class="sub">Other projects and shiny ideas. Write them down so they stop pulling at you. On Day 90 you pick at most one.</p>
+      <div class="row"><input id="parkText" placeholder="Idea or project"><button class="btn" id="parkAdd" style="flex:0 0 auto">Park it</button></div>
+      <div class="list" id="parkedList"></div>
+    </div>
   </section>
 
   <section id="panel-tools" class="wrap" hidden>

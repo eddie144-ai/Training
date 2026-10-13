@@ -1,4 +1,4 @@
-// AI 90: a 90-day plan for learning Claude, Gemini and Grok and making money with them.
+// AI 90: a 90-day plan for learning Claude, Gemini, Grok and Perplexity and making money with them.
 // The plan is in data.js. Progress lives in this browser's localStorage only.
 (function () {
 'use strict';
@@ -12,12 +12,12 @@ const fmt = (k, opts) => parseKey(k).toLocaleDateString('en-GB', opts || { weekd
 const money = (n) => '£' + (Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const STAGES = ['found', 'contacted', 'replied', 'talking', 'won', 'lost'];
-const BOTS = ['claude', 'gemini', 'grok'];
+const BOTS = ['claude', 'gemini', 'grok', 'perplexity'];
 let today = keyOf(new Date());
 
 /* ---------- storage ---------- */
 const LS = 'ai90-v1';
-const DEFAULT_META = () => Object.assign({ start: '', lane: 'apps', goal: 1000 }, laneFields('apps'));
+const DEFAULT_META = () => Object.assign({ start: '', lane: 'apps', goal: 1000, parked: [] }, laneFields('apps'));
 function laneFields(id) { const l = LANES[id] || LANES.apps; return { niche: l.niche, audience: l.audience, offer: l.offer, channel: l.channel, price: l.price }; }
 let S = { meta: DEFAULT_META(), days: {}, income: [], leads: [] };
 
@@ -26,6 +26,7 @@ function normalise(o) {
   if (!LANES[meta.lane]) meta.lane = 'apps';
   if (meta.start && !/^\d{4}-\d{2}-\d{2}$/.test(meta.start)) meta.start = '';
   meta.goal = Math.max(0, +meta.goal || 0);
+  meta.parked = (Array.isArray(meta.parked) ? meta.parked : []).filter((x) => x && x.text && x.at).map((x) => ({ text: String(x.text), at: x.at }));
   const days = {};
   const src = (o && o.days) || {};
   for (const k of Object.keys(src)) {
@@ -61,7 +62,7 @@ function dayInfo(n) {
   const w = Math.ceil(n / 7), slot = (n - 1) % 7, week = WEEKS[w - 1];
   const base = { n, w, week, slot };
   if (slot < 4) return Object.assign(base, { kind: 'Task', task: week.tasks[slot] });
-  if (slot === 4) return Object.assign(base, { kind: 'Bake-off', task: { t: 'Bake-off: same job, all three', tool: 'all', min: 25, why: 'Give Claude, Gemini and Grok the exact same job and judge them side by side. This is how you learn which one to reach for.', do: ['Paste the prompt into all three', 'Read the answers side by side', 'Pick the winner and write why in your notes'], p: week.bake } });
+  if (slot === 4) return Object.assign(base, { kind: 'Bake-off', task: { t: 'Bake-off: same job, all four', tool: 'all', min: 30, why: 'Give Claude, Gemini, Grok and Perplexity the exact same job and judge them side by side. This is how you learn which one to reach for.', do: ['Paste the prompt into all four', 'Read the answers side by side', 'Pick the winner and write why in your notes'], p: week.bake } });
   if (slot === 5) return Object.assign(base, { kind: n === DAYS ? 'Day 90' : 'Ship day', task: { t: week.ship.t, tool: 'you', min: 60, why: 'This week\'s deliverable. Finished beats perfect.', do: week.ship.do, p: '' } });
   return Object.assign(base, { kind: 'Review', task: { t: 'Week ' + w + ' review', tool: 'you', min: 15, why: 'Fifteen minutes looking back saves hours going the wrong way.', do: [], p: '' } });
 }
@@ -142,7 +143,7 @@ function weekMoney(w) {
 
 /* ---------- render: plan ---------- */
 function renderPlan() {
-  const wins = { claude: 0, gemini: 0, grok: 0 };
+  const wins = { claude: 0, gemini: 0, grok: 0, perplexity: 0 };
   Object.values(S.days).forEach((d) => { if (d.winner) wins[d.winner]++; });
   $('tally').innerHTML = BOTS.map((b) => '<div><strong class="mono">' + wins[b] + '</strong><span class="badge ' + b + '">' + TOOLS[b].short + '</span></div>').join('');
   const real = dayNumber();
@@ -162,6 +163,8 @@ function renderPlan() {
     }
   });
   $('weeks').innerHTML = html;
+  $('parkedList').innerHTML = S.meta.parked.length ? S.meta.parked.map((x) => '<div class="it"><div>' + esc(x.text) + '<div class="m">Parked ' + fmt(keyOf(new Date(x.at))) + '</div></div><button class="x" data-del-parked="' + x.at + '" aria-label="Delete">×</button></div>').join('')
+    : '<p class="empty">Nothing parked. Every new idea goes here, not into your day.</p>';
 }
 
 /* ---------- render: tools ---------- */
@@ -199,14 +202,15 @@ function summaryText() {
   const tot = totalIncome(), n = clampDay(dayNumber());
   const bySrc = {}; S.income.forEach((x) => { const k = x.source || 'other'; bySrc[k] = (bySrc[k] || 0) + x.amount; });
   const counts = {}; S.leads.forEach((l) => { counts[l.stage] = (counts[l.stage] || 0) + 1; });
-  const wins = { claude: 0, gemini: 0, grok: 0 }; Object.values(S.days).forEach((d) => { if (d.winner) wins[d.winner]++; });
+  const wins = { claude: 0, gemini: 0, grok: 0, perplexity: 0 }; Object.values(S.days).forEach((d) => { if (d.winner) wins[d.winner]++; });
   return ['AI 90 summary, day ' + n + ' of 90',
     'Selling: ' + fill('{offer} to {audience} at {price}, via {channel}'),
     'Days done: ' + Object.values(S.days).filter((d) => d.done).length + ' of 90',
     'Earned: ' + money(tot) + ' (goal ' + money(S.meta.goal) + ')',
     ...Object.entries(bySrc).map(([k, v]) => '  ' + k + ': ' + money(v)),
     'Leads: ' + (S.leads.length ? STAGES.filter((s) => counts[s]).map((s) => s + ' ' + counts[s]).join(', ') : 'none yet'),
-    'Bake-off wins: Claude ' + wins.claude + ', Gemini ' + wins.gemini + ', Grok ' + wins.grok].join('\n');
+    'Bake-off wins: Claude ' + wins.claude + ', Gemini ' + wins.gemini + ', Grok ' + wins.grok + ', Perplexity ' + wins.perplexity,
+    'Parked until Day 90: ' + (S.meta.parked.length ? S.meta.parked.map((x) => x.text).join('; ') : 'nothing')].join('\n');
 }
 
 /* ---------- render: setup ---------- */
@@ -246,8 +250,8 @@ function mergeIn(raw) {
     if (!mine || (!mine.done && !mine.note && !mine.winner)) { S.days[n] = d; added++; }
   }
   const byAt = (arr, more) => { const seen = new Set(arr.map((x) => x.at)); more.forEach((x) => { if (!seen.has(x.at)) { arr.push(x); seen.add(x.at); added++; } }); };
-  byAt(S.income, inc.income); byAt(S.leads, inc.leads);
-  if (!S.meta.start && inc.meta.start) S.meta = inc.meta;
+  byAt(S.income, inc.income); byAt(S.leads, inc.leads); byAt(S.meta.parked, inc.meta.parked);
+  if (!S.meta.start && inc.meta.start) S.meta = Object.assign(inc.meta, { parked: S.meta.parked });
   flush(); renderAll();
   return added;
 }
@@ -304,6 +308,15 @@ $('leadList').onchange = (e) => {
 $('leadList').onclick = (e) => {
   const b = e.target.closest('[data-del-lead]'); if (!b || !confirm('Delete this lead?')) return;
   S.leads = S.leads.filter((x) => String(x.at) !== b.dataset.delLead); save(); renderMoney();
+};
+$('parkAdd').onclick = () => {
+  const t = $('parkText').value.trim(); if (!t) return;
+  S.meta.parked.push({ text: t, at: Date.now() }); $('parkText').value = ''; save(); renderPlan(); toast('Parked until Day 90.');
+};
+$('parkText').onkeydown = (e) => { if (e.key === 'Enter') $('parkAdd').click(); };
+$('parkedList').onclick = (e) => {
+  const b = e.target.closest('[data-del-parked]'); if (!b) return;
+  S.meta.parked = S.meta.parked.filter((x) => String(x.at) !== b.dataset.delParked); save(); renderPlan();
 };
 $('copySummary').onclick = () => copy(summaryText(), $('copySummary'));
 

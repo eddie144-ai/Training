@@ -16,7 +16,7 @@ A collection of Eddie's personal apps, mostly offline-first phone web apps. GitH
 | `shredded-system/` | Gironda Cut guide, spec, datasets; app in `shredded-system/app/` | Plain HTML/JS | `node shredded-system/tests/app.test.mjs` |
 | `floor/` | The Floor: six-a-day minimum, girls contact log, parked ideas (was a Claude artifact) | Plain HTML/JS | `node floor/tests/app.test.mjs` |
 | `daily/` | Daily: Iron & Eggs (`gym-fuel/`) and The Floor on one screen, the day in order. No data of its own: reads and writes `gymfuel.v1` and `the-floor-v1` | Plain HTML/JS | `node daily/tests/app.test.mjs` |
-| `ai90/` | AI 90: a 90-day plan for learning Claude, Gemini and Grok and making money with them | Plain HTML/JS | `node ai90/tests/app.test.mjs` |
+| `ai90/` | AI 90: a 90-day plan for learning Claude, Gemini, Grok and Perplexity and making money with them | Plain HTML/JS | `node ai90/tests/app.test.mjs` |
 | `liferpg/` | Life RPG: 4 pillars as one-tap quests; reads Trainer data via `trainer-adapter.js` | Plain HTML/JS | `node liferpg/tests/liferpg.test.mjs` |
 | `council/` | Council: therapy/life app + Council Coach (Claude, Groq, OpenRouter with fallback) | Plain HTML/JS | `node council/tests/coach.test.mjs` |
 | `deliberation-council/` | Deliberation Council source (Expo / React Native / TypeScript). Has its own `CLAUDE.md` and `AGENTS.md`: read them first | Expo SDK, npm | `npm ci && npx tsc --noEmit` (in the folder) |

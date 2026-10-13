@@ -50,7 +50,7 @@ const state = (page) => page.evaluate(() => { window.dispatchEvent(new Event('pa
 await test('first open starts day one today, and every tab renders without errors', async () => {
   const { page, ctx, errors } = await open();
   assert((await page.textContent('#dayNum')) === '1', 'not day 1');
-  assert((await page.textContent('#title')).includes('Claude'), 'day 1 is not the Claude setup');
+  assert((await page.textContent('#title')).includes('profile'), 'day 1 is not the profile setup');
   for (const t of ['plan', 'tools', 'money', 'setup', 'today']) { await page.click('#tab-' + t); assert(await page.isVisible('#panel-' + t), t + ' panel hidden'); }
   assert(await page.locator('.dot').count() === 90, 'plan does not have 90 days');
   const s = await state(page);
@@ -152,6 +152,31 @@ await test('backup restores into an empty phone and merges without wiping', asyn
   assert(s.income.length === 2, 'income not merged once');
   await page.evaluate(() => window.__ai90.restoreFrom('{"hello":1}'));
   assert((await state(page)).income.length === 2, 'junk changed data');
+  await ctx.close();
+});
+
+await test('Perplexity is the fourth tool, and parked ideas persist and show in the summary', async () => {
+  const { page, ctx } = await open({ time: '2026-10-16T12:00:00+01:00', stored: { meta: { start: '2026-10-12' } } });
+  assert(await page.locator('#winner .chip').count() === 4, 'bake-off does not offer four tools');
+  await page.click('#winner [data-bot="perplexity"]');
+  await page.click('#tab-tools');
+  assert((await page.textContent('#toolCards')).includes('Perplexity Pro'), 'no Perplexity card');
+  await page.click('#tab-plan');
+  await page.fill('#parkText', 'Mushroom business');
+  await page.click('#parkAdd');
+  await page.reload();
+  await page.click('#tab-plan');
+  assert((await page.textContent('#parkedList')).includes('Mushroom business'), 'parked idea lost on reload');
+  const sum = await page.evaluate(() => window.__ai90.summaryText());
+  assert(sum.includes('Perplexity 1') && sum.includes('Parked until Day 90: Mushroom business'), 'summary wrong: ' + sum);
+  await ctx.close();
+});
+
+await test('data saved before Perplexity and Parked existed still loads', async () => {
+  const { page, ctx, errors } = await open({ stored: { meta: { start: '2026-10-12', lane: 'apps', goal: 500 }, days: { 5: { done: true, winner: 'grok' } }, income: [], leads: [] } });
+  const s = await state(page);
+  assert(Array.isArray(s.meta.parked) && s.meta.goal === 500 && s.days['5'].winner === 'grok', 'old data not kept');
+  assert(errors.length === 0, errors.join('; '));
   await ctx.close();
 });
 
