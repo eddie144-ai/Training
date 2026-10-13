@@ -1,7 +1,7 @@
 {
   "name": "AI 90",
   "short_name": "AI 90",
-  "description": "90 days to learn Claude, Gemini and Grok properly and make money with them.",
+  "description": "90 days to learn Claude, Gemini, Grok and Perplexity properly and make money with them.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

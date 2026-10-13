@@ -1,4 +1,5 @@
 // AI 90: the plan, the money lanes and the tool guide. Pure data; app.js reads window.AI90.
+// Tools: Claude, Gemini Pro, SuperGrok and Perplexity Pro (Perplexity runs to January, so it is front-loaded).
 // Prompts use {offer}, {audience}, {niche}, {channel}, {price} and {lane}, filled from the lane in Setup.
 (function () {
 'use strict';
@@ -7,7 +8,7 @@ const TOOLS = {
   claude: {
     name: 'Claude', short: 'Claude',
     good: ['Writing that sounds like a person: sales pages, emails, scripts, DMs', 'Thinking things through: plans, pricing, critiques, decisions', 'Building: code, small web apps, spreadsheets and documents (Artifacts, Claude Code)', 'Long documents: paste or upload a lot and ask hard questions about it'],
-    weak: ['What happened today on social media (use Grok)', 'Images and video (use Gemini or Grok)'],
+    weak: ['What happened today on social media (use Grok)', 'Current prices, fees and rules (check with Perplexity)', 'Images and video (use Gemini or Grok)'],
     moves: ['Make a Project called "AI 90" and put your About Me and offer in its instructions, so every chat starts knowing you', 'Ask it to interview you before it writes anything', 'Ask for three versions, then "combine the best of each"', 'Say "be blunt, find the holes" when you want a critique, not praise'],
   },
   gemini: {
@@ -22,42 +23,48 @@ const TOOLS = {
     weak: ['Long careful writing (draft with Claude)', 'Anything that needs your Google files (use Gemini)'],
     moves: ['Ask "what are people in {niche} complaining about on X this week, with example posts"', 'Ask for the 10 best-performing post formats in your niche this month', 'Have it play your toughest customer and practise your pitch on it', 'Turn on its harsher mode when you want a proper roast of your offer'],
   },
+  perplexity: {
+    name: 'Perplexity Pro', short: 'Perplexity',
+    good: ['Questions with a right answer today: fees, prices, rules, who sells what', 'Every claim comes with sources you can click and check', 'Finding lists: businesses, groups, directories, competitors', 'Spaces: a project with your files and instructions that every search uses'],
+    weak: ['Writing in your voice (use Claude)', 'Images and video (use Gemini or Grok)', 'It ends in January, so do the research-heavy weeks while you have it'],
+    moves: ['Make a Space called "AI 90" with your About Me and offer in it', 'Use it to fact-check anything another AI told you that has a number in it', 'Ask for a table: "15 UK {audience} I could contact, with website and how to reach them"', 'Click the sources. If they do not say what the answer says, do not trust it'],
+  },
 };
 
 // One lane is picked in Setup; every field can be edited there.
 const LANES = {
-  apps: { name: 'Build and sell small apps', niche: 'fitness and habit tracking', audience: 'personal trainers and small gyms', offer: 'a custom-branded client check-in app', channel: 'Instagram DMs and local Facebook groups', price: '£150 setup + £20/month' },
+  apps: { name: 'Build and sell small apps', niche: 'fitness and habit tracking', audience: 'personal trainers and small gyms', offer: 'a custom-branded client check-in app', channel: 'Instagram DMs, Facebook groups and email', price: '£150 setup + £20/month' },
   content: { name: 'Fitness content + digital products', niche: 'getting lean on a budget after 30', audience: 'men 30–50 trying to lose the gut', offer: 'a 12-week cut programme and meal plan (PDF)', channel: 'TikTok, Instagram Reels and X', price: '£19' },
-  automation: { name: 'AI automation for local businesses', niche: 'small local businesses', audience: 'local trades, salons and gyms', offer: 'an AI setup that answers enquiries and chases bookings', channel: 'local Facebook groups, walk-ins and email', price: '£300 setup + £50/month' },
+  automation: { name: 'AI automation for local businesses', niche: 'small local businesses', audience: 'local trades, salons and gyms', offer: 'an AI setup that answers enquiries and chases bookings', channel: 'local Facebook groups, Google Maps listings and email', price: '£300 setup + £50/month' },
   services: { name: 'AI-powered freelance services', niche: 'social media for small businesses', audience: 'small businesses with dead social pages', offer: 'a monthly pack of 20 posts with graphics and captions', channel: 'Fiverr/Upwork and direct messages', price: '£150/month' },
 };
 
 const PHASES = [
-  { name: 'Learn the three', weeks: [1, 4], line: 'Get fluent: what each tool is best at, and prompting that works.' },
+  { name: 'Learn the tools', weeks: [1, 4], line: 'Get fluent: what each tool is best at, and prompting that works.' },
   { name: 'Build the offer', weeks: [5, 8], line: 'Pick one thing to sell, make it, and put up a shop window.' },
   { name: 'Sell it', weeks: [9, 13], line: 'Real conversations, first money, then make it repeatable.' },
 ];
 
-// 13 weeks. Days 1–4 of each week are tasks, day 5 is the bake-off (same job, all three tools),
+// 13 weeks. Days 1–4 of each week are tasks, day 5 is the bake-off (same job, all four tools),
 // day 6 ships the week's deliverable, day 7 is the review. Day 90 is week 13's ship day.
 const WEEKS = [
-  { theme: 'Meet your three bots', goal: 'Each tool set up and knowing who you are.',
+  { theme: 'Meet your four tools', goal: 'Each tool set up and knowing who you are.',
     tasks: [
-      { t: 'Set up Claude to know you', tool: 'claude', min: 20, why: 'A tool that knows your situation gives answers you can use, not generic ones.',
-        do: ['Make a Project called "AI 90"', 'Paste the prompt below into a chat inside it and answer its questions', 'Save its summary into the Project instructions'],
-        p: 'Interview me, one question at a time, so you can help me for the next 90 days. I want to learn Claude, Gemini and Grok properly and make money with them in the area of {lane}. Ask about my skills, time per day, money goals, what I have already built, and what I am bad at. After about 12 questions, write a one-page "About me" I can save as your instructions.' },
+      { t: 'Load your profile into every tool', tool: 'all', min: 25, why: 'A tool that knows your situation gives answers you can use, not generic ones. Do this once, properly.',
+        do: ['Already have a profile from another AI? Use it, don\'t start from scratch', 'Run the prompt in Claude inside a new Project called "AI 90", answer its questions', 'Paste the result into the Claude Project instructions, a Gemini Gem, Grok\'s custom instructions and a Perplexity Space'],
+        p: 'Here is a profile of me exported from another AI: [PASTE, or write "none"]. Ask me up to 8 questions, one at a time, to fix anything out of date. Then rewrite it as a one-page "About me" for the next 90 days, focused on learning these tools and making money from {lane}. Keep the parts about how I work best and how I get stuck.' },
       { t: 'Set up Gemini as your researcher', tool: 'gemini', min: 25, why: 'Deep Research does in minutes what used to take a weekend of reading.',
         do: ['Run Deep Research with the prompt below', 'Save the report to Docs', 'Make a Gem called "Researcher" with your About Me pasted in'],
         p: 'Research how people are making money from {niche} in the UK right now. Who is selling what, at what prices, through which channels, and which approaches look crowded vs underserved. Include real examples with links and finish with the 5 biggest gaps a beginner could fill.' },
       { t: 'Ask Grok what is happening right now', tool: 'grok', min: 15, why: 'Grok sees live X posts, so it tells you what people want this week.',
         do: ['Paste the prompt', 'Ask follow-ups on anything interesting', 'Copy the 3 best pain points into your note'],
         p: 'What are people in {niche} complaining about, asking for or arguing about on X in the last two weeks? Give me 10 specific pain points with example posts, and say which ones people seem willing to pay to fix.' },
-      { t: 'Compare all three on the same question', tool: 'all', min: 20, why: 'You only learn their personalities by watching them answer the same thing.',
-        do: ['Paste the same prompt into all three', 'Note which was most useful and why', 'Notice the style: careful, broad, blunt'],
+      { t: 'Compare all four on the same question', tool: 'all', min: 25, why: 'You only learn their personalities by watching them answer the same thing.',
+        do: ['Paste the same prompt into all four', 'Note which was most useful and why', 'Notice the style: careful, broad, blunt'],
         p: 'I have 90 days and about an hour a day. Give me an honest plan to earn my first £1,000 from {offer} for {audience}. Be specific about the first two weeks.' },
     ],
     bake: 'Write a 100-word bio for me that would make {audience} want to follow me.',
-    ship: { t: 'Your AI stack card', do: ['Write one line each: what you will use Claude, Gemini and Grok for', 'Paste your About Me into Claude\'s Project, a Gemini Gem and Grok\'s custom instructions'] } },
+    ship: { t: 'Your AI stack card', do: ['Write one line each: what you will use Claude, Gemini, Grok and Perplexity for', 'Check your About Me is in all four', 'Write down every other project you are tempted by in Plan → Parked. They wait until Day 90'] } },
 
   { theme: 'Prompting that actually works', goal: 'Five prompts you trust and reuse.',
     tasks: [
@@ -70,17 +77,17 @@ const WEEKS = [
       { t: 'Critique and rewrite', tool: 'gemini', min: 20, why: 'The second draft is where the quality is. Make the tool mark its own homework.',
         do: ['Get a first draft', 'Then use the critique prompt below on it', 'Ask for a rewrite that fixes every point'],
         p: 'Score that draft out of 10 as if you were a sceptical member of {audience}. List everything that would make you stop reading or not buy. Then rewrite it to fix every point.' },
-      { t: 'Build a prompt library', tool: 'claude', min: 20, why: 'Good prompts are assets. Save them and stop starting from scratch.',
-        do: ['Run the prompt', 'Save the result in Notes or a Doc called "Prompt library"'],
-        p: 'Make me a prompt library for running {offer}: 10 reusable prompts covering research, content, sales messages, customer replies and delivery. Each one with [BRACKETS] for the parts I fill in, and one line on when to use it.' },
+      { t: 'Pick from the prompts you already have', tool: 'claude', min: 20, why: 'You do not need more prompts. You need five good ones you actually use.',
+        do: ['Find the prompt collections you have already saved', 'Run the prompt with them pasted in', 'Save the 5 it picks where you can copy them on your phone. Stop collecting new ones'],
+        p: 'Here are prompts I have saved: [PASTE]. Pick the 5 most useful for selling {offer} to {audience}. Rewrite each with [BRACKETS] for the parts I fill in and one line on when to use it. Then tell me honestly which of the rest I should delete.' },
     ],
     bake: 'Explain to {audience} in 3 sentences why they should care about {offer}.',
-    ship: { t: 'Five saved prompts', do: ['Pick the 5 prompts you will really reuse', 'Test each once and fix it', 'Save them where you can copy them on your phone'] } },
+    ship: { t: 'Five saved prompts', do: ['Test each of your 5 prompts once and fix it', 'Save them where you can copy them on your phone', 'No new prompt collections, videos or courses until Day 90'] } },
 
   { theme: 'Research and ideas', goal: 'One clear opportunity, picked on evidence.',
     tasks: [
-      { t: 'Deep Research the competition', tool: 'gemini', min: 30, why: 'Know who you are up against before you build anything.',
-        do: ['Run Deep Research', 'Skim the report', 'Note 3 competitors you could beat and why'],
+      { t: 'Research the competition, with sources', tool: 'perplexity', min: 30, why: 'Know who you are up against. Perplexity links every claim, so you can check the competitors are real.',
+        do: ['Run it as a Research (deep) search', 'Open at least 5 of the sources', 'Note 3 competitors you could beat and why'],
         p: 'Find 15 people or businesses selling something like {offer} to {audience}. For each: what they sell, price, how they get customers, what their reviews or comments praise and complain about. Finish with what nobody is doing well.' },
       { t: 'Mine X for real words', tool: 'grok', min: 20, why: 'Customers\' own words make the best headlines and posts.',
         do: ['Run the prompt', 'Save 10 exact phrases people use'],
@@ -121,9 +128,9 @@ const WEEKS = [
       { t: 'Price it properly', tool: 'claude', min: 20, why: 'Beginners underprice. Underpricing makes the 90 days harder.',
         do: ['Run the prompt', 'Decide a launch price and a full price'],
         p: 'I plan to sell {offer} to {audience} at {price}. Using what similar things sell for, suggest a starter price, a full price and an upsell. Explain the reasoning, and tell me if I am underpricing.' },
-      { t: 'Know your buyer', tool: 'gemini', min: 25, why: 'Writing to one real person beats writing to everyone.',
-        do: ['Run the prompt', 'Then ask Grok to check it against real X posts'],
-        p: 'Build a detailed profile of a typical buyer of {offer}: age, situation, what they have tried, what they are scared of, what they would type into Google or YouTube, and what would make them buy today.' },
+      { t: 'Know your buyer', tool: 'perplexity', min: 25, why: 'Writing to one real person beats writing to everyone.',
+        do: ['Run the prompt', 'Open the Reddit and forum sources it found and read what people actually wrote', 'Then ask Grok to check it against real X posts'],
+        p: 'Using real posts from Reddit, forums and reviews, build a detailed profile of a typical buyer of {offer}: age, situation, what they have tried, what they are scared of, what they would type into Google or YouTube, and what would make them buy today.' },
       { t: 'Answer the objections first', tool: 'grok', min: 20, why: 'Every no has a reason. Have the answer ready.',
         do: ['Run the prompt', 'Write your reply to the top 5'],
         p: 'Act as a sceptical member of {audience}. Give me the 10 real reasons you would NOT buy {offer} at {price}, in your own words, harshly. Then tell me what would change your mind on each.' },
@@ -136,9 +143,9 @@ const WEEKS = [
       { t: 'Build the landing page', tool: 'claude', min: 40, why: 'You need one link to send people to.',
         do: ['Give Claude your offer page text', 'Ask for a single HTML page', 'Host it free on GitHub Pages (like your other apps) or any page builder'],
         p: 'Turn this offer text into a single, fast, phone-friendly HTML landing page with a big buy button linking to [PAYMENT LINK]. No frameworks. Clean and trustworthy, not flashy. Text: [PASTE]' },
-      { t: 'Set up getting paid', tool: 'you', min: 30, why: 'The best page in the world is useless without a way to pay.',
-        do: ['Make a payment link (Stripe, PayPal or Gumroad/Lemon Squeezy for digital products)', 'Pay yourself £1 to test it', 'Put the link on the page'],
-        p: 'Which is simplest for a UK beginner selling {offer} at {price}: Stripe payment links, PayPal, Gumroad or Lemon Squeezy? Compare fees, payout time and how quick it is to set up.' },
+      { t: 'Set up getting paid, properly', tool: 'perplexity', min: 40, why: 'A way to take money, and no nasty surprises from HMRC or your benefits when it arrives.',
+        do: ['Make a payment link (Stripe, PayPal or Gumroad/Lemon Squeezy for digital products), pay yourself £1 to test it, put it on the page', 'If you claim Universal Credit or other benefits: find out exactly how to report self-employed earnings, and do it from the first sale', 'HMRC: note when you have to register as self-employed (check the current trading allowance) and keep a record of every payment from day one'],
+        p: 'I live in the UK and am about to start selling {offer} at {price} online. 1) Which is simplest for a beginner: Stripe payment links, PayPal, Gumroad or Lemon Squeezy? Compare current fees and payout times. 2) If I claim Universal Credit, how do I report self-employed earnings and how could it affect my payments? 3) When do I need to register as self-employed with HMRC? Cite official gov.uk sources.' },
       { t: 'Fix your profiles', tool: 'claude', min: 20, why: 'People check your profile before they reply or buy.',
         do: ['Run the prompt', 'Update bios on {channel}', 'Make a profile picture that looks like a real person'],
         p: 'Write bios for my profiles on {channel}. I help {audience} with {offer}. Each bio within the platform\'s limit, clear, a bit of personality, with a call to action to my link.' },
@@ -187,9 +194,9 @@ const WEEKS = [
 
   { theme: 'The first ten conversations', goal: '10 real people contacted, one by one.',
     tasks: [
-      { t: 'Find 30 people who might buy', tool: 'gemini', min: 30, why: 'No list, no sales. Write down real names.',
+      { t: 'Find 30 people who might buy', tool: 'perplexity', min: 30, why: 'No list, no sales. Write down real names.',
         do: ['Use the prompt for ideas on where they hang out', 'Write 30 names or businesses into the Money tab as leads'],
-        p: 'Where exactly can I find {audience} who might want {offer}? Give me specific groups, hashtags, subreddits, directories, events and search terms I can use today. UK focus.' },
+        p: 'Where exactly can I find {audience} who might want {offer}, online? Give me specific groups, hashtags, subreddits and directories, then a table of 15 real UK ones I could contact with their website or profile. Only include ones you can link to.' },
       { t: 'Write messages that are not spam', tool: 'claude', min: 25, why: 'A personal, short message gets replies. A template blast gets ignored.',
         do: ['Run the prompt', 'Pick the version that sounds most like you'],
         p: 'Write 3 short first messages I can send on {channel} to {audience} about {offer}. Under 60 words, personal, no hard sell, ends with a simple question. Then a follow-up for 3 days later if they do not reply.' },
@@ -215,7 +222,7 @@ const WEEKS = [
         do: ['Post a clear offer post', 'Pin it'],
         p: 'Write a post for {channel} that clearly offers {offer} to {audience} at {price}. Honest, not salesy, with a small story and a clear way to buy.' },
       { t: 'Deliver and over-deliver', tool: 'you', min: 40, why: 'Your first customer becomes your proof. Make them happy.',
-        do: ['Deliver fast', 'Add one small unexpected extra', 'Log the money in the Money tab (or keep pushing outreach if it has not landed yet)'],
+        do: ['Deliver fast', 'Add one small unexpected extra', 'Log the money in the Money tab, and report it if you claim benefits (or keep pushing outreach if it has not landed yet)'],
         p: 'My first customer just bought {offer}. Suggest 5 small, cheap extras I could add that would make them tell people about it.' },
     ],
     bake: 'Write a message asking a happy customer for a testimonial, making it easy for them.',
@@ -263,14 +270,14 @@ const WEEKS = [
         do: ['Run the prompt', 'Post it'],
         p: 'Interview me about my 90 days of learning AI and selling {offer}, one question at a time. Then write a case study post: where I started, what I built, what worked, what failed, the numbers, and what I would tell a beginner.' },
       { t: 'Which subscriptions earn their keep', tool: 'all', min: 20, why: 'Keep the tools that make money; cancel the ones you do not use.',
-        do: ['Check the Plan tab: which tool won most bake-offs', 'Compare cost against what each one helped you earn', 'Decide what to keep after the 3 months'],
-        p: 'I have paid for Claude, Gemini Pro and SuperGrok for 3 months. Here is how I used each one and what I earned: [PASTE]. Which should I keep, and what is the cheapest setup that keeps my business running?' },
+        do: ['Check the Plan tab: which tool won most bake-offs', 'Compare cost against what each one helped you earn', 'Decide what to keep (Perplexity Pro ends in January: renew it or not?)', 'Now look at Plan → Parked. Pick at most one for the next 90 days'],
+        p: 'I have paid for Claude, Gemini Pro, SuperGrok and Perplexity Pro for 3 months. Here is how I used each one and what I earned: [PASTE]. Which should I keep, and what is the cheapest setup that keeps my business running?' },
       { t: 'Plan the next 90', tool: 'claude', min: 30, why: 'The first 90 days teach you. The next 90 are where it grows.',
         do: ['Run the prompt', 'Pick one big goal for the next 90 days'],
         p: 'Based on my first 90 days ([PASTE SUMMARY]), give me a plan for the next 90 days to grow {offer}. One main goal, three weekly habits, and what to stop doing.' },
       { t: 'Teach someone what you learned', tool: 'you', min: 20, why: 'Teaching it is how you know you have it, and it is content too.',
-        do: ['Explain to a friend, or in a post, how you use the three tools', 'Note what you would do differently'],
-        p: 'Help me turn what I learned using Claude, Gemini and Grok for 90 days into a simple "which AI for which job" guide for beginners.' },
+        do: ['Explain to a friend, or in a post, how you use the four tools', 'Note what you would do differently'],
+        p: 'Help me turn what I learned using Claude, Gemini, Grok and Perplexity for 90 days into a simple "which AI for which job" guide for beginners.' },
     ],
     bake: 'Write a short, honest post about what 90 days of using AI to build a business taught me.',
     ship: { t: 'Day 90: the verdict', do: ['Case study posted', 'Subscriptions decided', 'Next 90 days written down. You did it'] } },

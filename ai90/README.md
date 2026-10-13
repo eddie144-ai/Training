@@ -2,21 +2,23 @@
 
 **[▶ Open AI 90](https://eddie144-ai.github.io/Training/ai90/)** · open in Chrome or Safari, then install it from the browser menu (Add to Home Screen).
 
-Ninety days to learn Claude, Gemini Pro and SuperGrok properly, and to use them to get a real offer
+Ninety days to learn Claude, Gemini Pro, SuperGrok and Perplexity Pro properly, and to use them to get a real offer
 in front of real buyers. One job a day, with the tool to use, the steps and a prompt to copy.
 
 ## The plan
-13 weeks in three phases: **Learn the three** (weeks 1–4: set-up, prompting, research, making
+13 weeks in three phases: **Learn the tools** (weeks 1–4: set-up, prompting, research, making
 images/video/mini apps), **Build the offer** (weeks 5–8: offer, landing page and payment link,
 version one, content engine) and **Sell it** (weeks 9–13: first conversations, first sale, systems,
-double down, day 90). Each week is four tasks, a **bake-off** (the same job given to all three
+double down, day 90). Each week is four tasks, a **bake-off** (the same job given to all four
 tools; you pick the winner and the Plan tab keeps the score), a **ship day** with the week's
 deliverable, and a review. Day 90 is week 13's ship day.
 
 ## Tabs
 - **Today:** the day's task, its tool, the steps and the prompt (Copy), notes and Mark done. Arrows
   browse any day. A banner nudges when yesterday isn't ticked ("never miss twice").
-- **Plan:** all 90 days by week, bake-off wins per tool; tap a day to open it.
+- **Plan:** all 90 days by week, bake-off wins per tool; tap a day to open it. **Parked until Day
+  90** holds every other project and new idea, so they wait instead of eating the day. The one
+  rule under each day: today's task before any new AI video, prompt collection or project.
 - **Tools:** what each subscription is best at, when to use another one, and power moves.
 - **Money:** money in (with a goal), a leads list with stages, and **Copy summary** to paste into
   Claude for the week 12 numbers review.
@@ -28,9 +30,12 @@ deliverable, and a review. Day 90 is week 13's ship day.
 `index.html` (page and styles), `data.js` (the plan, lanes and tool guide), `app.js` (logic),
 `manifest.json`, `sw.js` (offline cache), `icons/`. No build step, no dependencies. Everything
 lives in `localStorage` under `ai90-v1` as `{ meta: { start, lane, niche, audience, offer, channel,
-price, goal }, days: { '1'..'90': { done, note, winner } }, income: [{ date, amount, source, at }],
+price, goal, parked: [{ text, at }] }, days: { '1'..'90': { done, note, winner } }, income: [{ date, amount, source, at }],
 leads: [{ name, where, stage, at }] }`. Backups merge in without wiping: a day on the phone wins
-unless it's empty, and money and leads are matched by `at`.
+unless it's empty, and money, leads and parked ideas are matched by `at`.
+
+Perplexity Pro runs to January, so its research-heavy jobs sit in weeks 3–9 and week 6 uses it to
+check payment fees, benefits reporting and HMRC self-employment rules before the first sale.
 
 ## Tests
 From the repo root: `node ai90/tests/app.test.mjs` (needs Playwright, see the root `CLAUDE.md`).
