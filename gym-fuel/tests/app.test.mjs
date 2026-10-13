@@ -718,7 +718,7 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   const day = async (name) => card.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
   const names = await card.locator('.chainrow b').allTextContents();
   assert(JSON.stringify(names) === JSON.stringify(['No coffee', 'No sugar', 'No weed', 'No energy drinks', 'Cut day', '4 sessions this week']), `only these chains: ${names}`);
-  assert(await day('No coffee') === 'Day 2', `coffee restarted: ${await day('No coffee')}`);
+  assert(await day('No coffee') === 'Day 0', `No coffee waits for 14 Oct: ${await day('No coffee')}`);
   assert(await card.locator('.chainrow', { hasText: 'No coffee' }).getByText('best 5').isVisible(), 'coffee best set to 5 at the reset');
   assert(await day('No sugar') === 'Day 23', `own chain keeps counting: ${await day('No sugar')}`);
   assert(await day('No weed') === 'Day 72', `Trainer chain: ${await day('No weed')}`);
@@ -735,9 +735,14 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   const b = await open({ own, extra: { 'shtrainer.chains': SUMMARY }, time: '2026-10-11T12:00:00+01:00' });
   assert(await b.page.locator('.chainrow', { hasText: 'Cut day' }).locator('.daybadge').getAttribute('aria-label') === 'Day 0', 'off-plan food breaks the cut day');
   await b.ctx.close();
-  // An older copy of the app (the home page) wrote today's summary without the reset: No coffee is still day 1.
-  const old = await open({ own, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-10', chains: [{ ...SUMMARY.chains[0], day: 10, best: 10 }] } }, time: '2026-10-10T12:00:00+01:00' });
-  assert(await old.page.locator('.chainrow', { hasText: 'No coffee' }).locator('.daybadge').getAttribute('aria-label') === 'Day 1', 'No coffee held to day 1 from 10 Oct');
+  // After 14 Oct: an older copy of the app (the home page) wrote a higher No coffee count; it's held to the days since
+  // 14 Oct. Cut day counts from 14 Oct: both Gironda meals that day keep it.
+  const g = (id, ref, date) => ({ id, date, at: `${date}T12:00:00.000Z`, name: ref, kcal: 900, p: 80, c: 3, f: 60, servings: 1, ref });
+  const after = { ...own, meals: [g('a', 'gironda1', '2026-10-14'), g('b', 'gironda2', '2026-10-14')] };
+  const old = await open({ own: after, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-15', chains: [{ ...SUMMARY.chains[0], day: 10, best: 10 }] } }, time: '2026-10-15T12:00:00+01:00' });
+  const badge = (name) => old.page.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
+  assert(await badge('No coffee') === 'Day 2', `No coffee from 14 Oct: ${await badge('No coffee')}`);
+  assert(await badge('Cut day') === 'Day 1', `Cut day kept on 14 Oct: ${await badge('Cut day')}`);
   await old.ctx.close();
   const friend = await open({ own: { v: 1, settings: { setupDone: true } } });
   assert(!(await friend.page.getByRole('heading', { name: /My chains/ }).count()), 'no chains on a friend\'s phone');

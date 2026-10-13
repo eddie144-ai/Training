@@ -16,6 +16,8 @@ const CHAINS_KEY = 'shtrainer.chains'; // a small summary of your chains, read b
 const CHAINS_RESET = '2026-10-10'; // the built-in chains restart here at day 1 (your own keep counting); XP kept
 // Best streaks set by hand at the reset (others keep their best): No coffee 5 days, Cut day 0.
 const RESET_BESTS = { coffee: 5, cut: 0 };
+// No coffee and Cut day start again on 14 Oct 2026: day 1 that day, day 0 until then, bests as above.
+const CHAIN_STARTS = { coffee: '2026-10-14', cut: '2026-10-14' };
 // Background: Vince Gironda in Tomorrow's Man, June 1953 (Irvin Johnson Health Studio). Public domain in the US
 // (published 1931-63, copyright not renewed). Loaded from Wikimedia Commons and cached by the service worker.
 const GIRONDA_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Vince_Gironda_Tomorrows_Man_v1_n5_1953.jpg';
@@ -592,9 +594,12 @@ function chainStreak(id) {
   const from = def?.custom && def.since ? def.since : isClean(def) ? cleanStart() : chainStart();
   for (let d = from; d <= t; d = addDays(d, 1)) {
     if (d === CHAINS_RESET && !def?.custom) { cur = 0; if (id in RESET_BESTS) best = RESET_BESTS[id]; } // your own "No ___" chains keep their count
+    if (d === CHAIN_STARTS[id]) { cur = 0; if (id in RESET_BESTS) best = RESET_BESTS[id]; }
     const s = chainStatus(d, id);
     if (s === 'done') { cur++; days++; best = Math.max(best, cur); } else if (s === 'miss') cur = 0;
   }
+  // Before its start date the chain shows day 0 with its set best.
+  if (CHAIN_STARTS[id] && t < CHAIN_STARTS[id]) return (chainMemo[id] = { cur: 0, best: RESET_BESTS[id] ?? best, days, today: 'off' });
   return (chainMemo[id] = { cur, best, days, today: t >= (isClean(def) ? cleanStart() : chainStart()) ? chainStatus(t, id) : 'off' });
 }
 
