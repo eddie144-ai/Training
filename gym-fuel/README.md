@@ -99,6 +99,8 @@ again.
   this week, and the day on every share card.
 - **Backups:** **Send a backup to Drive, email or a chat** uses the share sheet (download where there's none); Today
   reminds you once there's a log to lose and no backup in 7 days ("In a few days" snoozes it for 3).
+  **Auto-save to Google Drive** is off until you turn it on (Body → Settings), and the switch stays unavailable
+  until a client id is set in `drive.js`. See [Google Drive auto-backup](#google-drive-auto-backup).
 - **Installing:** a card on Today (until installed or dismissed) and a note in the welcome sheet with the steps for
   iPhone (Safari → Share → Add to Home Screen) or Android (Chrome ⋮ → Install app), or an **Install** button where
   Chrome offers one.
@@ -135,13 +137,37 @@ Garmin, sleep, fluids, planning and shopping, the channel and the other apps.
 On first open (or Body → Settings) you can bring over weigh-ins, measurements, sessions, exercise weights, programmes, meals,
 your foods, macro targets and progress photos from Iron & Eggs in the same browser. Iron & Eggs is only read, never changed.
 
+## Google Drive auto-backup
+
+Off unless you turn it on: Body → Settings → **Auto-save to Google Drive**. Send one manual backup first.
+The app then keeps `iron-and-eggs-latest.json` in your Drive up to date, plus one `iron-and-eggs-YYYY-MM-DD.json`
+for each day, about 45 seconds after a workout, weigh-in, meal or measurement changes, and again when you open
+the app if the last upload was more than 6 hours ago. Nothing is sent while you're offline (it retries), while
+the log is empty, or when the log has shrunk by more than about 30% since the last upload. Settings asks you
+to confirm that. The sign-in token stays in memory for about an hour and is never written into the app's storage
+or into a backup. Android is the reliable place for the Google sign-in popup.
+
+The copy served from GitHub Pages ships with an empty client id, so the toggle stays unavailable and Google's
+script is not loaded until you paste one in:
+
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable the **Google Drive API**.
+3. On the OAuth consent screen choose **External** and **Testing**. Add the scope
+   `https://www.googleapis.com/auth/drive.file` and add your Gmail address as a test user.
+4. Create an OAuth client ID of type **Web application**. Authorised JavaScript origin:
+   `https://eddie144-ai.github.io`. Leave redirect URIs empty.
+5. Paste that client ID into `DRIVE_CLIENT_ID` at the top of `gym-fuel/drive.js`.
+
+There is no client secret and no server. The scope is `drive.file` only, so the app can only see files it created.
+
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/drive.test.mjs`.
 
 ## Tests
 ```bash
-npm i playwright          # once
+npm i playwright          # once, for the browser tests
 node gym-fuel/tests/app.test.mjs
+node --test gym-fuel/tests/drive.test.mjs
 ```
