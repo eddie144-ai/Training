@@ -3,11 +3,11 @@
    (scope drive.file). No backend and no client secret: Google Identity Services returns an
    access token that stays in memory. It is never copied onto the app state, so a backup cannot
    contain it, and this file never touches browser storage.
-   DRIVE_CLIENT_ID stays empty until a Google Cloud OAuth web client id is pasted in (see the
-   README). While it is empty the toggle stays unavailable and Google's script is not loaded. */
+   The client id below is a public OAuth web client (no secret). Auto-save stays off until
+   the user turns it on, and Google's script loads only then. */
 const Drive = (() => {
-  // Web client id. Authorised JavaScript origin: https://eddie144-ai.github.io. No redirect URI.
-  const DRIVE_CLIENT_ID = '';
+  // Public OAuth web client id. Authorised JavaScript origin: https://eddie144-ai.github.io. No redirect URI.
+  const DRIVE_CLIENT_ID = '225800622965-hsm5f4941gmjs9a0f0pvqnrhhoee9hpj.apps.googleusercontent.com';
   const SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const GSI_SRC = 'https://accounts.google.com/gsi/client';
   const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';

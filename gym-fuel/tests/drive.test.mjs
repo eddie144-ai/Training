@@ -67,11 +67,9 @@ function makeGoogle(bag) {
 // Loads drive.js in a sandbox with a fake clock's timers, fetch and Google Identity Services.
 function boot({ clientId = 'test-client.apps.googleusercontent.com', state = historyState(), onLine = true, debounceMs, backoffBaseMs, clock } = {}) {
   let code = SOURCE;
-  if (clientId) {
-    const next = code.replace("const DRIVE_CLIENT_ID = '';", `const DRIVE_CLIENT_ID = ${JSON.stringify(clientId)};`);
-    if (next === code) throw new Error('DRIVE_CLIENT_ID placeholder missing');
-    code = next;
-  }
+  const next = code.replace(/const DRIVE_CLIENT_ID = '[^']*';/, `const DRIVE_CLIENT_ID = ${JSON.stringify(clientId)};`);
+  if (next === code) throw new Error('DRIVE_CLIENT_ID assignment missing');
+  code = next;
   code += '\nglobalThis.__drive = Drive;\n';
 
   const bag = {
@@ -157,13 +155,16 @@ function assertTokenStaysOut(box) {
   for (const call of box.bag.calls) assert.equal(String(call.body).includes('secret-token'), false, 'token was written into a Drive file');
 }
 
-test('client id placeholder is empty and drive.file is the only scope', () => {
-  assert.match(SOURCE, /const DRIVE_CLIENT_ID = '';/);
-  assert.doesNotMatch(SOURCE, /apps\.googleusercontent\.com/);
+const SHIPPED_CLIENT_ID = '225800622965-hsm5f4941gmjs9a0f0pvqnrhhoee9hpj.apps.googleusercontent.com';
+
+test('the shipped client id is set, drive.file is the only scope, and auto-save still defaults off', () => {
+  assert.match(SOURCE, new RegExp(`const DRIVE_CLIENT_ID = '${SHIPPED_CLIENT_ID}';`));
   assert.match(SOURCE, new RegExp(SCOPE.replace(/[.]/g, '\\.')));
   assert.doesNotMatch(SOURCE, /auth\/drive['"]/);
   assert.match(SOURCE, /https:\/\/accounts\.google\.com\/gsi\/client/);
   assert.doesNotMatch(SOURCE, /localStorage/);
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  assert.match(app, /driveAuto: false/);
 });
 
 test('no upload and no Google script when the client id is empty', async () => {
@@ -467,7 +468,7 @@ test('429 backs off, then the wait doubles, then a later attempt succeeds', asyn
 
 test('the page, service worker and settings are wired for Drive', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /const VERSION = 'gymfuel-v1\.16'/);
+  assert.match(sw, /const VERSION = 'gymfuel-v1\.17'/);
   assert.match(sw, /\.\/drive\.js/);
   assert.match(sw, /accounts\.google\.com/);
   assert.match(sw, /www\.googleapis\.com/);

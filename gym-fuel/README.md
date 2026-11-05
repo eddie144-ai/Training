@@ -99,8 +99,8 @@ again.
   this week, and the day on every share card.
 - **Backups:** **Send a backup to Drive, email or a chat** uses the share sheet (download where there's none); Today
   reminds you once there's a log to lose and no backup in 7 days ("In a few days" snoozes it for 3).
-  **Auto-save to Google Drive** is off until you turn it on (Body → Settings), and the switch stays unavailable
-  until a client id is set in `drive.js`. See [Google Drive auto-backup](#google-drive-auto-backup).
+  **Auto-save to Google Drive** is off until you turn it on (Body → Settings). Google's sign-in script
+  loads only after that. See [Google Drive auto-backup](#google-drive-auto-backup).
 - **Installing:** a card on Today (until installed or dismissed) and a note in the welcome sheet with the steps for
   iPhone (Safari → Share → Add to Home Screen) or Android (Chrome ⋮ → Install app), or an **Install** button where
   Chrome offers one.
@@ -147,8 +147,8 @@ the log is empty, or when the log has shrunk by more than about 30% since the la
 to confirm that. The sign-in token stays in memory for about an hour and is never written into the app's storage
 or into a backup. Android is the reliable place for the Google sign-in popup.
 
-The copy served from GitHub Pages ships with an empty client id, so the toggle stays unavailable and Google's
-script is not loaded until you paste one in:
+The client id is already set in `drive.js`. The toggle still defaults off, so nothing is uploaded and Google's
+script is not loaded until you switch auto-save on. The client was created like this (same steps to replace it):
 
 1. Create a project in [Google Cloud Console](https://console.cloud.google.com/).
 2. Enable the **Google Drive API**.
