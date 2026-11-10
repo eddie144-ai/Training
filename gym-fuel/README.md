@@ -48,6 +48,9 @@ again.
   where you name the programme and each day, add exercises from the library or your own, set sets, reps,
   supersets and techniques, move days earlier or later, add or delete days, and delete the programme. Any
   built-in programme can be copied to My workouts from Edit.
+  **Coach Mike:** **Send my log to Coach Mike** writes a short brief (the style, the next session, last weights,
+  and any lift due a heavier load) you can share into his chat. **Use Coach Mike's programme** pastes his JSON
+  reply into My workouts.
 - **Adaptive calorie target:** from 8+ weigh-ins over 14+ days and 12+ days of food logged in the last 21 days,
   the app works out your real maintenance (average intake − weight trend × 7,700 kcal per kg, the trend being a
   straight line through the weigh-ins) and suggests a target to lose 0.5 kg a week, gain 0.25 kg a week or hold,
@@ -162,12 +165,13 @@ There is no client secret and no server. The scope is `drive.file` only, so the 
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/drive.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
 ```bash
 npm i playwright          # once, for the browser tests
 node gym-fuel/tests/app.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
+node --test gym-fuel/tests/coach.test.mjs
 ```

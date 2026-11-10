@@ -459,7 +459,8 @@ function nextDay(prog) {
   const hist = sessionsOf(prog.id);
   const last = hist[hist.length - 1];
   let pool = prog.days;
-  if (prog.family === 'cycle') {
+  // A Coach Mike plan can carry weeks too, so a 4-week reply stays on this week's days.
+  if (prog.family === 'cycle' || prog.days.some((d) => d.weeks?.length)) {
     const wk = ((cycleWeek() - 1) % 4 + 4) % 4 + 1; // the 4-week cycle repeats
     const inWeek = prog.days.filter((d) => d.weeks?.includes(wk));
     if (inWeek.length) pool = inWeek;
@@ -941,6 +942,50 @@ function newProgramForm(copyFrom) {
   </form>`;
 }
 
+function coachContext() {
+  const prog = activeProgram();
+  const day = prog.days.find((d) => d.id === ui.dayId) || nextDay(prog);
+  const style = prog.family === 'hit' ? 'Mentzer HIT' : prog.family === 'cycle' ? '4-week cycle' : 'My workouts';
+  const exercises = (day?.exercises || []).map((e) => {
+    const last = lastEntryFor(e.name);
+    const sets = last ? last.entry.sets.filter(hasData) : [];
+    const top = sets.reduce((a, b) => ((b.kg ?? -1) > (a.kg ?? -1) ? b : a), sets[0]);
+    return { name: e.name, sets: e.sets, reps: e.reps, last: top ? setText(top) : '', lastDate: last?.date || '', due: progressionHint(e, prog.family) };
+  });
+  return {
+    style, tier: prog.family === 'hit' ? (S.settings.tier || '') : '',
+    programme: prog.name,
+    rest: prog.restDays ? `${prog.restDays[0]}–${prog.restDays[1]} days between sessions` : 'sessions in order',
+    nextDay: day?.name || '',
+    exercises,
+    otherDays: prog.days.filter((d) => d !== day).map((d) => `${d.name}: ${d.exercises.map((e) => e.name).join(', ') || 'no exercises'}`),
+    drive: !!S.settings.lastDriveUpload,
+  };
+}
+function coachCard() {
+  return `<section class="card">
+    <h2>Coach Mike</h2>
+    <p class="small">Send him this log in his own chat. Paste the programme he sends back and it is saved under My workouts, ready to log.</p>
+    <button data-act="coach-send">Send my log to Coach Mike</button>
+    <form id="coach-form" class="grid1" autocomplete="off">
+      <label class="field">His reply<textarea name="reply" rows="6" placeholder="Paste his JSON programme"></textarea></label>
+      <button class="primary" type="submit">Use Coach Mike's programme</button>
+    </form>
+  </section>`;
+}
+function openCoachBrief() {
+  const text = Coach.brief(coachContext());
+  openSheet('Coach Mike', `<p class="small">Share this, or copy it into his chat. He should reply with one JSON programme.</p>
+    <textarea id="coach-brief" readonly rows="12">${esc(text)}</textarea>
+    <button class="primary" data-act="coach-share">Share this brief</button>`);
+}
+async function shareCoachBrief() {
+  const text = document.getElementById('coach-brief')?.value || Coach.brief(coachContext());
+  const how = await Share.file(new Blob([text], { type: 'text/plain' }), `coach-mike-${today()}.txt`, 'Iron & Eggs log for Coach Mike');
+  if (how === 'cancelled') return;
+  toast(how === 'shared' ? 'Brief sent. Paste his reply below.' : 'Brief saved. Send that file to Coach Mike.');
+}
+
 function viewTrainLog() {
   const fam = S.settings.family;
   const familyTabs = segmented('family', [['cycle', '4-Week Cycle'], ['hit', 'Mentzer HIT'], ['custom', 'My workouts']], fam, 'Training style');
@@ -951,7 +996,8 @@ function viewTrainLog() {
       <p>Build your own programme: as many days as you like, any exercises, your sets and reps.</p>
       <button class="primary" data-act="prog-new">+ Create a workout programme</button>
       <p class="muted small">Or start from a copy of any built-in programme and change it.</p>
-    </section>`;
+    </section>
+    ${coachCard()}`;
   }
   const prog = activeProgram();
   const suggested = nextDay(prog);
@@ -1003,7 +1049,8 @@ function viewTrainLog() {
   </section>
   ${fam === 'hit' && S.settings.tier === 'advanced' ? techniqueCards() : ''}
   <button class="ghost" data-act="lib-open" data-mode="browse">Browse the exercise library</button>
-  ${fam === 'hit' ? `<section class="card"><h2>Mentzer principles</h2><div class="list">${MENTZER_PRINCIPLES.map(([h, t]) => `<div><b>${esc(h)}</b><br><span class="muted small">${esc(t)}</span></div>`).join('')}</div></section>` : ''}`;
+  ${fam === 'hit' ? `<section class="card"><h2>Mentzer principles</h2><div class="list">${MENTZER_PRINCIPLES.map(([h, t]) => `<div><b>${esc(h)}</b><br><span class="muted small">${esc(t)}</span></div>`).join('')}</div></section>` : ''}
+  ${coachCard()}`;
 }
 
 // ---- progress per lift: best estimated 1-rep max per session, over time
@@ -1955,6 +2002,8 @@ document.addEventListener('click', (e) => {
     }
     case 'adapt-snooze': S.settings.adaptSnooze = weekStart(today()); break;
     case 'prog-new': openSheet('New workout programme', newProgramForm(null)); return;
+    case 'coach-send': openCoachBrief(); return;
+    case 'coach-share': shareCoachBrief(); return;
     case 'prog-copy': openSheet('Copy to My workouts', newProgramForm(S.programs[pid])); return;
     case 'prog-del': {
       const prog = S.programs[pid];
@@ -2302,6 +2351,17 @@ document.addEventListener('submit', (e) => {
       S.settings.family = 'custom'; S.settings.active.custom = prog.id;
       ui.dayId = prog.days[0].id; ui.editProgram = !src; ui.tab = 'train'; ui.sub.train = 'log';
       closeSheet(); toast(src ? `${prog.name} created from a copy` : `${prog.name} created: add exercises to each day`); break;
+    }
+    case 'coach-form': {
+      const parsed = Coach.programme(String(fd.get('reply') || ''));
+      if (!parsed.ok) { toast(parsed.error); return; }
+      const prog = parsed.programme;
+      prog.id = `my-${uid()}`;
+      for (const day of prog.days) { day.id = uid(); for (const e of day.exercises) e.id = uid(); }
+      S.programs[prog.id] = prog;
+      S.settings.family = 'custom'; S.settings.active.custom = prog.id;
+      ui.dayId = prog.days[0].id; ui.editProgram = false; ui.tab = 'train'; ui.sub.train = 'log';
+      toast(`${prog.name} saved from Coach Mike`); break;
     }
     case 'meas-form': {
       const date = fd.get('date') || today();
