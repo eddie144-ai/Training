@@ -37,7 +37,7 @@ const IRON = {
   baselines: {}, programs: {}, myFoods: [], journal: { secret: 'not copied' },
 };
 
-async function open({ iron, own, extra = {}, time = '2026-10-07T12:00:00+01:00' } = {}) {
+async function open({ iron, own, extra = {}, time = '2026-10-07T12:00:00+01:00', clock = true } = {}) {
   const ctx = await browser.newContext({ serviceWorkers: 'block', permissions: ['camera'] });
   await ctx.addInitScript(([iron, own, extra]) => {
     if (sessionStorage.getItem('seeded')) return;
@@ -47,7 +47,7 @@ async function open({ iron, own, extra = {}, time = '2026-10-07T12:00:00+01:00' 
     if (own) localStorage.setItem('gymfuel.v1', JSON.stringify(own));
     for (const [k, v] of Object.entries(extra)) localStorage.setItem(k, JSON.stringify(v));
   }, [iron, own, extra]);
-  await ctx.clock?.setFixedTime?.(new Date(time));
+  if (clock) await ctx.clock?.setFixedTime?.(new Date(time));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -738,7 +738,8 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   // After 14 Oct: an older copy of the app (the home page) wrote a higher No coffee count; it's held to the days since
   // 14 Oct. Cut day counts from 14 Oct: both Gironda meals that day keep it.
   const g = (id, ref, date) => ({ id, date, at: `${date}T12:00:00.000Z`, name: ref, kcal: 900, p: 80, c: 3, f: 60, servings: 1, ref });
-  const after = { ...own, meals: [g('a', 'gironda1', '2026-10-14'), g('b', 'gironda2', '2026-10-14')] };
+  // This case still checks the imported No coffee count, so it opts out of the seeded chains.
+  const after = { ...own, settings: { ...own.settings, chainsSeeded: true }, chains: [], meals: [g('a', 'gironda1', '2026-10-14'), g('b', 'gironda2', '2026-10-14')] };
   const old = await open({ own: after, extra: { 'shtrainer.chains': { ...SUMMARY, date: '2026-10-15', chains: [{ ...SUMMARY.chains[0], day: 10, best: 10 }] } }, time: '2026-10-15T12:00:00+01:00' });
   const badge = (name) => old.page.locator('.chainrow', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
   assert(await badge('No coffee') === 'Day 2', `No coffee from 14 Oct: ${await badge('No coffee')}`);
@@ -747,6 +748,141 @@ await test('My chains: only No coffee, own chains, Cut day and 4 sessions; cut a
   const friend = await open({ own: { v: 1, settings: { setupDone: true } } });
   assert(!(await friend.page.getByRole('heading', { name: /My chains/ }).count()), 'no chains on a friend\'s phone');
   await friend.ctx.close();
+});
+
+await test('chains: seeded streaks count the start date as day 1, and can be edited, reset and deleted', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true }, weights: [{ date: '2026-11-09', kg: 98.5 }] },
+    time: '2026-11-10T12:00:00Z',
+  });
+  const card = page.locator('#chains-card');
+  const day = (name) => card.locator('.streak', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
+  // Raw differences are 127, 119 and 8. Counting the start date (day 1) makes them 128, 120 and 9.
+  const math = await page.evaluate(() => ({
+    weed: daysBetween('2026-07-06', '2026-11-10'),
+    energy: daysBetween('2026-07-14', '2026-11-10'),
+    coffee: daysBetween('2026-11-02', '2026-11-10'),
+    weedDay: chainDays('2026-07-06', '2026-11-10'),
+    energyDay: chainDays('2026-07-14', '2026-11-10'),
+    coffeeDay: chainDays('2026-11-02', '2026-11-10'),
+  }));
+  assert(math.weed === 127 && math.energy === 119 && math.coffee === 8, `raw differences ${JSON.stringify(math)}`);
+  assert(math.weedDay === 128 && math.energyDay === 120 && math.coffeeDay === 9, `day count ${JSON.stringify(math)}`);
+  assert(await day('No weed') === 'Day 128' && await day('No energy drinks') === 'Day 120' && await day('No coffee') === 'Day 9', `badges ${await day('No weed')} ${await day('No energy drinks')} ${await day('No coffee')}`);
+  await card.locator('.streak', { hasText: 'No energy drinks' }).getByRole('button', { name: 'Edit' }).click();
+  const editChain = page.locator('#chain-form');
+  await editChain.getByLabel('Start date').fill('2026-11-03');
+  await editChain.getByRole('button', { name: 'Save' }).click();
+  assert(await day('No energy drinks') === 'Day 8', 'editing the start date recounts, and the start day still counts');
+  await card.locator('.streak', { hasText: 'No coffee' }).getByRole('button', { name: 'Reset' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Reset' }).click();
+  assert(await day('No coffee') === 'Day 1', 'reset starts today');
+  await card.getByRole('button', { name: '+ Add a chain' }).click();
+  const form = page.locator('#chain-form');
+  await form.getByLabel('Name').fill('No sugar');
+  await form.getByLabel('Start date').fill('2026-11-09');
+  await form.getByRole('button', { name: 'Save' }).click();
+  assert(await day('No sugar') === 'Day 2', 'a new chain counts the start date');
+  await card.locator('.streak', { hasText: 'No sugar' }).getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+  assert(!(await card.locator('.streak', { hasText: 'No sugar' }).count()), 'deleted');
+  await page.reload();
+  assert(await day('No weed') === 'Day 128' && !(await card.locator('.streak', { hasText: 'No sugar' }).count()), 'delete sticks, defaults do not return');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('fasting: a multi-day fast shows days, hours and minutes, then a history row', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, clock: false });
+  const parts = await page.evaluate(() => elapsedParts(50 * 60 * 60 * 1000));
+  assert(parts.days === 2 && parts.hours === 2 && parts.mins === 0, `50 hours is 2 days 2 hours, not capped at 24: ${JSON.stringify(parts)}`);
+  await page.evaluate(() => {
+    const start = new Date(Date.now() - ((3 * 24 + 4) * 60 + 12) * 60000).toISOString();
+    S.fasts = [{ id: 'f1', start, end: null }];
+    save();
+  });
+  await page.reload();
+  const elapsed = page.locator('#fast-elapsed');
+  assert((await elapsed.locator('[data-part="d"]').textContent()) === '3', 'three days, not capped at 24h');
+  assert((await elapsed.locator('[data-part="h"]').textContent()) === '4', 'hours left after whole days');
+  assert((await elapsed.locator('[data-part="m"]').textContent()) === '12', 'minutes');
+  const ticks = async () => Number(await elapsed.getAttribute('data-ticks'));
+  const before = await ticks();
+  await page.waitForTimeout(1200);
+  assert(await ticks() > before, 'the timer keeps updating while the fast runs');
+  await page.getByRole('button', { name: 'Stop fast' }).click();
+  const s = await state(page);
+  assert(s.fasts[0].end && !s.fasts.some((f) => !f.end), 'stopped');
+  const covered = await page.evaluate(() => {
+    const f = S.fasts[0];
+    const startDay = isoDate(new Date(f.start));
+    return S.fastDays[startDay] && S.fastDays[today()] && Object.keys(S.fastDays).length >= 3;
+  });
+  assert(covered, `days covered ${JSON.stringify(s.fastDays)}`);
+  assert(await page.locator('#fast-card .list b').filter({ hasText: '3 days 4 h 12 min' }).isVisible(), 'history shows the duration');
+  const old = JSON.stringify({ kind: 'gym-fuel-backup', at: '2026-01-01T00:00:00.000Z', state: { v: 1, settings: { kcalGoal: 1800, proteinGoal: 160, carbGoal: 40, fatGoal: 70, setupDone: true }, meals: [{ id: 'a', date: '2026-10-01', at: '2026-10-01T12:00:00.000Z', name: 'Eggs', kcal: 400, p: 30, c: 2, f: 30, servings: 1 }], weights: [{ date: '2026-10-01', kg: 99 }] } });
+  await page.evaluate((txt) => restoreFrom(txt), old);
+  await page.getByRole('button', { name: 'Replace' }).click();
+  let restored = await state(page);
+  assert(restored.meals.length === 1 && restored.settings.kcalGoal === 1800 && restored.settings.proteinGoal === 160 && restored.settings.carbGoal === 40 && restored.settings.fatGoal === 70, 'old backup keeps its targets');
+  assert(Array.isArray(restored.fasts) && restored.fasts.length === 0 && restored.chains.map((c) => c.name).join() === 'No weed,No energy drinks,No coffee', `old log gains chains ${JSON.stringify(restored.chains)}`);
+  assert(restored.mealPresets.length === 2 && restored.mealPresets[1].kcal === 880, 'old backup gains the meal presets');
+  const round = JSON.stringify({ kind: 'gym-fuel-backup', at: '2026-11-10T00:00:00.000Z', state: restored });
+  await page.evaluate(() => { S.fasts = [{ id: 'x', start: new Date().toISOString(), end: null }]; S.chains[0].name = 'No weed edited'; save(); });
+  await page.evaluate((txt) => restoreFrom(txt), round);
+  await page.getByRole('button', { name: 'Replace' }).click();
+  restored = await state(page);
+  assert(restored.fasts.length === 0 && restored.chains[0].name === 'No weed' && restored.mealPresets[1].name.includes('250 g rump'), 'backup round-trip puts the new fields back');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('quick meals: Gironda presets log their macros, and a preset can be edited or added', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, time: '2026-11-10T12:00:00Z' });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  const card = page.locator('#presets-card');
+  await card.locator('.gbtn', { hasText: 'Gironda Meal 1: 6 eggs + 3 Lidl pork patties' }).click();
+  await card.locator('.gbtn', { hasText: 'Eggs + steak: 6 eggs + 250 g rump' }).click();
+  let s = await state(page);
+  const meals = s.meals.filter((m) => m.date === '2026-11-10');
+  const eggs = meals.find((m) => m.name.startsWith('Gironda Meal 1'));
+  const steak = meals.find((m) => m.name.startsWith('Eggs + steak'));
+  assert(eggs && eggs.kcal === 933 && eggs.p === 77 && eggs.c === 4 && eggs.f === 66, `meal 1 ${JSON.stringify(eggs)}`);
+  assert(steak && steak.kcal === 880 && steak.p === 95 && steak.c === 1 && steak.f === 55, `steak ${JSON.stringify(steak)}`);
+  await card.getByRole('button', { name: 'Edit Eggs + steak: 6 eggs + 250 g rump' }).click();
+  const edit = page.locator('#preset-form');
+  await edit.getByLabel('Name').fill('Rump and eggs');
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await card.getByRole('button', { name: '+ Add a preset' }).click();
+  const add = page.locator('#preset-form');
+  await add.getByLabel('Name').fill('Liver');
+  await add.getByLabel('kcal').fill('200');
+  await add.getByLabel('Protein (g)').fill('30');
+  await add.getByRole('button', { name: 'Save' }).click();
+  await card.getByRole('button', { name: /^Liver/ }).click();
+  s = await state(page);
+  assert(s.mealPresets.some((p) => p.name === 'Rump and eggs' && p.kcal === 880), 'edit kept the macros');
+  assert(s.meals.some((m) => m.name === 'Liver' && m.kcal === 200 && m.p === 30), 'custom preset logged');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('weight chart: a 7-day average sits on the weigh-ins, with the trend and the 7-day change', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, time: '2026-11-10T12:00:00Z' });
+  await page.evaluate(() => {
+    const days = ['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10'];
+    S.weights = days.map((date, i) => ({ date, kg: 107 - i }));
+    save();
+  });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  const trend = await page.evaluate(() => weightTrend());
+  assert(Math.abs(trend.value - 97) < 0.05 && Math.abs(trend.change + 7) < 0.05, `trend ${JSON.stringify(trend)}`);
+  const card = page.locator('#weight-card');
+  assert((await card.locator('#weight-trend-value').textContent()).includes('97'), 'current trend shown');
+  assert((await card.locator('#weight-trend-change').textContent()).includes('7'), 'change over the last 7 days');
+  assert(await card.locator('.liftchart .series').count() === 1 && await card.locator('.liftchart .trend').count() === 1, 'raw line and rolling average');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
 });
 
 await test('previous weights from the other apps become starting points when newer', async () => {

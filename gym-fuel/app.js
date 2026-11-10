@@ -2,7 +2,8 @@
 /* Iron & Eggs (this folder was Gym & Fuel): Iron & Eggs Classic cut down to the gym and nutrition.
    Kept: the training programmes and set logger (4-week cycles and Mentzer HIT), personal records,
    the food log with macro targets, the Dolce recipes, barcode scanning and the weight log.
-   Dropped: chains, XP and levels, goals, journal, fasting, carb-ups, Garmin, the channel and the other apps.
+   Dropped: XP and levels, goals, journal, the eating window, carb-ups, Garmin, the channel and the other apps.
+   Kept here as well: abstinence chains, a fasting timer (separate from fast days) and editable meal presets.
    No build step and no dependencies; data lives in this browser's localStorage. */
 
 // ===========================================================================
@@ -28,6 +29,11 @@ const today = () => isoDate(new Date());
 const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return isoDate(d); };
 const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 86400000);
+const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
+// Day 1 is the start date (same rule as Cut day and the Trainer chains: the span in days, plus one).
+// Checked against 10 Nov 2026: No weed from 6 Jul is 128, No energy drinks from 14 Jul is 120,
+// No coffee from 2 Nov is 9. The raw date differences are 127, 119 and 8; coffee's "day 9" is this count.
+const chainDays = (since, d = today()) => (!isoDay(since) || since > d ? 0 : daysBetween(since, d) + 1);
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const fmtDate = (s) => { const d = parseDate(s); return `${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`; };
@@ -75,9 +81,65 @@ function freshState() {
     measurements: [],
     targetLog: [],
     fastDays: {},
+    fasts: [],
+    chains: [],
+    mealPresets: DEFAULT_PRESETS.map((p) => ({ ...p })),
     challenge: null,
     notice: null,
   };
+}
+
+// Owner's abstinence streaks. Added once, the first time an existing log has none.
+// A new phone (no log yet) and a list the user has already edited are left alone.
+const DEFAULT_CHAINS = [
+  { id: 'weed', name: 'No weed', since: '2026-07-06' },
+  { id: 'energy', name: 'No energy drinks', since: '2026-07-14' },
+  { id: 'coffee', name: 'No coffee', since: '2026-11-02' },
+];
+// One-tap meals on Fuel → Log. The steak numbers are this cut's plate, not the staple's.
+const DEFAULT_PRESETS = [
+  { id: 'gironda1', name: 'Gironda Meal 1: 6 eggs + 3 Lidl pork patties', kcal: 933, p: 77, c: 4, f: 66, ref: 'gironda1' },
+  { id: 'gironda2', name: 'Eggs + steak: 6 eggs + 250 g rump', kcal: 880, p: 95, c: 1, f: 55, ref: 'gironda2' },
+];
+
+function cleanChain(c) {
+  if (!c || typeof c !== 'object') return null;
+  const name = String(c.name || '').trim().slice(0, 40);
+  if (!name || !isoDay(c.since)) return null;
+  return { id: String(c.id || uid()), name, since: c.since };
+}
+function cleanPreset(p) {
+  if (!p || typeof p !== 'object') return null;
+  const name = String(p.name || '').trim().slice(0, 80);
+  const kcal = Number(p.kcal), pr = Number(p.p), c = Number(p.c), f = Number(p.f);
+  if (!name || ![kcal, pr, c, f].every((n) => Number.isFinite(n))) return null;
+  const out = { id: String(p.id || uid()), name, kcal: Math.round(kcal), p: round1(pr), c: round1(c), f: round1(f) };
+  if (typeof p.ref === 'string' && p.ref) out.ref = p.ref.slice(0, 40);
+  return out;
+}
+function cleanFast(f) {
+  if (!f || typeof f !== 'object' || typeof f.start !== 'string') return null;
+  const start = new Date(f.start);
+  if (Number.isNaN(start.getTime())) return null;
+  let end = null;
+  if (f.end != null && f.end !== '') {
+    const e = new Date(f.end);
+    if (Number.isNaN(e.getTime()) || e < start) return null;
+    end = e.toISOString();
+  }
+  return { id: String(f.id || uid()), start: start.toISOString(), end };
+}
+// True when the defaults were just filled in. An empty list is kept once chainsSeeded is set.
+function seedChains(state) {
+  if (!state.settings) state.settings = {};
+  if (state.settings.chainsSeeded) return false;
+  if (!Array.isArray(state.chains)) state.chains = [];
+  if (state.chains.length) { state.settings.chainsSeeded = true; return false; }
+  const used = state.meals.length + state.workouts.length + state.weights.length + state.measurements.length > 0;
+  if (!used) return false;
+  state.chains = DEFAULT_CHAINS.map((c) => ({ ...c }));
+  state.settings.chainsSeeded = true;
+  return true;
 }
 
 function normalise(s) {
@@ -88,6 +150,10 @@ function normalise(s) {
   if (!out.programs || typeof out.programs !== 'object') out.programs = {};
   if (!out.baselines || typeof out.baselines !== 'object') out.baselines = {};
   if (!out.fastDays || typeof out.fastDays !== 'object' || Array.isArray(out.fastDays)) out.fastDays = {};
+  out.fasts = (Array.isArray(out.fasts) ? out.fasts : []).map(cleanFast).filter(Boolean);
+  out.chains = (Array.isArray(out.chains) ? out.chains : []).map(cleanChain).filter(Boolean);
+  out.mealPresets = Array.isArray(s.mealPresets) ? s.mealPresets.map(cleanPreset).filter(Boolean) : DEFAULT_PRESETS.map((p) => ({ ...p }));
+  seedChains(out);
   for (const t of PROGRAM_TEMPLATES) {
     const cur = out.programs[t.id];
     if (!cur || (t.version && (cur.version || 1) < t.version && !cur.edited)) out.programs[t.id] = programFromTemplate(t);
@@ -114,6 +180,7 @@ function load() {
 let S = load();
 try { if (typeof Drive !== 'undefined') Drive.baseline(S); } catch { /* auto-backup must not stop the app */ }
 function save() {
+  try { seedChains(S); if (!Array.isArray(S.mealPresets)) S.mealPresets = DEFAULT_PRESETS.map((p) => ({ ...p })); } catch { /* seeding must not stop a save */ }
   try { const raw = JSON.stringify(S); localStorage.setItem(STORE_KEY, raw); lastRaw = raw; storageOk = true; } catch { storageOk = false; }
   try { if (typeof Drive !== 'undefined') Drive.afterSave(); } catch { /* auto-backup must not stop a save */ }
 }
@@ -680,7 +747,6 @@ const COFFEE_BEST = 5; // No coffee's best streak was set to 5 days at the reset
 const CHAIN_STARTS = { coffee: '2026-10-14', cut: '2026-10-14' }; // both start again here: day 1 that day, day 0 until then
 const BUILT_IN_CHAINS = ['coffee', 'diet', 'cut', 'fasting', 'protein', 'training', 'sessions', 'steps', 'sleep', 'plan'];
 const SESSIONS_A_WEEK = 4;
-const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
 const readKey = (k) => { try { return JSON.parse(rawKey(k) || 'null'); } catch { return null; } };
 // A Trainer "No ___" chain: clean from `since` (or the day it was added), reset by each slip.
 function trainerChains(d) {
@@ -762,11 +828,109 @@ function myChains(d) {
 function chainsCard(d) {
   const sum = myChains(d);
   if (!sum?.chains.length) return '';
-  return `<section class="card"><h2>My chains <span class="right">${sum.chains.length}</span></h2>
-    <div class="list">${sum.chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.sub ? `${esc(c.sub)} · ` : ''}best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
+  const mine = new Set((S.chains || []).map((c) => String(c.name || '').toLowerCase()));
+  const chains = mine.size ? sum.chains.filter((c) => !mine.has(String(c.name).toLowerCase())) : sum.chains;
+  if (!chains.length) return '';
+  return `<section class="card"><h2>My chains <span class="right">${chains.length}</span></h2>
+    <div class="list">${chains.map((c) => `<div class="row between chainrow"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">${c.sub ? `${esc(c.sub)} · ` : ''}best ${c.best}${c.unit === 'wk' ? ' wk' : ''}</span></span>
       <span class="daybadge ${c.day ? '' : 'zero'}" aria-label="${c.unit === 'wk' ? `${c.day} week${c.day === 1 ? '' : 's'}` : `Day ${c.day}`}"><small>${c.unit === 'wk' ? 'Weeks' : 'Day'}</small>${c.day}</span></div>`).join('')}</div>
     <p class="muted small">Cut day and sessions count from what you log here.${sum.stale ? ` No coffee and your own chains were last checked in ${fmtDate(sum.date)}.` : ''} Check in or report a slip in Iron &amp; Eggs Classic.</p>
     <a class="btn" href="../shredded-trainer/">Check in on my chains</a></section>`;
+}
+
+function chainsBoard(d) {
+  const list = (S.chains || []).filter((c) => c && c.name && isoDay(c.since));
+  const rows = list.map((c) => {
+    const n = chainDays(c.since, d);
+    return `<div class="streak">
+      <div class="row between"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">since ${fmtDate(c.since)}</span></span>
+        <span class="daybadge ${n ? '' : 'zero'}" aria-label="Day ${n}"><small>Day</small>${n}</span></div>
+      <div class="row wrap">
+        <button class="small-btn" data-act="chain-edit" data-id="${esc(c.id)}">Edit</button>
+        <button class="small-btn" data-act="chain-reset" data-id="${esc(c.id)}">Reset</button>
+        <button class="small-btn ghost danger" data-act="chain-del" data-id="${esc(c.id)}">Delete</button>
+      </div></div>`;
+  }).join('');
+  return `<section class="card" id="chains-card"><h2>Chains <span class="right">${list.length}</span></h2>
+    ${list.length ? `<div class="list">${rows}</div>` : '<p class="muted small">No chains yet. Add one, or they appear on their own once a log is on this phone.</p>'}
+    <p class="muted small">The start date counts as day 1. Reset sets it to today.</p>
+    <button data-act="chain-add">+ Add a chain</button></section>`;
+}
+function chainForm(c = {}) {
+  return `<form id="chain-form" class="grid1" autocomplete="off" data-id="${esc(c.id || '')}">
+    <label class="field">Name<input name="name" required maxlength="40" value="${esc(c.name || '')}" placeholder="No ___"></label>
+    <label class="field">Start date<input name="since" type="date" required max="${today()}" value="${esc(c.since || today())}"></label>
+    <p class="muted small">Day 1 is this date, and the count keeps going past a day, a week or a month.</p>
+    <button class="primary" type="submit">Save</button>
+  </form>`;
+}
+
+// ---- Fasting timer. fastDays (a whole day at 0 kcal) stays as it is; a timed fast also marks the days it covers.
+function activeFast() {
+  return (S.fasts || []).filter((f) => f && !f.end).sort((a, b) => b.start.localeCompare(a.start))[0] || null;
+}
+function elapsedParts(ms) {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  return { days: Math.floor(mins / 1440), hours: Math.floor((mins % 1440) / 60), mins: mins % 60 };
+}
+function fmtElapsed(ms) {
+  const p = elapsedParts(ms);
+  return `${p.days} ${p.days === 1 ? 'day' : 'days'} ${p.hours} h ${p.mins} min`;
+}
+function markFastSpan(startIso, endIso) {
+  if (!S.fastDays || typeof S.fastDays !== 'object') S.fastDays = {};
+  let changed = false;
+  let d = isoDate(new Date(startIso));
+  const last = isoDate(new Date(endIso));
+  const stop = last > today() ? today() : last;
+  if (!isoDay(d) || d > stop) return false;
+  for (; d <= stop; d = addDays(d, 1)) if (!S.fastDays[d]) { S.fastDays[d] = true; changed = true; }
+  return changed;
+}
+function markActiveFastDays() {
+  const f = activeFast();
+  return f ? markFastSpan(f.start, new Date().toISOString()) : false;
+}
+function completedFasts() {
+  return (S.fasts || []).filter((f) => f && f.end).sort((a, b) => b.end.localeCompare(a.end));
+}
+function fastingCard() {
+  const f = activeFast();
+  const parts = f ? elapsedParts(Date.now() - new Date(f.start).getTime()) : null;
+  const hist = completedFasts();
+  return `<section class="card" id="fast-card"><h2>Fasting ${f ? '<span class="right">in progress</span>' : ''}</h2>
+    ${f ? `<div class="stats" id="fast-elapsed" data-start="${esc(f.start)}" aria-live="polite">
+        <div class="stat"><b data-part="d">${parts.days}</b><span>days</span></div>
+        <div class="stat"><b data-part="h">${parts.hours}</b><span>hours</span></div>
+        <div class="stat"><b data-part="m">${parts.mins}</b><span>minutes</span></div>
+      </div>
+      <p class="muted small">Started ${fmtDate(isoDate(new Date(f.start)))} at ${fmtTime(f.start)}. No 24-hour cap: a fast of several days keeps counting in days, hours and minutes.</p>
+      <button class="primary" data-act="fast-stop">Stop fast</button>`
+      : `<p class="small">Start a fast and leave it running. It can be a few hours or several days.</p>
+      <button class="primary" data-act="fast-start">Start a fast</button>`}
+    ${hist.length ? `<div class="list">${hist.slice(0, 12).map((x) => `<div class="row between">
+        <span class="grow"><b>${fmtElapsed(new Date(x.end) - new Date(x.start))}</b><br><span class="muted small">${fmtDate(isoDate(new Date(x.start)))} ${fmtTime(x.start)} → ${fmtDate(isoDate(new Date(x.end)))} ${fmtTime(x.end)}</span></span>
+        <button class="icon ghost" data-act="fast-del" data-id="${esc(x.id)}" aria-label="Delete fast of ${fmtElapsed(new Date(x.end) - new Date(x.start))}">✕</button>
+      </div>`).join('')}</div>${hist.length > 12 ? `<p class="muted small">${hist.length - 12} older fasts not shown.</p>` : ''}` : '<p class="muted small">Finished fasts are listed here with the start, the end and how long they ran.</p>'}
+    <p class="muted small">Each day a fast touches is also a fast day, so the calorie target counts it as 0 kcal plus anything you log.</p>
+  </section>`;
+}
+let fastClock = null;
+function paintFastElapsed() {
+  const root = document.getElementById('fast-elapsed');
+  if (!root?.dataset.start) return false;
+  root.dataset.ticks = String((Number(root.dataset.ticks) || 0) + 1);
+  const p = elapsedParts(Date.now() - new Date(root.dataset.start).getTime());
+  const set = (k, v) => { const el = root.querySelector(`[data-part="${k}"]`); if (el) el.textContent = String(v); };
+  set('d', p.days); set('h', p.hours); set('m', p.mins);
+  if (markActiveFastDays()) save();
+  return true;
+}
+function armFastClock() {
+  clearInterval(fastClock);
+  fastClock = null;
+  if (!paintFastElapsed()) return;
+  fastClock = setInterval(() => { if (!paintFastElapsed()) { clearInterval(fastClock); fastClock = null; } }, 1000);
 }
 
 function viewToday() {
@@ -789,7 +953,9 @@ function viewToday() {
   ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
   ${growthCards(d)}
+  ${chainsBoard(d)}
   ${chainsCard(d)}
+  ${fastingCard()}
   <section class="card hero-card">
     <h2>Training <span class="right">${esc(prog.name)}</span></h2>
     ${done.length
@@ -1195,6 +1361,7 @@ function viewFuelLog() {
   </div>
   <div class="grid2"><button data-act="scan-food">Scan a barcode</button>${photoButton(true)}</div>
   ${girondaBar(d)}
+  ${presetBar(d)}
   ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
   <section class="card">
     <h2>Meals · ${d === today() ? 'today' : fmtDate(d)} <span class="right">${meals.length}</span></h2>
@@ -1221,6 +1388,48 @@ function girondaBar(d) {
   return `<section class="card"><h2>Gironda bar <span class="right">${done}/2 today</span></h2>
     <div class="grid2">${btns}</div>
     <p class="muted small">Maximum definition: steak and eggs, nothing else. Tap a meal to log it, tap again to take it off.</p></section>`;
+}
+
+// ---- Quick meals: one tap adds a preset to the day on screen. Edit the presets or add your own.
+function presets() {
+  if (!Array.isArray(S.mealPresets)) S.mealPresets = DEFAULT_PRESETS.map((p) => ({ ...p }));
+  return S.mealPresets;
+}
+function presetBar(d) {
+  const list = presets();
+  const meals = mealsOn(d);
+  const rows = list.map((p) => {
+    const n = meals.filter((m) => m.ref === `preset:${p.id}` || (p.ref && m.ref === p.ref && m.kind === 'preset')).length;
+    return `<div class="row">
+      <button class="gbtn grow" data-act="preset-log" data-id="${esc(p.id)}" data-date="${esc(d)}">
+        <b>${esc(p.name)}</b><span class="small">${p.kcal} kcal · P ${fmtNum(p.p)} · C ${fmtNum(p.c)} · F ${fmtNum(p.f)}</span>
+        ${n ? `<span class="muted small">Added ${n} ${n === 1 ? 'time' : 'times'} this day</span>` : ''}
+      </button>
+      <button class="icon" data-act="preset-edit" data-id="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">✎</button>
+    </div>`;
+  }).join('');
+  return `<section class="card" id="presets-card"><h2>Quick meals <span class="right">tap to add</span></h2>
+    ${rows || '<p class="muted small">No presets yet.</p>'}
+    <button data-act="preset-add">+ Add a preset</button>
+    <p class="muted small">Each tap adds that meal to ${d === today() ? 'today' : fmtDate(d)}. Edit one, or add your own.</p></section>`;
+}
+function presetForm(p = {}) {
+  return `<form id="preset-form" class="grid2" autocomplete="off" data-id="${esc(p.id || '')}">
+    <label class="field" style="grid-column:1/-1">Name<input name="name" required maxlength="80" value="${esc(p.name || '')}"></label>
+    <label class="field">kcal<input name="kcal" inputmode="decimal" required value="${p.kcal ?? ''}"></label>
+    <label class="field">Protein (g)<input name="p" inputmode="decimal" value="${p.p ?? 0}"></label>
+    <label class="field">Carbs (g)<input name="c" inputmode="decimal" value="${p.c ?? 0}"></label>
+    <label class="field">Fat (g)<input name="f" inputmode="decimal" value="${p.f ?? 0}"></label>
+    <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
+    ${p.id ? `<button type="button" class="ghost danger" style="grid-column:1/-1" data-act="preset-del" data-id="${esc(p.id)}">Delete this preset</button>` : ''}
+  </form>`;
+}
+function logPreset(p, d) {
+  const at = nowOn(d);
+  S.meals.push({
+    id: uid(), date: d, at, name: p.name, kcal: p.kcal, p: p.p, c: p.c, f: p.f, servings: 1,
+    ref: p.ref || `preset:${p.id}`, kind: 'preset', slot: slotForTime(at),
+  });
 }
 
 // ---- fast days: a day on purpose with nothing (or very little) eaten, so the adaptive target counts it
@@ -1357,6 +1566,42 @@ function viewFuelRecipes() {
 // ===========================================================================
 // BODY
 // ===========================================================================
+// 7-day trend: the average of weigh-ins in the 7 days ending on `end`, and how that average moved over the previous 7 days.
+function weightTrend(d = today()) {
+  const list = weightsSorted();
+  if (!list.length) return { value: null, change: null, end: null };
+  const end = avgWeight(d, 7) != null ? d : list[list.length - 1].date;
+  const value = avgWeight(end, 7);
+  const prev = avgWeight(addDays(end, -7), 7);
+  return { value, change: value != null && prev != null ? value - prev : null, end };
+}
+function fmtDeltaKg(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  const v = round1(n);
+  if (Math.abs(v) < 0.05) return '0';
+  return `${v > 0 ? '+' : '−'}${fmtNum(Math.abs(v))}`;
+}
+function weightChart(points) {
+  if (points.length < 2) return '';
+  const trend = points.map((p) => ({ date: p.date, v: avgWeight(p.date, 7) })).filter((p) => p.v != null);
+  const W = 340, H = 190, L = 42, R = 14, T = 16, B = 30;
+  const t0 = parseDate(points[0].date).getTime(), t1 = parseDate(points[points.length - 1].date).getTime();
+  const vals = [...points.map((p) => Number(p.kg)), ...trend.map((p) => p.v)];
+  const ticks = niceTicks(Math.min(...vals), Math.max(...vals));
+  const lo = ticks[0], hi = ticks[ticks.length - 1];
+  const X = (date) => (t1 === t0 ? L + (W - L - R) / 2 : L + ((parseDate(date).getTime() - t0) / (t1 - t0)) * (W - L - R));
+  const Y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const line = (pts, y) => pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.date).toFixed(1)} ${Y(y(p)).toFixed(1)}`).join('');
+  const short = (date) => { const x = parseDate(date); return `${x.getDate()} ${MON[x.getMonth()]}`; };
+  const last = trend[trend.length - 1];
+  return `<svg class="liftchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Weigh-ins and a 7-day average${last ? `, now ${fmtNum(round1(last.v))} kg` : ''}">
+    ${ticks.map((t) => `<line x1="${L}" x2="${W - R}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" class="grid"/><text x="${L - 6}" y="${(Y(t) + 4).toFixed(1)}" text-anchor="end" class="tick">${fmtNum(t)}</text>`).join('')}
+    <text x="${L}" y="${H - 8}" class="tick">${short(points[0].date)}</text><text x="${W - R}" y="${H - 8}" text-anchor="end" class="tick">${short(points[points.length - 1].date)}</text>
+    <path d="${line(points, (p) => Number(p.kg))}" class="series"/>
+    ${trend.length > 1 ? `<path d="${line(trend, (p) => p.v)}" class="trend"/>` : ''}
+    ${points.map((p) => `<circle cx="${X(p.date).toFixed(1)}" cy="${Y(Number(p.kg)).toFixed(1)}" r="3.5" class="dot"><title>${fmtDate(p.date)}: ${fmtNum(p.kg)} kg</title></circle>`).join('')}
+  </svg>`;
+}
 function viewBodyWeight() {
   const d = today();
   const st = S.settings;
@@ -1364,12 +1609,16 @@ function viewBodyWeight() {
   const lw = list[list.length - 1];
   const start = st.startWeight ?? list[0]?.kg ?? null;
   const avg7 = avgWeight(d, 7);
+  const trend = weightTrend(d);
   const lost = start != null && lw ? start - lw.kg : null;
   const toGo = lw && st.target ? lw.kg - st.target : null;
   const pct = start != null && st.target && start !== st.target && lw ? Math.max(0, Math.min(1, (start - lw.kg) / (start - st.target))) : 0;
   const recent = list.filter((x) => x.date >= addDays(d, -59));
+  const trendLine = trend.value == null
+    ? 'Log a weigh-in to see the 7-day trend.'
+    : `7-day trend <b id="weight-trend-value">${fmtNum(round1(trend.value))} kg</b>${trend.end !== d ? ` <span class="muted">on ${fmtDate(trend.end)}</span>` : ''}${trend.change == null ? '. Another week of weigh-ins shows the change.' : ` · <b id="weight-trend-change">${fmtDeltaKg(trend.change)} kg</b> over the last 7 days`}`;
   return `
-  <section class="card">
+  <section class="card" id="weight-card">
     <h2>Weight</h2>
     <div class="stats">
       <div class="stat"><b>${lw ? fmtNum(lw.kg) : '—'}</b><span>latest kg</span></div>
@@ -1378,7 +1627,9 @@ function viewBodyWeight() {
       <div class="stat"><b>${toGo != null ? fmtNum(round1(Math.max(0, toGo))) : '—'}</b><span>kg to ${fmtNum(st.target)}</span></div>
     </div>
     ${start != null && lw ? `${bar(pct, 1, 'good')}<p class="muted small">${Math.round(pct * 100)}% of the way from ${fmtNum(start)} kg to ${fmtNum(st.target)} kg</p>` : ''}
-    ${spark(recent.map((x) => Number(x.kg)))}
+    <p class="small" id="weight-trend">${trendLine}</p>
+    ${weightChart(recent)}
+    ${recent.length > 1 ? '<p class="muted small chart-legend"><i class="swatch raw"></i> Weigh-ins <i class="swatch trend"></i> 7-day average</p>' : ''}
     <form id="weight-form" class="grid2" autocomplete="off">
       <label class="field">Weight (kg)<input name="kg" inputmode="decimal" required></label>
       <label class="field">Date<input name="date" type="date" value="${d}" max="${d}" required></label>
@@ -1847,6 +2098,7 @@ function render(opts = {}) {
   if (opts.scrollTop) window.scrollTo(0, 0);
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
   if (ui.tab === 'train' && !LIB) loadLib().then(() => { if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
+  armFastClock();
   rememberUi();
 }
 function commit(opts) { save(); render(opts); }
@@ -2118,6 +2370,64 @@ document.addEventListener('click', (e) => {
       const d = el.dataset.date;
       if (isFast(d)) delete S.fastDays[d]; else { S.fastDays[d] = true; toast('Fast day: counted as 0 kcal plus anything you log'); }
       break;
+    }
+    case 'fast-start': {
+      if (activeFast()) return;
+      const start = new Date().toISOString();
+      if (!Array.isArray(S.fasts)) S.fasts = [];
+      S.fasts.push({ id: uid(), start, end: null });
+      markFastSpan(start, start);
+      toast('Fast started');
+      break;
+    }
+    case 'fast-stop': {
+      const f = activeFast();
+      if (!f) return;
+      f.end = new Date().toISOString();
+      markFastSpan(f.start, f.end);
+      toast(`Fast stopped · ${fmtElapsed(new Date(f.end) - new Date(f.start))}`);
+      break;
+    }
+    case 'fast-del':
+      ask('Delete this fast? Days it marked stay marked.', 'Delete', () => { S.fasts = (S.fasts || []).filter((x) => x.id !== el.dataset.id); });
+      return;
+    case 'chain-add': openSheet('New chain', chainForm()); return;
+    case 'chain-edit': {
+      const c = (S.chains || []).find((x) => x.id === el.dataset.id);
+      if (c) openSheet('Edit chain', chainForm(c));
+      return;
+    }
+    case 'chain-reset': {
+      const c = (S.chains || []).find((x) => x.id === el.dataset.id);
+      if (!c) return;
+      ask(`Reset ${c.name}? The start date becomes today, so this is day 1 again.`, 'Reset', () => { c.since = today(); S.settings.chainsSeeded = true; });
+      return;
+    }
+    case 'chain-del': {
+      const c = (S.chains || []).find((x) => x.id === el.dataset.id);
+      if (!c) return;
+      ask(`Delete ${c.name}?`, 'Delete', () => { S.chains = S.chains.filter((x) => x.id !== c.id); S.settings.chainsSeeded = true; });
+      return;
+    }
+    case 'preset-log': {
+      const p = presets().find((x) => x.id === el.dataset.id);
+      const d = el.dataset.date || ui.fuelDate || today();
+      if (!p) return;
+      logPreset(p, d);
+      toast(`Added ${p.name.split(':')[0]}`);
+      break;
+    }
+    case 'preset-add': openSheet('New preset', presetForm()); return;
+    case 'preset-edit': {
+      const p = presets().find((x) => x.id === el.dataset.id);
+      if (p) openSheet('Edit preset', presetForm(p));
+      return;
+    }
+    case 'preset-del': {
+      const p = presets().find((x) => x.id === el.dataset.id);
+      if (!p) return;
+      ask(`Delete ${p.name}?`, 'Delete', () => { S.mealPresets = presets().filter((x) => x.id !== p.id); closeSheet(); });
+      return;
     }
     case 'ph-ai': photoAI(); return;
     case 'ph-manual': {
@@ -2395,6 +2705,26 @@ document.addEventListener('submit', (e) => {
       ui.fuelDate = date;
       closeSheet(); toast('Saved'); break;
     }
+    case 'chain-form': {
+      const name = String(fd.get('name') || '').trim().slice(0, 40);
+      const since = String(fd.get('since') || '');
+      if (!name || !isoDay(since) || since > today()) { toast('Enter a name and a start date up to today'); return; }
+      if (!Array.isArray(S.chains)) S.chains = [];
+      const cur = f.dataset.id && S.chains.find((x) => x.id === f.dataset.id);
+      if (cur) Object.assign(cur, { name, since });
+      else S.chains.push({ id: uid(), name, since });
+      S.settings.chainsSeeded = true;
+      closeSheet(); toast('Chain saved'); break;
+    }
+    case 'preset-form': {
+      const name = String(fd.get('name') || '').trim().slice(0, 80);
+      if (!name) return;
+      const cur = f.dataset.id && presets().find((x) => x.id === f.dataset.id);
+      const data = { name, ...macrosFrom(fd) };
+      if (cur) Object.assign(cur, data);
+      else presets().push({ id: uid(), ...data });
+      closeSheet(); toast('Preset saved'); break;
+    }
     case 'myfood-form': {
       const name = String(fd.get('name') || '').trim();
       if (!name) return;
@@ -2424,6 +2754,7 @@ function driveStatusPaint() {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   reloadIfChanged();
+  try { if (markActiveFastDays()) save(); } catch { /* a fast crossing midnight must not block opening */ }
   try {
     if (typeof Drive !== 'undefined') { Drive.afterSave(); Drive.onVisible(); }
   } catch { /* auto-backup must not block opening the app */ }
@@ -2440,7 +2771,14 @@ try {
   if (typeof Drive !== 'undefined') Drive.start({ getState: () => S, save, today, onStatus: driveStatusPaint });
 } catch { /* auto-backup must not stop the app */ }
 render();
-if (S.notice === 'start') { S.notice = null; save(); showWelcome(); }
+if (S.notice === 'start') {
+  S.notice = null;
+  // A brand-new phone doesn't inherit the owner's streaks. An older log with no chains still gets them.
+  const used = S.meals.length + S.workouts.length + S.weights.length + S.measurements.length > 0;
+  if (!S.settings.chainsSeeded && !used) { S.settings.chainsSeeded = true; if (!Array.isArray(S.chains)) S.chains = []; }
+  save();
+  showWelcome();
+}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {}));

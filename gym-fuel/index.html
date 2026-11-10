@@ -277,6 +277,14 @@
   .liftchart .grid { stroke: var(--border); stroke-width: 1; }
   .liftchart .tick { fill: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
   .liftchart .series { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .liftchart .trend { fill: none; stroke: var(--brass); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  :root[data-contrast="high"] .liftchart .trend { stroke: var(--good); }
+  .chart-legend { display: flex; align-items: center; gap: 0; }
+  .swatch { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin: 0 6px 0 0; vertical-align: middle; }
+  .swatch.raw { background: var(--accent); }
+  .swatch.trend { background: var(--brass); margin-left: 12px; }
+  :root[data-contrast="high"] .swatch.trend { background: var(--good); }
+  #fast-elapsed b { font-family: var(--display); font-size: 34px; letter-spacing: .5px; }
   .liftchart .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
   .liftchart .best .dot { fill: var(--card); stroke: var(--accent); stroke-width: 2.5; }
   .liftchart .hit { fill: transparent; cursor: pointer; }
