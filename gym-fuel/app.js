@@ -1019,6 +1019,157 @@ function prevBadge(last) {
   return `<span class="prevbadge ${last.baseline ? 'base' : ''}" aria-label="Last time ${kg}${top.kg != null ? ' kg' : ''} ${tail}"><small>${last.baseline ? 'Start' : 'Last'}</small>${kg}<small>${tail}</small></span>`;
 }
 
+function exerciseRestSec(name) {
+  const picked = Number(S.settings.restByName?.[exKey(name)]);
+  if (Session.REST_CHOICES.includes(picked)) return picked;
+  const fallback = Number(S.settings.restSec);
+  return Session.REST_CHOICES.includes(fallback) ? fallback : Session.DEFAULT_REST;
+}
+function sessionOf(pid, did) {
+  return (getDraft(pid, did)._session ||= {});
+}
+function beginSession(pid, did) {
+  const sess = sessionOf(pid, did);
+  if (!sess.startedAt) sess.startedAt = Date.now();
+  return sess;
+}
+function startRest(pid, did, eid, manual) {
+  const { ex } = findEx(pid, did, eid);
+  if (!ex) return;
+  if (!manual && (ex.ss || logMode(ex) === 'singles')) return;
+  const sess = beginSession(pid, did);
+  sess.restEnd = Session.restEndsAt(Date.now(), exerciseRestSec(ex.name));
+  sess.restAlerted = false;
+  saveDrafts();
+  paintSession();
+  holdWake();
+}
+function noteSet(pid, did, eid, index) {
+  const { ex } = findEx(pid, did, eid);
+  if (!ex || !Number.isInteger(index)) return;
+  const dr = getDraft(pid, did)[eid];
+  const set = dr?.sets?.[index];
+  if (!Session.setReady(set, logMode(ex))) return;
+  dr.rested ||= {};
+  if (dr.rested[index]) return;
+  dr.rested[index] = true;
+  startRest(pid, did, eid, false);
+}
+let wakeSentinel = null;
+function holdWake() {
+  try {
+    if (!navigator.wakeLock?.request || wakeSentinel) return;
+    navigator.wakeLock.request('screen').then((lock) => {
+      wakeSentinel = lock;
+      lock.addEventListener?.('release', () => { if (wakeSentinel === lock) wakeSentinel = null; });
+    }, () => { wakeSentinel = null; });
+  } catch { wakeSentinel = null; }
+}
+function releaseWake() {
+  const lock = wakeSentinel;
+  wakeSentinel = null;
+  lock?.release?.().catch(() => {});
+}
+let audioCtx = null;
+function tone(freq, ms) {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx ||= new Ctx();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.15, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+    o.start(t);
+    o.stop(t + ms / 1000);
+  } catch { /* this phone has no sound */ }
+}
+function restBeep() {
+  tone(880, 180);
+  setTimeout(() => tone(880, 280), 220);
+  navigator.vibrate?.([180, 80, 220]);
+}
+function tickBeep() {
+  tone(660, 60);
+}
+let sessionLoop = null;
+function paintSession() {
+  const bar = document.getElementById('session-bar');
+  if (!bar) { clearInterval(sessionLoop); sessionLoop = null; return; }
+  const sess = sessionOf(bar.dataset.pid, bar.dataset.did);
+  const now = Date.now();
+  const clock = document.getElementById('session-clock');
+  if (clock) clock.textContent = sess.startedAt ? Session.formatClock(Session.elapsedSec(sess.startedAt, now)) : '0:00';
+  const rest = document.getElementById('rest-clock');
+  if (rest) {
+    if (!sess.restEnd) { rest.textContent = '—'; rest.classList.remove('done'); }
+    else {
+      const left = Session.restLeft(sess.restEnd, now);
+      rest.textContent = left ? Session.formatClock(left) : 'Go';
+      rest.classList.toggle('done', left === 0);
+      if (Session.shouldRestAlert(sess.restEnd, now, sess.restAlerted)) {
+        sess.restAlerted = true;
+        saveDrafts();
+        restBeep();
+      }
+    }
+  }
+  const read = document.getElementById('tempo-read');
+  if (read && sess.tempoStart && S.settings.tempoOn) {
+    const tempo = S.settings.tempo || '3-1-1-0';
+    const at = Session.tempoAt(tempo, now - sess.tempoStart);
+    if (at) {
+      read.dataset.phase = at.phase;
+      read.innerHTML = `<b>${esc(at.phase)}</b> <span class="clock">${Math.ceil(at.left)}</span> <span class="muted">rep ${at.rep}</span>`;
+      const mark = Session.tempoMark(tempo, now - sess.tempoStart);
+      if (S.settings.tempoTicks && sess.tempoMark != null && mark !== sess.tempoMark) tickBeep();
+      if (mark !== sess.tempoMark) { sess.tempoMark = mark; }
+    }
+  }
+}
+function armSessionLoop() {
+  if (!document.getElementById('session-bar')) { clearInterval(sessionLoop); sessionLoop = null; return; }
+  paintSession();
+  if (!sessionLoop) sessionLoop = setInterval(paintSession, 200);
+}
+function sessionBar(prog, day) {
+  const sess = sessionOf(prog.id, day.id);
+  const now = Date.now();
+  const clock = sess.startedAt ? Session.formatClock(Session.elapsedSec(sess.startedAt, now)) : '0:00';
+  const left = sess.restEnd ? Session.restLeft(sess.restEnd, now) : null;
+  const tempo = S.settings.tempo || '3-1-1-0';
+  const on = !!S.settings.tempoOn;
+  const running = !!(on && sess.tempoStart);
+  const at = running ? Session.tempoAt(tempo, now - sess.tempoStart) : null;
+  const def = Session.REST_CHOICES.includes(Number(S.settings.restSec)) ? Number(S.settings.restSec) : Session.DEFAULT_REST;
+  return `<div class="card session-bar" id="session-bar" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}">
+    <div class="row between">
+      <div><span class="muted small">Session</span><div class="clock" id="session-clock">${clock}</div></div>
+      <div><span class="muted small">${left === 0 ? 'Rest done' : 'Rest'}</span><div class="clock rest-clock ${left === 0 ? 'done' : ''}" id="rest-clock" aria-live="polite">${left == null ? '—' : left ? Session.formatClock(left) : 'Go'}</div></div>
+    </div>
+    <div class="restpicks" role="group" aria-label="Default rest">${Session.REST_CHOICES.map((n) => `<button type="button" data-act="rest-default" data-v="${n}" aria-pressed="${def === n}">${n}</button>`).join('')}</div>
+    <div class="row">
+      <label class="field grow">Tempo<input id="tempo-set" value="${esc(tempo)}" inputmode="text" aria-label="Tempo" placeholder="3-1-1-0" autocomplete="off"></label>
+      <button type="button" data-act="tempo-toggle" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" aria-pressed="${on}">${on ? 'Tempo on' : 'Tempo off'}</button>
+    </div>
+    ${on ? `<div class="row between">
+      <div class="tempo-read" id="tempo-read" data-phase="${esc(at?.phase || '')}">${at ? `<b>${esc(at.phase)}</b> <span class="clock">${Math.ceil(at.left)}</span> <span class="muted">rep ${at.rep}</span>` : '<span class="muted">Ready</span>'}</div>
+      <button type="button" data-act="tempo-ticks" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" aria-pressed="${!!S.settings.tempoTicks}">${S.settings.tempoTicks ? 'Ticks on' : 'Ticks off'}</button>
+      <button type="button" class="primary" data-act="tempo-run" data-pid="${esc(prog.id)}" data-did="${esc(day.id)}">${running ? 'Stop' : 'Count'}</button>
+    </div>` : ''}
+  </div>`;
+}
+function restPicks(prog, day, e) {
+  const sec = exerciseRestSec(e.name);
+  const base = `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" data-eid="${esc(e.id)}"`;
+  return `<div class="restpicks" role="group" aria-label="Rest after ${esc(e.name)}">${Session.REST_CHOICES.map((n) => `<button type="button" data-act="rest-pick" data-v="${n}" ${base} aria-pressed="${sec === n}">${n}</button>`).join('')}<button type="button" class="primary" data-act="rest-now" ${base}>Rest</button></div>`;
+}
+
 function exerciseLogCard(prog, day, e, i) {
   const draft = getDraft(prog.id, day.id)[e.id] || {};
   const last = lastEntryFor(e.name);
@@ -1050,6 +1201,7 @@ function exerciseLogCard(prog, day, e, i) {
     ${last ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${last.entry.sets.filter(hasData).map(setText).join(', ')}${last.entry.note ? ` · ${esc(last.entry.note)}` : ''}</p>` : ''}
     ${hint ? `<p class="small good-text">▲ ${esc(hint)}</p>` : ''}
     ${rows}
+    ${restPicks(prog, day, e)}
     <div class="row wrap">
       ${mode === 'singles' ? '<button class="small-btn" data-act="rp-timer">10 s rest</button>' : `<button class="small-btn" data-act="set-add" ${base}>+ Add set</button>`}
       ${extra ? `<button class="small-btn" data-act="set-del" ${base}>− Remove extra set</button>` : ''}
@@ -1212,6 +1364,7 @@ function viewTrainLog() {
       <button class="ghost" data-act="prog-copy" data-pid="${esc(prog.id)}">Copy this programme to My workouts</button>
       ${prog.family === 'custom' ? `<button class="ghost danger" data-act="prog-del" data-pid="${esc(prog.id)}">Delete this programme</button>` : ''}
     ` : `
+      ${sessionBar(prog, day)}
       ${day.exercises.length ? '' : `<p class="muted">No exercises on this day yet. Tap <b>Edit exercises</b>, then <b>+ Add exercise</b>.</p>`}
       ${day.exercises.map((e, i) => exerciseLogCard(prog, day, e, i)).join('')}
       ${sessionFeelCard(prog, day)}
@@ -1340,7 +1493,7 @@ function viewTrainHistory() {
   <section class="card">
     <h2>Sessions <span class="right">${S.workouts.length}</span></h2>
     ${hist.length ? `<div class="list">${hist.map((w) => `<div>
-      <div class="row between"><button class="linkish grow" data-act="open-session" data-id="${esc(w.id)}" aria-expanded="${ui.openSession === w.id}"><b>${esc(w.dayName)}</b>${prs.has(w.id) ? ` ${chip('PR', 'good')}` : ''}<br><span class="muted small">${fmtDate(w.date)} ${fmtTime(w.at)} · ${esc(w.programName || '')}</span></button>
+      <div class="row between"><button class="linkish grow" data-act="open-session" data-id="${esc(w.id)}" aria-expanded="${ui.openSession === w.id}"><b>${esc(w.dayName)}</b>${prs.has(w.id) ? ` ${chip('PR', 'good')}` : ''}<br><span class="muted small">${fmtDate(w.date)} ${fmtTime(w.at)}${Number.isFinite(w.sec) ? ` · ${Session.formatClock(w.sec)}` : ''} · ${esc(w.programName || '')}</span></button>
       <button class="icon ghost" data-act="del-workout" data-id="${esc(w.id)}" aria-label="Delete session">✕</button></div>
       ${w.feel || w.note ? `<p class="small">${w.feel ? chip(`Felt: ${FEELS.find(([k]) => k === w.feel)?.[1] || ''}`, w.feel >= 4 ? 'good' : w.feel <= 2 ? 'warn' : '') : ''} ${w.note ? `<span class="muted">${esc(w.note)}</span>` : ''}</p>` : ''}
       ${ui.openSession === w.id ? `<div class="small muted">${(w.entries || []).map((e) => `${esc(e.name)}: ${e.sets.map(setText).join(', ')}${e.note ? ` (${esc(e.note)})` : ''}`).join('<br>') || 'No sets logged.'}</div>` : ''}
@@ -2180,6 +2333,12 @@ function render(opts = {}) {
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
   if (ui.tab === 'train' && !LIB) loadLib().then(() => { if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
   armFastClock();
+  armSessionLoop();
+  const sessionBarEl = document.getElementById('session-bar');
+  if (sessionBarEl) {
+    const live = sessionOf(sessionBarEl.dataset.pid, sessionBarEl.dataset.did);
+    if (live.startedAt || live.restEnd || live.tempoStart) holdWake();
+  } else releaseWake();
   rememberUi();
 }
 function commit(opts) { save(); render(opts); }
@@ -2214,11 +2373,13 @@ function completeSession(pid, did) {
   }).filter((e) => e.sets.length || e.note);
   const sess = draft._session || {};
   const w = { id: uid(), date: today(), at: new Date().toISOString(), programId: pid, programName: prog.name, family: prog.family, dayId: did, dayName: day.name, entries };
+  if (sess.startedAt) w.sec = Session.elapsedSec(sess.startedAt, Date.now());
   if (sess.feel) w.feel = Number(sess.feel);
   if ((sess.note || '').trim()) w.note = sess.note.trim();
   S.workouts.push(w);
   delete ui.drafts[draftKey(pid, did)];
   saveDrafts();
+  releaseWake();
   ui.dayId = null;
   toast(prSessions().has(w.id) ? 'Session saved · new personal record!' : 'Session saved');
 }
@@ -2289,6 +2450,42 @@ document.addEventListener('click', (e) => {
       saveDrafts(); render(); return;
     }
     case 'rp-timer': restTimer(el); return;
+    case 'rest-now': startRest(pid, did, eid, true); return;
+    case 'rest-pick': {
+      const sec = Number(el.dataset.v);
+      const { ex } = findEx(pid, did, eid);
+      if (!ex || !Session.REST_CHOICES.includes(sec)) return;
+      (S.settings.restByName ||= {})[exKey(ex.name)] = sec;
+      const sess = sessionOf(pid, did);
+      if (sess.restEnd && Session.restLeft(sess.restEnd, Date.now()) > 0) {
+        sess.restEnd = Session.restEndsAt(Date.now(), sec);
+        sess.restAlerted = false;
+        saveDrafts();
+      }
+      save();
+      render();
+      return;
+    }
+    case 'rest-default': {
+      const sec = Number(el.dataset.v);
+      if (!Session.REST_CHOICES.includes(sec)) return;
+      S.settings.restSec = sec;
+      save();
+      render();
+      return;
+    }
+    case 'tempo-toggle': S.settings.tempoOn = !S.settings.tempoOn; if (!S.settings.tempoOn) { const sess = sessionOf(pid, did); if (pid) delete sess.tempoStart; } save(); render(); return;
+    case 'tempo-ticks': S.settings.tempoTicks = !S.settings.tempoTicks; save(); render(); return;
+    case 'tempo-run': {
+      const sess = beginSession(pid, did);
+      if (sess.tempoStart) delete sess.tempoStart;
+      else { sess.tempoStart = Date.now(); sess.tempoMark = null; S.settings.tempoOn = true; }
+      saveDrafts();
+      save();
+      render();
+      holdWake();
+      return;
+    }
     case 'complete': {
       if (!draftStarted(pid, did)) { ask('Nothing entered yet. Save this session with no sets?', 'Save anyway', () => completeSession(pid, did)); return; }
       completeSession(pid, did); break;
@@ -2577,7 +2774,7 @@ document.addEventListener('input', (e) => {
     const [pid, did, eid, s, field] = t.dataset.draft.split('|');
     const dr = (getDraft(pid, did)[eid] ||= {});
     if (s === 'note') dr.note = t.value;
-    else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; }
+    else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; noteSet(pid, did, eid, Number(s)); }
     saveDrafts();
     return;
   }
@@ -2672,6 +2869,13 @@ document.addEventListener('change', (e) => {
     save();
     if (t.checked) Drive.enable(); else Drive.disable();
     render();
+    return;
+  }
+  if (t.id === 'tempo-set') {
+    const parsed = Session.parseTempo(t.value);
+    if (!parsed) { toast('Tempo is four numbers, like 3-1-1-0'); return; }
+    S.settings.tempo = parsed.join('-');
+    save();
     return;
   }
   if (t.id === 'label-file') {
@@ -2878,6 +3082,8 @@ document.addEventListener('visibilitychange', () => {
     if (typeof Drive !== 'undefined') { Drive.afterSave(); Drive.onVisible(); }
   } catch { /* auto-backup must not block opening the app */ }
   if (idle()) render();
+  else paintSession();
+  if (document.getElementById('session-bar')) holdWake();
 });
 window.addEventListener('storage', (e) => {
   if (e.key !== STORE_KEY || !reloadIfChanged()) return;

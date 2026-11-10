@@ -306,6 +306,23 @@
   #scan-video { width: 100%; max-height: 260px; border-radius: 10px; background: #000; object-fit: cover; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   label.btn { cursor: pointer; }
+  /* Workout: clock and rest stay on screen while you scroll the exercises. */
+  .session-bar { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 116px); z-index: 3; }
+  /* Keep taps below the sticky clock when the page scrolls a control into view. */
+  #session-bar ~ .excard, #session-bar ~ .excard button, #session-bar ~ .excard input, #session-bar ~ button, #session-bar ~ .row button {
+    scroll-margin-top: 420px;
+    scroll-margin-bottom: 120px;
+  }
+  .clock { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 28px; line-height: 1.1; }
+  .rest-clock { font-size: 40px; }
+  .rest-clock.done { color: var(--good); }
+  .restpicks { display: flex; gap: 8px; }
+  .restpicks button { flex: 1; min-height: 52px; font-size: 18px; font-weight: 800; padding: 8px 4px; }
+  .restpicks button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .tempo-read { font-size: 22px; font-weight: 800; min-height: 52px; display: flex; align-items: center; gap: 8px; }
+  .tempo-read[data-phase="Lower"] b { color: var(--accent); }
+  .tempo-read[data-phase="Lift"] b { color: var(--good); }
+  .tempo-read[data-phase="Hold"] b { color: var(--brass); }
 </style>
 </head>
 <body>
@@ -324,6 +341,7 @@
 <script src="share.js"></script>
 <script src="coach.js"></script>
 <script src="drive.js"></script>
+<script src="session.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

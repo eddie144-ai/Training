@@ -899,6 +899,34 @@ await test('previous weights from the other apps become starting points when new
   await ctx.close();
 });
 
+await test('workout clock and rest: logging a set starts 90 s, the exercise can use 120 s, and the session length is saved', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, time: '2026-11-10T18:00:00Z' });
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  assert((await page.locator('#session-clock').textContent()) === '0:00', 'clock is on the workout before the first set');
+  const card = page.locator('.excard').first();
+  const name = (await card.locator('b').first().textContent()).trim();
+  await card.getByLabel(`${name} set 1 kg`).fill('40');
+  assert((await page.locator('#rest-clock').textContent()) === '—', 'weight alone does not start the rest');
+  await card.getByLabel(`${name} set 1 reps`).fill('8');
+  const mid = await page.evaluate(() => {
+    const sess = Object.values(ui.drafts)[0]._session;
+    return { left: Session.restLeft(sess.restEnd, Date.now()), clock: Session.elapsedSec(sess.startedAt, Date.now()), shown: document.getElementById('rest-clock').textContent };
+  });
+  assert(mid.left === 90 && mid.shown === '1:30' && mid.clock === 0, `rest from the timestamp ${JSON.stringify(mid)}`);
+  await card.getByRole('button', { name: '120', exact: true }).click();
+  const picked = await page.evaluate(() => Session.restLeft(Object.values(ui.drafts)[0]._session.restEnd, Date.now()));
+  assert(picked === 120, `that exercise now rests 120 s (${picked})`);
+  await page.evaluate(() => { Object.values(ui.drafts)[0]._session.startedAt = Date.now() - 125000; saveDrafts(); });
+  await page.getByRole('button', { name: 'Complete session' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'History' }).click();
+  assert(await page.getByText('2:05').isVisible(), 'duration shows in history');
+  assert((await page.evaluate(() => S.workouts[0].sec)) === 125, 'duration stored on the workout');
+  const tempo = await page.evaluate(() => Session.tempoAt('3-1-1-0', 3000));
+  assert(tempo.phase === 'Hold' && tempo.rep === 1, `tempo ${JSON.stringify(tempo)}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await test('nutrition label: type the per 100 g column, log the grams, and reuse the saved product', async () => {
   const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, time: '2026-11-10T12:00:00Z' });
   await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();

@@ -37,6 +37,8 @@ jobs:
         run: node --test gym-fuel/tests/coach.test.mjs
       - name: Iron & Eggs nutrition labels
         run: node --test gym-fuel/tests/label.test.mjs
+      - name: Iron & Eggs session timers
+        run: node --test gym-fuel/tests/session.test.mjs
 
   browser-apps:
     name: Phone apps (Playwright)
