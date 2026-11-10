@@ -33,6 +33,8 @@ jobs:
         run: node gym-fuel/worker/test/worker.test.mjs
       - name: Iron & Eggs Drive backup
         run: node --test gym-fuel/tests/drive.test.mjs
+      - name: Iron & Eggs Coach Mike
+        run: node --test gym-fuel/tests/coach.test.mjs
 
   browser-apps:
     name: Phone apps (Playwright)
