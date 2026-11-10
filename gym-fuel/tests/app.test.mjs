@@ -757,18 +757,18 @@ await test('chains: seeded streaks count the start date as day 1, and can be edi
   });
   const card = page.locator('#chains-card');
   const day = (name) => card.locator('.streak', { hasText: name }).locator('.daybadge').getAttribute('aria-label');
-  // Raw differences are 127, 119 and 8. Counting the start date (day 1) makes them 128, 120 and 9.
+  // Start date is day 1. On 10 Nov 2026: 7 Jul → 127, 15 Jul → 119, 2 Nov → 9.
   const math = await page.evaluate(() => ({
-    weed: daysBetween('2026-07-06', '2026-11-10'),
-    energy: daysBetween('2026-07-14', '2026-11-10'),
+    weed: daysBetween('2026-07-07', '2026-11-10'),
+    energy: daysBetween('2026-07-15', '2026-11-10'),
     coffee: daysBetween('2026-11-02', '2026-11-10'),
-    weedDay: chainDays('2026-07-06', '2026-11-10'),
-    energyDay: chainDays('2026-07-14', '2026-11-10'),
+    weedDay: chainDays('2026-07-07', '2026-11-10'),
+    energyDay: chainDays('2026-07-15', '2026-11-10'),
     coffeeDay: chainDays('2026-11-02', '2026-11-10'),
   }));
-  assert(math.weed === 127 && math.energy === 119 && math.coffee === 8, `raw differences ${JSON.stringify(math)}`);
-  assert(math.weedDay === 128 && math.energyDay === 120 && math.coffeeDay === 9, `day count ${JSON.stringify(math)}`);
-  assert(await day('No weed') === 'Day 128' && await day('No energy drinks') === 'Day 120' && await day('No coffee') === 'Day 9', `badges ${await day('No weed')} ${await day('No energy drinks')} ${await day('No coffee')}`);
+  assert(math.weed === 126 && math.energy === 118 && math.coffee === 8, `raw differences ${JSON.stringify(math)}`);
+  assert(math.weedDay === 127 && math.energyDay === 119 && math.coffeeDay === 9, `day count ${JSON.stringify(math)}`);
+  assert(await day('No weed') === 'Day 127' && await day('No energy drinks') === 'Day 119' && await day('No coffee') === 'Day 9', `badges ${await day('No weed')} ${await day('No energy drinks')} ${await day('No coffee')}`);
   await card.locator('.streak', { hasText: 'No energy drinks' }).getByRole('button', { name: 'Edit' }).click();
   const editChain = page.locator('#chain-form');
   await editChain.getByLabel('Start date').fill('2026-11-03');
@@ -787,7 +787,7 @@ await test('chains: seeded streaks count the start date as day 1, and can be edi
   await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
   assert(!(await card.locator('.streak', { hasText: 'No sugar' }).count()), 'deleted');
   await page.reload();
-  assert(await day('No weed') === 'Day 128' && !(await card.locator('.streak', { hasText: 'No sugar' }).count()), 'delete sticks, defaults do not return');
+  assert(await day('No weed') === 'Day 127' && !(await card.locator('.streak', { hasText: 'No sugar' }).count()), 'delete sticks, defaults do not return');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

@@ -23,9 +23,9 @@ again.
   protein).
 - **Chains (Today):** abstinence streaks you keep in this app. Each has a name, a start date and a day count.
   The start date is day 1 (the same rule as Cut day). Add, edit, delete or reset one; reset sets the start date to
-  today. The first time an existing log has no chains, three are filled in: No weed from 6 Jul 2026, No energy drinks
-  from 14 Jul 2026 and No coffee from 2 Nov 2026. On 10 Nov 2026 those are day 128, day 120 and day 9 (the raw date
-  differences are 127, 119 and 8; the start day is counted as well, which is what makes coffee day 9). A new phone
+  today. The first time an existing log has no chains, three are filled in: No weed from 7 Jul 2026, No energy drinks
+  from 15 Jul 2026 and No coffee from 2 Nov 2026. On 10 Nov 2026 those are day 127, day 119 and day 9, because the
+  start date counts as day 1. A new phone
   with nothing logged yet starts empty, and deleting a chain does not bring it back. They're in backups.
 - **My chains (Today):** No coffee, your own "No ___" chains (such as No weed and No energy drinks), Cut day and
   4 sessions this week, each with its day (or week) count and best, when those still come from the other apps.

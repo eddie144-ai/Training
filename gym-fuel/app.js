@@ -31,8 +31,7 @@ const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); 
 const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 86400000);
 const isoDay = (x) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
 // Day 1 is the start date (same rule as Cut day and the Trainer chains: the span in days, plus one).
-// Checked against 10 Nov 2026: No weed from 6 Jul is 128, No energy drinks from 14 Jul is 120,
-// No coffee from 2 Nov is 9. The raw date differences are 127, 119 and 8; coffee's "day 9" is this count.
+// On 10 Nov 2026 that is day 127 from 7 Jul, day 119 from 15 Jul, and day 9 from 2 Nov.
 const chainDays = (since, d = today()) => (!isoDay(since) || since > d ? 0 : daysBetween(since, d) + 1);
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -92,8 +91,8 @@ function freshState() {
 // Owner's abstinence streaks. Added once, the first time an existing log has none.
 // A new phone (no log yet) and a list the user has already edited are left alone.
 const DEFAULT_CHAINS = [
-  { id: 'weed', name: 'No weed', since: '2026-07-06' },
-  { id: 'energy', name: 'No energy drinks', since: '2026-07-14' },
+  { id: 'weed', name: 'No weed', since: '2026-07-07' },
+  { id: 'energy', name: 'No energy drinks', since: '2026-07-15' },
   { id: 'coffee', name: 'No coffee', since: '2026-11-02' },
 ];
 // One-tap meals on Fuel → Log. The steak numbers are this cut's plate, not the staple's.
