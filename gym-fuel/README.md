@@ -85,6 +85,11 @@ again.
   none until they've logged something.
 - **Fuel → Log:** meals by day and slot, totals against your targets, add from the food library, one-off meals,
   barcode scan (Open Food Facts), copy the day before, edit or delete.
+- **Read a nutrition label (Fuel → Log):** photograph a UK nutrition panel. The per 100 g column (kcal, fat, carbohydrate,
+  protein) is read on the phone with Tesseract.js; kilojoules and the reference-intake column are ignored. The numbers
+  stay editable, you type the grams eaten, and the log gets the scaled meal. If the photo doesn't read, type the per
+  100 g figures yourself. **Save for next time** keeps the product (for example Asda roast chicken) in the backup, so
+  the next meal is just the name and the grams. The reader downloads once, then works offline.
 - **Photo logging:** **Photo of food or label** (Today and Fuel) takes or picks a photo of a meal, drink, snack,
   packet, nutrition label or menu, with an optional note ("fried in 1 tbsp butter"). With an AI key (Body → Settings),
   **Work it out with Gemini/Claude** returns each food with grams, calories, protein, carbs and fat and how sure it
@@ -183,13 +188,14 @@ There is no client secret and no server. The scope is `drive.file` only, so the 
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
 ```bash
 npm i playwright          # once, for the browser tests
 node gym-fuel/tests/app.test.mjs
+node --test gym-fuel/tests/label.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```
