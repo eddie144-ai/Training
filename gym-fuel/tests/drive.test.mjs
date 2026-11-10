@@ -468,7 +468,7 @@ test('429 backs off, then the wait doubles, then a later attempt succeeds', asyn
 
 test('the page, service worker and settings are wired for Drive', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /const VERSION = 'gymfuel-v1\.19'/);
+  assert.match(sw, /const VERSION = 'gymfuel-v1\.21'/);
   assert.match(sw, /\.\/drive\.js/);
   assert.match(sw, /accounts\.google\.com/);
   assert.match(sw, /www\.googleapis\.com/);

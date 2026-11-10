@@ -54,6 +54,11 @@ again.
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
   a half-logged session survives the app closing. Edit exercises, days and supersets; reset to the original.
+  A session clock stays on screen and its length is saved with the workout (and so in the backup). Rest between
+  sets defaults to 90 s (60, 120 or 180 on the exercise) and starts when weight and reps are both in, or when you
+  tap Rest. It is timed from a timestamp, so leaving the app and coming back still shows the right seconds, and it
+  beeps and vibrates when it ends. Tempo (for example 3-1-1-0) counts lower, hold and lift with a rep counter;
+  turn it off when you don't want it. The screen stays awake during a session where the phone allows it.
 - **My workouts (Train):** a third tab next to the 4-week cycles and Mentzer HIT. **+ Create a workout programme**
   makes a blank one (1–7 days, optional rest between sessions) or a copy of any programme; it opens in Edit,
   where you name the programme and each day, add exercises from the library or your own, set sets, reps,
@@ -183,13 +188,14 @@ There is no client secret and no server. The scope is `drive.file` only, so the 
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/session.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
 ```bash
 npm i playwright          # once, for the browser tests
 node gym-fuel/tests/app.test.mjs
+node --test gym-fuel/tests/session.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```
