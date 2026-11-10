@@ -76,6 +76,7 @@ function freshState() {
     meals: [],
     myFoods: [],
     scanned: [],
+    labels: [],
     weights: [],
     measurements: [],
     targetLog: [],
@@ -145,7 +146,13 @@ function normalise(s) {
   if (!s || typeof s !== 'object') return freshState();
   const d = freshState();
   const out = { ...d, ...s, v: 1, settings: { ...d.settings, ...s.settings, active: { ...d.settings.active, ...(s.settings?.active || {}) } } };
-  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'weights', 'measurements', 'targetLog']) if (!Array.isArray(out[k])) out[k] = [];
+  for (const k of ['workouts', 'meals', 'myFoods', 'scanned', 'labels', 'weights', 'measurements', 'targetLog']) if (!Array.isArray(out[k])) out[k] = [];
+  out.labels = out.labels.map((x) => {
+    if (!x || typeof x.name !== 'string' || !x.name.trim()) return null;
+    const kcal = Number(x.kcal), p = Number(x.p), c = Number(x.c), f = Number(x.f);
+    if (![kcal, p, c, f].every((n) => Number.isFinite(n) && n >= 0)) return null;
+    return { id: String(x.id || uid()), name: x.name.trim().slice(0, 80), kcal: Math.round(kcal), p: round1(p), c: round1(c), f: round1(f) };
+  }).filter(Boolean);
   if (!out.programs || typeof out.programs !== 'object') out.programs = {};
   if (!out.baselines || typeof out.baselines !== 'object') out.baselines = {};
   if (!out.fastDays || typeof out.fastDays !== 'object' || Array.isArray(out.fastDays)) out.fastDays = {};
@@ -1512,6 +1519,8 @@ function viewFuelLog() {
     <button data-act="oneoff">+ One-off meal</button>
   </div>
   <div class="grid2"><button data-act="scan-food">Scan a barcode</button>${photoButton(true)}</div>
+  <button data-act="label-open">Read a nutrition label</button>
+  ${savedLabelRow()}
   ${girondaBar(d)}
   ${presetBar(d)}
   ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
@@ -2098,6 +2107,79 @@ function openServings(food, slot) {
     ${food.serves > 1 ? `<button class="ghost" data-act="log-food" data-id="${esc(food.id)}" data-servings="${food.serves}">Whole recipe (×${food.serves})</button>` : ''}`);
 }
 
+// Nutrition panel: per 100 g from a photo (label.js, on this phone) or typed in, then scaled by the grams eaten.
+function savedLabels() {
+  return (S.labels || []).filter((x) => x && x.name);
+}
+function savedLabelRow() {
+  const list = savedLabels();
+  if (!list.length) return '';
+  return `<div class="row wrap"><span class="muted small">Saved labels:</span>${list.slice(0, 8).map((l) => `<button class="small-btn" data-act="label-pick" data-id="${esc(l.id)}">${esc(l.name)}</button>`).join('')}</div>`;
+}
+function labelPreview() {
+  const form = document.getElementById('label-form');
+  const out = document.getElementById('label-preview');
+  if (!form || !out || typeof Label === 'undefined') return;
+  const grams = num(form.elements.grams?.value);
+  const per = { kcal: num(form.elements.kcal?.value), p: num(form.elements.p?.value), c: num(form.elements.c?.value), f: num(form.elements.f?.value) };
+  if (per.kcal == null || !grams || grams <= 0) { out.textContent = 'Per 100 g, then the grams you ate.'; return; }
+  const s = Label.scale100({ kcal: per.kcal, p: per.p ?? 0, c: per.c ?? 0, f: per.f ?? 0 }, grams);
+  out.textContent = s ? `${fmtNum(grams)} g → ${s.kcal} kcal · P ${fmtNum(s.p)} · C ${fmtNum(s.c)} · F ${fmtNum(s.f)}` : '';
+}
+function labelForm(product) {
+  const p = product || {};
+  return `<form id="label-form" class="grid2" autocomplete="off" ${p.id ? `data-id="${esc(p.id)}"` : ''}>
+    <label class="field" style="grid-column:1/-1">Name<input name="name" required maxlength="80" value="${esc(p.name || '')}" placeholder="e.g. Asda roast chicken"></label>
+    <label class="field">kcal per 100 g<input name="kcal" inputmode="decimal" required value="${p.kcal ?? ''}"></label>
+    <label class="field">Fat per 100 g<input name="f" inputmode="decimal" required value="${p.f ?? ''}"></label>
+    <label class="field">Carbs per 100 g<input name="c" inputmode="decimal" required value="${p.c ?? ''}"></label>
+    <label class="field">Protein per 100 g<input name="p" inputmode="decimal" required value="${p.p ?? ''}"></label>
+    <label class="field" style="grid-column:1/-1">Grams eaten<input name="grams" inputmode="decimal" required placeholder="e.g. 400"></label>
+    <p class="small" id="label-preview" style="grid-column:1/-1">Per 100 g, then the grams you ate.</p>
+    <label class="field check-field" style="grid-column:1/-1"><span>Save for next time</span><input type="checkbox" name="keep" checked></label>
+    <button class="primary" style="grid-column:1/-1" type="submit">Add to the log</button>
+  </form>`;
+}
+function openLabel(product) {
+  const saved = savedLabels();
+  const note = product ? 'Saved label. Enter the grams and check the per 100 g numbers.' : 'Photograph the nutrition panel, or type the per 100 g column. The reference intake (RI) and the kJ line are ignored.';
+  openSheet('Nutrition label', `
+    <p class="small" id="label-note">${esc(note)}</p>
+    <img id="label-photo" class="phprev" alt="Nutrition panel" hidden>
+    <label class="btn" for="label-file">Photograph the nutrition panel</label>
+    <input id="label-file" type="file" accept="image/*" capture="environment" class="sr">
+    ${saved.length ? `<div class="list">${saved.slice(0, 12).map((l) => `<div class="row between"><button class="linkish grow" data-act="label-pick" data-id="${esc(l.id)}"><b>${esc(l.name)}</b><br><span class="muted small">${l.kcal} kcal · P ${fmtNum(l.p)} · C ${fmtNum(l.c)} · F ${fmtNum(l.f)} per 100 g</span></button><button class="icon ghost" data-act="label-del" data-id="${esc(l.id)}" aria-label="Delete ${esc(l.name)}">✕</button></div>`).join('')}</div>` : ''}
+    ${labelForm(product)}
+    <p class="muted small">Reading happens on this phone. The first time it downloads the reader (needs a connection once); after that it works offline.</p>`);
+  const grams = document.querySelector('#label-form [name="grams"]');
+  if (product && grams) grams.focus();
+  labelPreview();
+}
+function applyLabelRead(res) {
+  const note = document.getElementById('label-note');
+  const form = document.getElementById('label-form');
+  if (!form) return;
+  if (!res?.ok) {
+    if (note) note.textContent = res?.error || 'Couldn\'t read that photo. Type the per 100 g numbers from the pack.';
+    return;
+  }
+  const per = res.per || {};
+  const filled = ['kcal', 'f', 'c', 'p'].filter((k) => per[k] != null);
+  for (const k of filled) if (form.elements[k]) form.elements[k].value = per[k];
+  if (note) note.textContent = per.ok ? 'Check these against the pack, then enter the grams.' : 'Some of the per 100 g column didn\'t read. Fill in the blanks from the pack.';
+  labelPreview();
+}
+async function readLabelFile(file) {
+  const img = document.getElementById('label-photo');
+  const note = document.getElementById('label-note');
+  if (img) { img.hidden = false; img.src = URL.createObjectURL(file); }
+  if (note) note.textContent = 'Reading the per 100 g column…';
+  if (typeof Label === 'undefined') { applyLabelRead({ ok: false, error: 'The label reader isn\'t in this copy. Type the per 100 g numbers.' }); return; }
+  const res = await Label.readImage(file);
+  if (!document.getElementById('label-form')) return;
+  applyLabelRead(res);
+}
+
 // Barcode scanning (scan.js) into the food log.
 function scanSheet() {
   scanState = { status: 'idle', food: null, msg: '', code: '' };
@@ -2513,6 +2595,18 @@ document.addEventListener('click', (e) => {
     case 'edit-myfood': openSheet('Edit my food', myFoodForm(S.myFoods.find((x) => x.id === el.dataset.id))); return;
     case 'del-myfood': S.myFoods = S.myFoods.filter((x) => x.id !== el.dataset.id); closeSheet(); toast('Food deleted'); break;
     case 'scan-food': scanSheet(); return;
+    case 'label-open': openLabel(null); return;
+    case 'label-pick': {
+      const product = savedLabels().find((x) => x.id === el.dataset.id);
+      if (product) openLabel(product);
+      return;
+    }
+    case 'label-del': {
+      const gone = savedLabels().find((x) => x.id === el.dataset.id);
+      if (!gone) return;
+      ask(`Delete ${gone.name}?`, 'Delete', () => { S.labels = savedLabels().filter((x) => x.id !== gone.id); openLabel(null); });
+      return;
+    }
     case 'scan-cam': {
       scanState.status = 'camera'; scanState.msg = 'Point the camera at the barcode.'; drawScan();
       Scan.start(document.getElementById('scan-video'), (code) => scanLookup(code)).catch((err) => { Scan.stop(); if (scanState) { Object.assign(scanState, { status: 'error', msg: /scanner|detector/.test(err?.message || '') ? 'Couldn\'t load the scanner. It needs internet the first time. Type the number instead.' : 'The camera isn\'t available. Allow camera access, or type the number instead.' }); drawScan(); } });
@@ -2692,6 +2786,7 @@ document.addEventListener('input', (e) => {
     again.focus(); again.setSelectionRange(pos, pos);
     return;
   }
+  if (t.form?.id === 'label-form') { labelPreview(); return; }
   if (t.form?.id === 'setup-form') {
     if (['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal'].includes(t.name)) t.dataset.touched = t.value.trim() ? '1' : '';
     else refreshSetup(t.form);
@@ -2783,6 +2878,12 @@ document.addEventListener('change', (e) => {
     save();
     return;
   }
+  if (t.id === 'label-file') {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) readLabelFile(file);
+    return;
+  }
   if (t.id === 'restore-file') {
     const file = t.files?.[0];
     if (file) file.text().then(restoreFrom);
@@ -2802,6 +2903,25 @@ document.addEventListener('submit', (e) => {
   const fd = new FormData(f);
   switch (f.id) {
     case 'scan-form': scanLookup(document.getElementById('x-code').value.trim()); return;
+    case 'label-form': {
+      const form = f;
+      const name = String(fd.get('name') || '').trim().slice(0, 80);
+      const raw = (k) => { const v = String(fd.get(k) ?? '').trim(); return v === '' ? null : num(v); };
+      const kcal = raw('kcal'), protein = raw('p'), carbs = raw('c'), fat = raw('f'), grams = raw('grams');
+      if (!name) { toast('Name the food'); return; }
+      if (kcal == null || protein == null || carbs == null || fat == null) { toast('Enter kcal, fat, carbs and protein per 100 g'); return; }
+      if (!grams || grams <= 0 || grams > 5000) { toast('Enter the grams eaten'); return; }
+      const scaled = Label.scale100({ kcal, p: protein, c: carbs, f: fat }, grams);
+      const d = ui.fuelDate || today(), at = nowOn(d);
+      S.meals.push({ id: uid(), date: d, at, name: `${name} (${fmtNum(grams)} g)`, kcal: scaled.kcal, p: scaled.p, c: scaled.c, f: scaled.f, servings: 1, ref: null, kind: 'label', slot: slotForTime(at) });
+      if (fd.get('keep')) {
+        const saved = { name, kcal: Math.round(kcal), p: round1(protein), c: round1(carbs), f: round1(fat) };
+        const cur = form.dataset.id && (S.labels || []).find((x) => x.id === form.dataset.id);
+        if (cur) Object.assign(cur, saved);
+        else S.labels = [{ id: uid(), ...saved }, ...(S.labels || [])].slice(0, 40);
+      }
+      closeSheet(); toast(`Logged ${name}`); break;
+    }
     case 'scan-add': {
       const food = scanState?.food, g = num(document.getElementById('x-sg').value);
       if (!food || !g || g <= 0) { toast('Enter the grams eaten'); return; }

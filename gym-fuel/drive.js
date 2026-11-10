@@ -71,7 +71,7 @@ const Drive = (() => {
   };
   const shrinkBlocked = (s) => recordCount(s) > 0 && shrunk(s) && s.settings?.driveAllowShrink !== recordCount(s);
   function signature(s) {
-    try { return JSON.stringify([s.workouts, s.weights, s.meals, s.measurements, s.fasts, s.fastDays, s.chains, s.mealPresets]); } catch { return ''; }
+    try { return JSON.stringify([s.workouts, s.weights, s.meals, s.measurements, s.fasts, s.fastDays, s.chains, s.mealPresets, s.labels]); } catch { return ''; }
   }
   function online() {
     try { return navigator.onLine !== false; } catch { return true; }

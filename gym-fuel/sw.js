@@ -2,7 +2,7 @@
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
 const VERSION = 'gymfuel-v1.21';
-const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
+const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -19,6 +19,8 @@ self.addEventListener('activate', (e) => {
 // The barcode scanner for browsers without one (barcode-detector + zxing-wasm on jsDelivr, pinned versions):
 // cache first, so scanning works offline once it has loaded.
 const SCANNER = /^https:\/\/(cdn|fastly)\.jsdelivr\.net\/npm\/(barcode-detector|zxing-wasm)@/;
+// Nutrition-label reader (tesseract.js, its core and the English data, pinned). Cache first after the first read.
+const OCR = /^https:\/\/cdn\.jsdelivr\.net\/npm\/(tesseract\.js@|tesseract\.js-core@|@tesseract\.js-data\/)/;
 // Exercise pictures (free-exercise-db on GitHub): cache first too, so a how-to you've opened works offline.
 const EX_IMAGES = /^https:\/\/raw\.githubusercontent\.com\/yuhonas\/free-exercise-db\//;
 
@@ -33,7 +35,7 @@ function googleHost(url) {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (googleHost(req.url)) return;
-  if (req.method === 'GET' && (SCANNER.test(req.url) || EX_IMAGES.test(req.url))) {
+  if (req.method === 'GET' && (SCANNER.test(req.url) || OCR.test(req.url) || EX_IMAGES.test(req.url))) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; })));
     return;
   }

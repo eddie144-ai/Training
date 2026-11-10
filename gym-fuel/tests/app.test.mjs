@@ -927,6 +927,51 @@ await test('workout clock and rest: logging a set starts 90 s, the exercise can 
   await ctx.close();
 });
 
+await test('nutrition label: type the per 100 g column, log the grams, and reuse the saved product', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] }, time: '2026-11-10T12:00:00Z' });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.getByRole('button', { name: 'Read a nutrition label' }).click();
+  const asda = await page.evaluate(() => Label.parseLabel(`
+    Typical Values Per 100g RI
+    Energy kJ 485 8400
+    Energy kcal 115 2000
+    Fat 3.6g 70g
+    of which saturates 0.9g 20g
+    Carbohydrate 3.0g 260g
+    of which sugars <0.5g 90g
+    Protein 17g 50g
+    Salt 1.2g 6g
+  `));
+  assert(asda.kcal === 115 && asda.f === 3.6 && asda.c === 3 && asda.p === 17, `parsed ${JSON.stringify(asda)}`);
+  const scaled = await page.evaluate(() => Label.scale100({ kcal: 115, f: 3.6, c: 3, p: 17 }, 400));
+  assert(scaled.kcal === 460 && scaled.p === 68 && scaled.c === 12 && scaled.f === 14.4, `scaled ${JSON.stringify(scaled)}`);
+  const form = page.locator('#label-form');
+  await form.getByLabel('Name').fill('Asda roast chicken');
+  await form.getByLabel('kcal per 100 g').fill('115');
+  await form.getByLabel('Fat per 100 g').fill('3.6');
+  await form.getByLabel('Carbs per 100 g').fill('3');
+  await form.getByLabel('Protein per 100 g').fill('17');
+  await form.getByLabel('Grams eaten').fill('400');
+  await form.getByLabel('Save for next time').check();
+  assert((await page.locator('#label-preview').innerText()).includes('460'), 'preview shows the scaled calories');
+  await form.getByRole('button', { name: 'Add to the log' }).click();
+  let s = await state(page);
+  const meal = s.meals.find((m) => m.kind === 'label');
+  assert(meal && meal.kcal === 460 && meal.p === 68 && meal.c === 12 && meal.f === 14.4 && meal.name === 'Asda roast chicken (400 g)', `logged ${JSON.stringify(meal)}`);
+  assert(s.labels.length === 1 && s.labels[0].name === 'Asda roast chicken' && s.labels[0].kcal === 115, 'product saved per 100 g');
+  await page.getByRole('button', { name: 'Asda roast chicken', exact: true }).click();
+  const again = page.locator('#label-form');
+  await again.getByLabel('Grams eaten').fill('200');
+  await again.getByRole('button', { name: 'Add to the log' }).click();
+  s = await state(page);
+  const second = s.meals.filter((m) => m.kind === 'label')[1];
+  assert(second && second.kcal === 230 && second.p === 34 && second.c === 6 && second.f === 7.2, `half pack ${JSON.stringify(second)}`);
+  const backup = await page.evaluate(() => JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }));
+  assert(backup.includes('Asda roast chicken') && backup.includes('"labels"'), 'saved product is in the backup');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;
