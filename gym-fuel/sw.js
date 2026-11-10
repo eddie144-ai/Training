@@ -1,8 +1,8 @@
 // Offline cache for the Iron & Eggs (gym-fuel/) app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.15';
-const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './foodai.js', './share.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo-mark.png', './icons/logo.jpg'];
+const VERSION = 'gymfuel-v1.17';
+const FILES = ['./', './index.html', './data.js', './scan.js', './photos.js', './foodai.js', './share.js', './drive.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo-mark.png', './icons/logo.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -22,8 +22,17 @@ const SCANNER = /^https:\/\/(cdn|fastly)\.jsdelivr\.net\/npm\/(barcode-detector|
 // Exercise pictures (free-exercise-db on GitHub): cache first too, so a how-to you've opened works offline.
 const EX_IMAGES = /^https:\/\/raw\.githubusercontent\.com\/yuhonas\/free-exercise-db\//;
 
+// Sign-in and Drive always go to the network. Never store Google responses in this cache.
+function googleHost(url) {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'accounts.google.com' || host === 'www.googleapis.com' || host === 'oauth2.googleapis.com';
+  } catch { return false; }
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  if (googleHost(req.url)) return;
   if (req.method === 'GET' && (SCANNER.test(req.url) || EX_IMAGES.test(req.url))) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; })));
     return;

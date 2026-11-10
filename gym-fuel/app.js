@@ -63,7 +63,7 @@ function freshState() {
       kcalGoal: 1900, proteinGoal: 170, carbGoal: 80, fatGoal: 90,
       startWeight: null, target: 75, heightCm: null, sex: 'male', age: null, activity: 'moderate', setupDone: false,
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab', custom: null }, cycleStart: weekStart(today()),
-      highContrast: false,
+      highContrast: false, driveAuto: false,
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
     baselines: {},
@@ -112,8 +112,10 @@ function load() {
   }
 }
 let S = load();
+try { if (typeof Drive !== 'undefined') Drive.baseline(S); } catch { /* auto-backup must not stop the app */ }
 function save() {
   try { const raw = JSON.stringify(S); localStorage.setItem(STORE_KEY, raw); lastRaw = raw; storageOk = true; } catch { storageOk = false; }
+  try { if (typeof Drive !== 'undefined') Drive.afterSave(); } catch { /* auto-backup must not stop a save */ }
 }
 // Daily (daily/) logs meals and weigh-ins into this data while this app may be open in the background.
 // Pick that up before anything is saved over it.
@@ -1418,6 +1420,46 @@ function viewBodyMeasure() {
   ${photosCard()}`;
 }
 
+function fmtUpload(iso) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return 'No upload yet.';
+  return `Last upload ${fmtTime(iso)}, ${d.getDate()} ${MON[d.getMonth()]}.`;
+}
+function driveCard() {
+  const d = (typeof Drive !== 'undefined' && Drive.status) ? Drive.status() : { available: false, enabled: false };
+  const note = `<p class="muted small">Send one manual backup first, so you already have a copy. Android recommended. Your data goes only to your own Drive; the app can only see files it created.</p>`;
+  if (!d.available) {
+    return `<section class="card">
+    <h2>Google Drive</h2>
+    <label class="field check-field"><span>Auto-save to Google Drive</span><input type="checkbox" id="drive-toggle" disabled></label>
+    <p class="muted small">Auto-save to Google Drive isn't available in this copy of the app yet.</p>
+    ${note}
+  </section>`;
+  }
+  let head = 'On.';
+  if (!d.enabled) head = 'Off.';
+  else if (d.busy) head = 'Uploading…';
+  else if (d.needsReconnect || d.error === 'reconnect') head = 'Reconnect Drive to keep saving.';
+  else if (d.pending && d.error === 'offline') head = 'Pending — offline, will retry when you are back online.';
+  else if (d.pending) head = 'Pending — will retry.';
+  else if (d.error === 'auth') head = 'Drive didn\'t connect.';
+  else if (d.error === 'http') head = 'Couldn\'t reach Drive. Will retry.';
+  else if (d.error === 'empty' && S.settings.lastDriveCount) head = 'The log is empty, so it wasn\'t sent.';
+  else if (d.error === 'empty') head = 'Nothing to back up yet.';
+  else if (d.connected) head = 'Connected.';
+  const extra = !d.enabled && !d.lastUpload ? '' : ` ${fmtUpload(d.lastUpload)}`;
+  const line = `${head}${extra}`;
+  return `<section class="card">
+    <h2>Google Drive</h2>
+    <label class="field check-field"><span>Auto-save to Google Drive</span><input type="checkbox" id="drive-toggle" ${d.enabled ? 'checked' : ''}></label>
+    <p class="small" id="drive-status">${line}</p>
+    ${d.shrink ? `<p class="warn-text small">This log has fewer records than the last Drive upload (more than 30% smaller), so it wasn't sent. Upload it only if you meant to delete that much.</p>
+    <button data-act="drive-shrink">Upload this smaller log</button>` : ''}
+    <div class="grid2"><button data-act="drive-now" ${d.enabled ? '' : 'disabled'}>Upload now</button><button data-act="drive-reconnect" ${d.enabled ? '' : 'disabled'}${d.needsReconnect ? ' class="primary"' : ''}>Reconnect Drive</button></div>
+    ${note}
+  </section>`;
+}
+
 function viewBodySettings() {
   const st = S.settings;
   const iron = ironData();
@@ -1474,6 +1516,7 @@ function viewBodySettings() {
     <div class="grid2"><button data-act="backup">Save backup file</button><label class="btn" for="restore-file">Restore…</label></div>
     <input id="restore-file" type="file" accept="application/json,.json" class="sr">
   </section>
+  ${driveCard()}
   <section class="card">
     <h2>Display</h2>
     <label class="field check-field"><span>High contrast</span><input type="checkbox" id="hc-toggle" ${st.highContrast ? 'checked' : ''}></label>
@@ -2054,6 +2097,9 @@ document.addEventListener('click', (e) => {
     case 'bring-iron-now': closeSheet(); if (bringIron()) toast('Iron & Eggs Classic data brought over'); break;
     case 'backup': sendBackup(false); return;
     case 'backup-share': sendBackup(true); return;
+    case 'drive-now': if (typeof Drive !== 'undefined') Drive.uploadNow(); return;
+    case 'drive-reconnect': if (typeof Drive !== 'undefined') Drive.reconnect(); return;
+    case 'drive-shrink': if (typeof Drive !== 'undefined') Drive.confirmShrink(); return;
     case 'backup-snooze': S.settings.backupSnooze = addDays(today(), 3); break;
     case 'share-week': openShareWeek(); return;
     case 'share-week-go': case 'share-week-save': {
@@ -2167,6 +2213,14 @@ document.addEventListener('change', (e) => {
   }
   if (t.id === 'hc-toggle') { S.settings.highContrast = t.checked; commit(); return; }
   if (t.id === 'gironda-toggle') { S.settings.girondaBar = t.checked; commit(); return; }
+  if (t.id === 'drive-toggle') {
+    if (typeof Drive === 'undefined' || !Drive.available()) { t.checked = false; return; }
+    S.settings.driveAuto = t.checked;
+    save();
+    if (t.checked) Drive.enable(); else Drive.disable();
+    render();
+    return;
+  }
   if (t.id === 'restore-file') {
     const file = t.files?.[0];
     if (file) file.text().then(restoreFrom);
@@ -2303,10 +2357,28 @@ document.addEventListener('keydown', (e) => {
 });
 // Coming back to the app on a new day shows the new day.
 const idle = () => !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { reloadIfChanged(); if (idle()) render(); } });
-window.addEventListener('storage', (e) => { if (e.key === STORE_KEY && reloadIfChanged() && idle()) render(); });
+function driveStatusPaint() {
+  const onToggle = document.activeElement?.id === 'drive-toggle';
+  if (ui.tab === 'body' && ui.sub.body === 'settings' && (idle() || onToggle)) render();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  reloadIfChanged();
+  try {
+    if (typeof Drive !== 'undefined') { Drive.afterSave(); Drive.onVisible(); }
+  } catch { /* auto-backup must not block opening the app */ }
+  if (idle()) render();
+});
+window.addEventListener('storage', (e) => {
+  if (e.key !== STORE_KEY || !reloadIfChanged()) return;
+  try { if (typeof Drive !== 'undefined') Drive.afterSave(); } catch { /* auto-backup */ }
+  if (idle()) render();
+});
 
 try { if (gatherLifts()) save(); } catch { /* another app's data unreadable: skip */ }
+try {
+  if (typeof Drive !== 'undefined') Drive.start({ getState: () => S, save, today, onStatus: driveStatusPaint });
+} catch { /* auto-backup must not stop the app */ }
 render();
 if (S.notice === 'start') { S.notice = null; save(); showWelcome(); }
 
