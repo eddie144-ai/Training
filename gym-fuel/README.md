@@ -21,15 +21,22 @@ again.
 - **Today:** the next session of your active programme with a Start button, today's calories and protein left
   with macro bars, quick add and barcode scan, today's weight, and the week so far (sessions, average kcal and
   protein).
+- **Chains (Today):** abstinence streaks you keep in this app. Each has a name, a start date and a day count.
+  The start date is day 1 (the same rule as Cut day). Add, edit, delete or reset one; reset sets the start date to
+  today. The first time an existing log has no chains, three are filled in: No weed from 7 Jul 2026, No energy drinks
+  from 15 Jul 2026 and No coffee from 2 Nov 2026. On 10 Nov 2026 those are day 127, day 119 and day 9, because the
+  start date counts as day 1. A new phone
+  with nothing logged yet starts empty, and deleting a chain does not bring it back. They're in backups.
 - **My chains (Today):** No coffee, your own "No ___" chains (such as No weed and No energy drinks), Cut day and
-  4 sessions this week, each with its day (or week) count and best. The other chains aren't shown.
+  4 sessions this week, each with its day (or week) count and best, when those still come from the other apps.
+  A chain with the same name as one kept here is shown only in Chains, so it isn't listed twice.
   - No coffee and your own chains come from Iron & Eggs Classic's summary (`shtrainer.chains`) and from Trainer
     (counted from their clean-since date and last slip). They keep counting by the days since the summary was
     written; check-ins and slips stay in Iron & Eggs Classic (**Check in on my chains**).
   - Cut day (only the two Gironda meals; a carb-up day or a day marked kept or broken in Iron & Eggs Classic wins) and
     4 sessions this week (Monday to Sunday) are worked out here from the food and sessions logged in this app and
     Iron & Eggs Classic, counted from 10 Oct 2026, with the best from the summary kept.
-  - Hidden on phones with neither Iron & Eggs Classic nor Trainer.
+  - The imported card is hidden on phones with neither Iron & Eggs Classic nor Trainer.
 - **Previous weights from your other apps:** each time the app opens it reads Iron & Eggs Classic (its
   sessions and the Grok-tracker starting weights built into it) and Trainer (`trainer.v1`), and for each exercise
   the newest weight becomes the starting point when it's newer than anything logged here ("From Trainer" or "From
@@ -39,6 +46,10 @@ again.
   steak) for the day on screen, tap again to take it off, with a 0/2 count. On when Iron & Eggs is on the phone or
   a Gironda meal has been logged; **Body → Settings → Gironda bar in Fuel** switches it. Those two meals then
   stay out of quick add.
+- **Quick meals (Fuel → Log):** one tap adds a preset to the day on screen (another tap adds another). The two
+  starting presets are Gironda Meal 1, 6 eggs + 3 Lidl pork patties (933 kcal, P77, C4, F66) and Eggs + steak,
+  6 eggs + 250 g rump (880 kcal, P95, C1, F55). Edit a preset or add your own. They're in backups; an old backup
+  without them gets these two back. The staple list in `data.js` is unchanged.
 - **Train → Workout:** the 4-week cycles (My 4-Week Program, 10 lbs of Muscle in 4 Weeks) and Mentzer HIT
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
@@ -109,8 +120,13 @@ again.
   Chrome offers one.
 - **For new users:** setup preselects the general 10 lbs programme, not the owner's own 4-week plan; Settings has a
   plain background option and the handle shown on share cards.
+- **Fasting (Today):** **Start a fast** runs a timer of days, hours and minutes, with no 24-hour cap, so a fast of
+  several days keeps counting (3 days 4 hours stays 3 days, not 76 hours and not a clock that wraps at 24). **Stop
+  fast** records the start, the end and the duration. Each calendar day the fast touches is also marked as a fast
+  day. Finished fasts stay in the list. The timer updates while the app is open.
 - **Fast days:** **Mark as a fast day** (Today and Fuel, when nothing is logged yet) records a deliberate fast. The
-  adaptive target counts it as a logged day at 0 kcal (plus anything eaten), instead of skipping it.
+  adaptive target counts it as a logged day at 0 kcal (plus anything eaten), instead of skipping it. Timed fasts
+  use the same `fastDays` flags.
 - **Food search:** typing 3+ letters in Add food also searches Open Food Facts by name
   (`search.openfoodfacts.org`) after a short pause, keeps answers for the session (the service allows about 10
   searches a minute) and adds products by grams. Products you add are saved and listed offline next time.
@@ -119,7 +135,9 @@ again.
   3.2.2 on jsDelivr) loads the first time the camera opens; the service worker keeps it for offline use.
 - **Fuel → Recipes:** the Gironda staples and 43 Dolce recipes with macros, ingredients and method, plus your own
   foods.
-- **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day trend line.
+- **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day chart. The chart draws
+  the raw weigh-ins and a 7-day rolling average over them, and states the current trend (that average) and how it
+  changed over the last 7 days.
 - **Body → Measurements:** waist, chest, arms, thighs, hips and neck (cm), change since your first entry, a
   waist trend line, a US Navy body-fat estimate (men and women, with your height set) and the history.
   **Progress photos** (front, side, back) show your first next to your latest. They're stored only on the phone
@@ -133,7 +151,7 @@ into this app's data. Iron & Eggs reloads its data when it comes back to the fro
 never saves over what Daily logged.
 
 ## Left out from Iron & Eggs
-Chains, XP and levels, goals, journal and dreams, fasting and the eating window, carb-up clock and cut check-ins,
+XP and levels, goals, journal and dreams, the eating window, carb-up clock and cut check-ins,
 Garmin, sleep, fluids, planning and shopping, the channel and the other apps.
 
 ## From Iron & Eggs
