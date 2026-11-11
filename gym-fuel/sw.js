@@ -1,8 +1,8 @@
 // Offline cache for the Iron & Eggs (gym-fuel/) app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.21';
-const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
+const VERSION = 'gymfuel-v1.22';
+const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './diary.js', './youtube.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -28,7 +28,7 @@ const EX_IMAGES = /^https:\/\/raw\.githubusercontent\.com\/yuhonas\/free-exercis
 function googleHost(url) {
   try {
     const host = new URL(url).hostname;
-    return host === 'accounts.google.com' || host === 'www.googleapis.com' || host === 'oauth2.googleapis.com';
+    return host === 'accounts.google.com' || host === 'www.googleapis.com' || host === 'oauth2.googleapis.com' || host === 'youtube.googleapis.com' || host === 'uploads.googleapis.com';
   } catch { return false; }
 }
 

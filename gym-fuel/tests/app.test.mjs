@@ -38,7 +38,7 @@ const IRON = {
 };
 
 async function open({ iron, own, extra = {}, time = '2026-10-07T12:00:00+01:00', clock = true } = {}) {
-  const ctx = await browser.newContext({ serviceWorkers: 'block', permissions: ['camera'] });
+  const ctx = await browser.newContext({ serviceWorkers: 'block', permissions: ['camera', 'microphone'] });
   await ctx.addInitScript(([iron, own, extra]) => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
@@ -62,14 +62,14 @@ await test('first open shows the welcome and every tab renders without errors', 
   await page.getByRole('dialog').getByRole('button', { name: 'Set up my targets' }).click();
   await page.getByRole('button', { name: 'Close' }).click();
   assert(await page.getByText('Your calorie, protein and target weight are still the app\'s defaults').isVisible(), 'setup reminder on Today');
-  for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Body', ['Weight', 'Measurements', 'Settings']]]) {
+  for (const [tab, subs] of [['Today', []], ['Train', ['Workout', 'History']], ['Fuel', ['Log', 'Recipes']], ['Diary', []], ['Body', ['Weight', 'Measurements', 'Settings']]]) {
     await page.locator('nav').getByRole('button', { name: tab }).click();
     for (const s of subs) await page.locator('.subtabs').getByRole('button', { name: s }).click();
   }
   assert(!errors.length, errors.join('; '));
   const bg = await page.evaluate(() => getComputedStyle(document.body, '::before').backgroundImage);
   assert(bg.includes('bg.jpg'), `background photo: ${bg}`);
-  assert((await page.locator('nav button').count()) === 4, 'four tabs');
+  assert((await page.locator('nav button').count()) === 5, 'five tabs');
   await ctx.close();
 });
 
@@ -968,6 +968,116 @@ await test('nutrition label: type the per 100 g column, log the grams, and reuse
   assert(second && second.kcal === 230 && second.p === 34 && second.c === 6 && second.f === 7.2, `half pack ${JSON.stringify(second)}`);
   const backup = await page.evaluate(() => JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: S }));
   assert(backup.includes('Asda roast chicken') && backup.includes('"labels"'), 'saved product is in the backup');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('cut diary: a clip keeps the day and the weight, delete asks, and YouTube stays private', async () => {
+  const { page, ctx, errors } = await open({
+    own: {
+      v: 1,
+      settings: { setupDone: true, installDismissed: true, chainsSeeded: true },
+      chains: [],
+      weights: [{ date: '2026-11-11', kg: 98.5 }],
+      diary: [{ id: 'old1', at: '2026-11-10T08:00:00.000Z', date: '2026-11-10', kind: 'audio', title: 'Yesterday', note: 'sore', weight: 99, cutDay: 3, mime: 'audio/webm', bytes: 4 }],
+    },
+    time: '2026-11-11T12:00:00Z',
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const google = [];
+  page.on('request', (r) => {
+    const u = r.url();
+    if (/youtube|accounts\.google\.com|\/gsi\/client|googleapis\.com\/upload/.test(u)) google.push(u);
+  });
+  await page.locator('nav').getByRole('button', { name: 'Diary' }).click();
+  await page.getByText('Day 4 of the cut to 75 kg').waitFor();
+  await page.getByText(/isn.t on this phone/).waitFor();
+  await page.locator('#diary-file').setInputFiles({ name: 'note.webm', mimeType: 'video/webm', buffer: Buffer.from('CLIPMARKER-diary-video') });
+  const dlg = page.getByRole('dialog', { name: 'Save diary entry' });
+  await dlg.getByText('Day 4 of the cut').waitFor();
+  await dlg.getByText('98.5 kg').waitFor();
+  await dlg.getByText('12:00').waitFor();
+  await dlg.getByLabel('Title (optional)').fill('Morning check');
+  await dlg.getByLabel('Note (optional)').fill('Waist looks tighter');
+  await dlg.getByRole('button', { name: 'Save entry' }).click();
+  const card = page.locator('article', { hasText: 'Morning check' });
+  await card.getByRole('heading', { name: 'Morning check' }).waitFor();
+  await card.getByText('Day 4').waitFor();
+  await card.getByText('98.5 kg').waitFor();
+  await card.getByText('Waist looks tighter').waitFor();
+  const saved = await page.evaluate(async () => {
+    const s = JSON.parse(localStorage.getItem('gymfuel.v1'));
+    const e = s.diary.find((x) => x.title === 'Morning check');
+    const rec = await Diary.get(e.id);
+    const text = await rec.blob.text();
+    const backup = JSON.stringify({ kind: 'gym-fuel-backup', at: new Date().toISOString(), state: s });
+    const old = normalise({ settings: { setupDone: true }, diary: [{ id: 'z', date: '2026-11-08', kind: 'video', at: '2026-11-08T10:00:00.000Z', title: 'Start', blob: 'NOBLOB', token: 'sekret' }] });
+    return {
+      backup, text, cutDay: e.cutDay, weight: e.weight, kind: e.kind,
+      old: JSON.stringify(old.diary),
+      empty: Array.isArray(normalise({ settings: {} }).diary) && normalise({ settings: {} }).diary.length === 0,
+    };
+  });
+  assert(saved.cutDay === 4 && saved.weight === 98.5 && saved.kind === 'video', `stamp ${JSON.stringify(saved)}`);
+  assert(saved.text.includes('CLIPMARKER'), 'clip is in the phone database');
+  assert(saved.backup.includes('Morning check') && saved.backup.includes('Waist looks tighter'), 'note is in the backup');
+  assert(!saved.backup.includes('CLIPMARKER'), 'the video is not in the backup');
+  assert(saved.old.includes('Start') && saved.old.includes('"cutDay":1') && !saved.old.includes('NOBLOB') && !saved.old.includes('sekret'), `old backup ${saved.old}`);
+  assert(saved.empty, 'a backup with no diary restores an empty list');
+  await page.evaluate(() => document.querySelector('.toast')?.remove());
+  await card.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  try {
+    fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });
+    await page.screenshot({ path: '/opt/cursor/artifacts/gym-fuel-diary.png' });
+  } catch { /* the picture is for review */ }
+  assert(google.length === 0, `opened the diary without Google: ${google.join(' ')}`);
+  await card.getByRole('button', { name: 'Upload to YouTube' }).click();
+  const yt = page.getByRole('dialog', { name: 'Upload to YouTube' });
+  assert(await yt.locator('#yt-privacy').inputValue() === 'private', 'privacy starts on private');
+  const options = await yt.locator('#yt-privacy option').evaluateAll((els) => els.map((o) => o.value));
+  assert(options.join(',') === 'private,unlisted,public', `choices ${options}`);
+  assert((await yt.locator('#yt-title').inputValue()) === 'Morning check', 'uses his title');
+  const desc = await yt.locator('#yt-desc').inputValue();
+  assert(desc.includes('Day 4') && desc.includes('98.5 kg') && desc.includes('Waist looks tighter'), desc);
+  assert(google.length === 0, `the form does not upload by itself: ${google.join(' ')}`);
+  try { await page.locator('.sheet').screenshot({ path: '/opt/cursor/artifacts/gym-fuel-youtube-private.png' }); } catch { /* review only */ }
+  await yt.getByRole('button', { name: 'Close' }).click();
+  const dl = page.waitForEvent('download');
+  await card.getByRole('button', { name: 'Save' }).click();
+  assert((await dl).suggestedFilename() === 'cut-day-4-2026-11-11.webm', 'clip saved for the documentary');
+  await card.getByRole('button', { name: 'Delete' }).click();
+  const ask = page.getByRole('dialog', { name: 'Confirm' });
+  await ask.getByText('Delete this diary entry?').waitFor();
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  assert(await card.getByRole('heading', { name: 'Morning check' }).isVisible(), 'cancel keeps the entry');
+  await card.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('dialog', { name: 'Confirm' }).getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('heading', { name: 'Morning check' }).waitFor({ state: 'detached' });
+  const gone = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('gymfuel.v1'));
+    return { still: s.diary.some((x) => x.title === 'Morning check'), yesterday: s.diary.some((x) => x.title === 'Yesterday') };
+  });
+  assert(!gone.still && gone.yesterday, `after delete ${JSON.stringify(gone)}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('cut diary: the front camera records, and discard keeps nothing', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [], weights: [{ date: '2026-11-11', kg: 98.5 }] },
+    clock: false,
+  });
+  await page.locator('nav').getByRole('button', { name: 'Diary' }).click();
+  await page.getByRole('button', { name: 'Front camera' }).click();
+  await page.getByRole('button', { name: 'Stop' }).waitFor({ timeout: 8000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Save diary entry' });
+  await dlg.waitFor({ timeout: 8000 });
+  await dlg.getByText('98.5 kg').waitFor();
+  await dlg.getByRole('button', { name: 'Discard' }).click();
+  assert(await page.getByText('No notes yet').isVisible(), 'discard keeps the timeline empty');
+  assert((await page.evaluate(() => (S.diary || []).length)) === 0, 'discard writes nothing');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

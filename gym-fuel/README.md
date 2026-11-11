@@ -148,6 +148,16 @@ again.
 - **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day chart. The chart draws
   the raw weigh-ins and a 7-day rolling average over them, and states the current trend (that average) and how it
   changed over the last 7 days.
+- **Diary:** short video notes (front or back camera), voice notes, or a clip already on the phone. Each one is
+  stamped with the date and time, that day's weigh-in if one is logged, and the day of this cut (8 Nov 2026 is day 1).
+  Title and note are optional. The clip stays on the phone (its own IndexedDB database, `gymfuel-diary`). Delete asks
+  first. **Share** opens the phone's share sheet and **Save** downloads the file, so it can be edited into a documentary.
+  The JSON backup and Drive auto-backup keep the date, weight, note and any YouTube link. They do not keep the video.
+- **YouTube:** on a video entry, **Upload to YouTube**. Google sign-in uses the same client as Drive, and the
+  YouTube permission is asked only when you tap **Upload now**. The title and description start filled in with the
+  day and the weight. Privacy starts on **Private**; Unlisted or Public is a choice you make on that form. A progress
+  bar runs during the upload, then the link is shown and remembered on the entry. Nothing is uploaded on its own.
+  See [YouTube](#youtube).
 - **Body → Measurements:** waist, chest, arms, thighs, hips and neck (cm), change since your first entry, a
   waist trend line, a US Navy body-fat estimate (men and women, with your height set) and the history.
   **Progress photos** (front, side, back) show your first next to your latest. They're stored only on the phone
@@ -191,10 +201,51 @@ script is not loaded until you switch auto-save on. The client was created like 
 
 There is no client secret and no server. The scope is `drive.file` only, so the app can only see files it created.
 
+## YouTube
+
+A diary video can be sent to your channel from the entry: **Upload to YouTube**, check the title, description and
+privacy, then **Upload now**. Privacy starts on Private. The app does not upload when you save an entry, when you
+open the form, or on a timer. Voice notes are not offered for YouTube. The video file itself is not put in the
+Drive backup; use **Share** or **Save** on the entry when you want the file for a documentary.
+
+The sign-in is the same public web client as Drive (`225800622965-hsm5f4941gmjs9a0f0pvqnrhhoee9hpj`). The YouTube
+permission (`https://www.googleapis.com/auth/youtube.upload`) is separate and is only requested from **Upload now**.
+The token stays in memory for about an hour and is never written into the log or a backup.
+
+Until the Google Cloud project below is done, **Upload now** signs in and then shows a plain reason (API not turned
+on, permission missing, no channel, or the daily limit). The entry stays on the phone either way.
+
+Do this once, in the same Google Cloud project that owns the Drive client:
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and select that project.
+2. **APIs & Services → Library**. Search for **YouTube Data API v3**. **Enable** it.
+3. **APIs & Services → OAuth consent screen**. Open **Data access** (Google sometimes labels this **Scopes**).
+   **Add or remove scopes**. Add `https://www.googleapis.com/auth/youtube.upload`. Save.
+4. Leave the app on **Testing**. Open **Audience** (or **Test users**) and add the Gmail address that owns the
+   YouTube channel. Only those test users can grant this permission.
+5. Do not create a new client. The existing web client already allows `https://eddie144-ai.github.io`. Upload from
+   the published app. A desktop preview on localhost is not on that client, so Google will refuse it.
+6. The Google account needs a YouTube channel. If the app says so, open [YouTube](https://www.youtube.com) while
+   signed in as that account and create a channel, then try the upload again.
+
+The first time, Google shows that the app isn't verified. `youtube.upload` is a sensitive scope. Choose
+**Advanced**, then **Go to Iron & Eggs (unsafe)**. That is expected while the app stays in Testing. Leave it in
+Testing for one person. Publishing the app to Production asks Google to verify the app, and an unverified
+sensitive scope is blocked for anyone who isn't a test user.
+
+Limits worth knowing:
+
+- The default YouTube Data API quota is **10,000 units a day** for the project. Each upload (`videos.insert`)
+  costs **1,600 units**, so about **6 uploads a day**. A higher quota is a separate request in the Cloud console
+  and is not automatic.
+- Testing mode allows up to 100 test users. This app does not store a refresh token. Sign-in lasts about an hour,
+  then **Upload now** asks again.
+- A video left on Private is not public. Unlisted and Public are only used when you pick them on the form.
+
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/diary.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
 ```bash
@@ -202,6 +253,7 @@ npm i playwright          # once, for the browser tests
 node gym-fuel/tests/app.test.mjs
 node --test gym-fuel/tests/label.test.mjs
 node --test gym-fuel/tests/session.test.mjs
+node --test gym-fuel/tests/diary.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```

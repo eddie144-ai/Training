@@ -84,6 +84,7 @@ function freshState() {
     fasts: [],
     chains: [],
     mealPresets: DEFAULT_PRESETS.map((p) => ({ ...p })),
+    diary: [],
     challenge: null,
     notice: null,
   };
@@ -159,6 +160,7 @@ function normalise(s) {
   out.fasts = (Array.isArray(out.fasts) ? out.fasts : []).map(cleanFast).filter(Boolean);
   out.chains = (Array.isArray(out.chains) ? out.chains : []).map(cleanChain).filter(Boolean);
   out.mealPresets = Array.isArray(s.mealPresets) ? s.mealPresets.map(cleanPreset).filter(Boolean) : DEFAULT_PRESETS.map((p) => ({ ...p }));
+  out.diary = (Array.isArray(out.diary) ? out.diary : []).map((x) => Diary.cleanEntry(x)).filter(Boolean);
   seedChains(out);
   for (const t of PROGRAM_TEMPLATES) {
     const cur = out.programs[t.id];
@@ -563,7 +565,7 @@ function recovery(prog) {
 // ===========================================================================
 // UI state
 // ===========================================================================
-const TABS = [['today', 'Today'], ['train', 'Train'], ['fuel', 'Fuel'], ['body', 'Body']];
+const TABS = [['today', 'Today'], ['train', 'Train'], ['fuel', 'Fuel'], ['diary', 'Diary'], ['body', 'Body']];
 const SUBTABS = {
   train: [['log', 'Workout'], ['history', 'History']],
   fuel: [['log', 'Log'], ['recipes', 'Recipes']],
@@ -1996,6 +1998,7 @@ let scanState = null;
 function closeSheet() {
   if (scanState) { Scan.stop(); scanState = null; }
   if (photoState) { URL.revokeObjectURL(photoState.url); if (!photoState.used) dropPhotoIfUnused(photoState.rec.id); photoState = null; }
+  dropPending();
   document.querySelector('.sheet-wrap')?.remove();
 }
 function openSheet(title, html) {
@@ -2288,12 +2291,286 @@ function showWelcome() {
 }
 
 // ===========================================================================
+// Cut diary. Clips stay in IndexedDB. The log keeps the note, not the file.
+// ===========================================================================
+let diaryUrls = [];
+let diaryRec = null;
+let diaryStarting = false;
+let pendingClip = null;
+
+function dropPending() {
+  if (!pendingClip) return;
+  const clip = pendingClip;
+  pendingClip = null;
+  if (clip.url) URL.revokeObjectURL(clip.url);
+}
+function pickMime(kind) {
+  const list = kind === 'audio'
+    ? ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+    : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+  if (typeof MediaRecorder === 'undefined') return '';
+  return list.find((t) => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || '';
+}
+function showDiaryStart() {
+  const live = document.getElementById('diary-live');
+  const start = document.getElementById('diary-start');
+  if (live) live.hidden = true;
+  if (start) start.hidden = false;
+}
+function stopDiaryRecorder() {
+  const rec = diaryRec?.recorder;
+  if (rec && rec.state !== 'inactive') {
+    try { rec.stop(); } catch { diaryRec?.stream?.getTracks().forEach((t) => t.stop()); }
+  }
+}
+function finishDiaryRecording() {
+  const rec = diaryRec;
+  if (!rec) return;
+  diaryRec = null;
+  clearInterval(rec.timer);
+  rec.stream?.getTracks().forEach((t) => t.stop());
+  const preview = document.getElementById('diary-preview');
+  if (preview) preview.srcObject = null;
+  const blob = new Blob(rec.chunks, { type: rec.mime || (rec.kind === 'audio' ? 'audio/webm' : 'video/webm') });
+  showDiaryStart();
+  if (!blob.size) { toast('Nothing was recorded.'); return; }
+  openDiarySave({ blob, mime: blob.type, kind: rec.kind, at: new Date(rec.started).toISOString() });
+}
+async function startDiary(kind, facing) {
+  if (diaryRec || diaryStarting) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    toast('This browser can’t record. Pick a clip instead.');
+    return;
+  }
+  diaryStarting = true;
+  let stream = null;
+  try {
+    const video = { facingMode: { ideal: facing || 'user' } };
+    if (kind === 'audio') stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    else {
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true, video }); }
+      catch { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video }); }
+    }
+    if (ui.tab !== 'diary') { stream.getTracks().forEach((t) => t.stop()); return; }
+    const mime = pickMime(kind);
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    const chunks = [];
+    rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+    const started = Date.now();
+    rec.onstop = () => finishDiaryRecording();
+    rec.start(1000);
+    diaryRec = { recorder: rec, stream, chunks, kind, mime: rec.mimeType || mime, started, timer: null };
+    const live = document.getElementById('diary-live');
+    const start = document.getElementById('diary-start');
+    const preview = document.getElementById('diary-preview');
+    const clock = document.getElementById('diary-rec-clock');
+    if (live) live.hidden = false;
+    if (start) start.hidden = true;
+    if (preview) {
+      if (kind === 'audio') { preview.hidden = true; preview.srcObject = null; }
+      else { preview.hidden = false; preview.srcObject = stream; preview.play?.().catch(() => {}); }
+    }
+    if (clock) clock.textContent = '0:00';
+    diaryRec.timer = setInterval(() => {
+      if (!clock?.isConnected) return;
+      const sec = Math.max(0, Math.round((Date.now() - started) / 1000));
+      clock.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    }, 250);
+  } catch {
+    stream?.getTracks().forEach((t) => t.stop());
+    toast('The camera or microphone was blocked. You can still pick a clip.');
+  } finally {
+    diaryStarting = false;
+  }
+}
+function clipKind(file) {
+  const type = file.type || '';
+  const name = file.name || '';
+  if (type.startsWith('audio') || /\.(m4a|mp3|wav|ogg|aac)$/i.test(name)) return 'audio';
+  return 'video';
+}
+function openDiarySave(clip) {
+  dropPending();
+  const at = clip.at;
+  const date = isoDate(new Date(at));
+  const weight = Diary.weightKg(S.weights, date);
+  const cut = Diary.cutDay(date);
+  const url = URL.createObjectURL(clip.blob);
+  pendingClip = { blob: clip.blob, mime: clip.mime || clip.blob.type || '', kind: clip.kind, at, date, weight, cutDay: cut, url, saving: false };
+  const tag = clip.kind === 'audio' ? 'audio' : 'video';
+  const dayLabel = cut >= 1 ? `Day ${cut} of the cut` : 'Before the cut';
+  const wLabel = weight != null ? `${fmtNum(weight)} kg` : 'no weigh-in that day';
+  openSheet('Save diary entry', `
+    <${tag} class="diary-clip" controls playsinline src="${url}"></${tag}>
+    <p><b>${esc(fmtDate(date))} · ${esc(fmtTime(at))}</b><br>${esc(dayLabel)} · ${esc(wLabel)}</p>
+    <form id="diary-save" autocomplete="off">
+      <label class="field">Title (optional)<input name="title" maxlength="100" placeholder="Morning weigh-in"></label>
+      <label class="field">Note (optional)<textarea name="note" maxlength="2000" rows="3"></textarea></label>
+      <div class="grid2">
+        <button class="primary" type="submit">Save entry</button>
+        <button type="button" data-act="diary-discard">Discard</button>
+      </div>
+    </form>`);
+}
+function viewDiary() {
+  const day = Diary.cutDay(today());
+  const w = Diary.weightKg(S.weights, today());
+  const head = day >= 1 ? `Day ${day} of the cut to 75 kg. Gironda started 8 Nov 2026.` : 'The cut starts 8 Nov 2026.';
+  const weigh = w != null ? ` Today’s weigh-in: ${fmtNum(w)} kg.` : ' No weigh-in logged today.';
+  return `
+  <section class="card">
+    <h2>Cut diary</h2>
+    <p>${head}${weigh}</p>
+    <div id="diary-live" hidden>
+      <video id="diary-preview" playsinline muted autoplay></video>
+      <p class="clock" id="diary-rec-clock" aria-live="polite">0:00</p>
+      <button type="button" class="primary" data-act="diary-stop">Stop</button>
+    </div>
+    <div id="diary-start" class="grid2">
+      <button type="button" class="primary" data-act="diary-rec" data-facing="user">Front camera</button>
+      <button type="button" data-act="diary-rec" data-facing="environment">Back camera</button>
+      <button type="button" data-act="diary-voice">Voice note</button>
+      <button type="button" data-act="diary-pick">Pick a clip</button>
+    </div>
+    <input id="diary-file" class="sr" type="file" accept="video/*,audio/*" tabindex="-1" aria-label="Choose a video or voice clip">
+    <p class="muted small">Clips stay on this phone. A backup keeps the date, weight, note and any YouTube link, not the video.</p>
+  </section>
+  <section class="card">
+    <h2>Timeline</h2>
+    <div id="diary-list"><p class="muted small">Loading…</p></div>
+  </section>`;
+}
+async function fillDiary() {
+  const box = document.getElementById('diary-list');
+  if (!box) return;
+  for (const u of diaryUrls) URL.revokeObjectURL(u);
+  diaryUrls = [];
+  const entries = [...(S.diary || [])].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  if (!entries.length) {
+    box.innerHTML = '<p class="muted">No notes yet. Record a short one after a weigh-in or a session.</p>';
+    return;
+  }
+  const bits = [];
+  for (const e of entries) {
+    let media = '<p class="muted small">This clip isn’t on this phone. The note is still here.</p>';
+    try {
+      const rec = await Diary.get(e.id);
+      if (!box.isConnected) return;
+      if (rec?.blob) {
+        const url = URL.createObjectURL(rec.blob);
+        diaryUrls.push(url);
+        const tag = e.kind === 'audio' ? 'audio' : 'video';
+        media = `<${tag} class="diary-clip" controls playsinline src="${url}"></${tag}>`;
+      }
+    } catch { media = '<p class="muted small">Clips aren’t available in this browser.</p>'; }
+    const day = e.cutDay >= 1 ? `Day ${e.cutDay}` : 'Before the cut';
+    const weight = e.weight != null ? `${fmtNum(e.weight)} kg` : 'no weigh-in';
+    const yt = e.youtube?.url ? `<p><a href="${esc(e.youtube.url)}" target="_blank" rel="noopener">On YouTube (${esc(e.youtube.privacy || 'private')})</a></p>` : '';
+    const ytBtn = e.kind === 'video' ? `<button type="button" data-act="diary-yt" data-id="${esc(e.id)}">Upload to YouTube</button>` : '';
+    bits.push(`<article class="diary-entry">
+      <h3>${esc(e.title || (e.kind === 'audio' ? 'Voice note' : 'Video note'))}</h3>
+      <p class="muted small">${esc(fmtDate(e.date))} · ${esc(fmtTime(e.at))} · ${esc(day)} · ${esc(weight)}</p>
+      ${e.note ? `<p>${esc(e.note)}</p>` : ''}
+      ${media}
+      ${yt}
+      <div class="diary-actions">
+        <button type="button" data-act="diary-share" data-id="${esc(e.id)}">Share</button>
+        <button type="button" data-act="diary-download" data-id="${esc(e.id)}">Save</button>
+        ${ytBtn}
+        <button type="button" class="danger" data-act="diary-del" data-id="${esc(e.id)}">Delete</button>
+      </div>
+    </article>`);
+  }
+  if (box.isConnected) box.innerHTML = bits.join('');
+}
+async function shareDiary(entry, saveOnly) {
+  let rec = null;
+  try { rec = await Diary.get(entry.id); } catch { rec = null; }
+  if (!rec?.blob) { toast('This clip isn’t on this phone.'); return; }
+  const ext = Diary.extFor(rec.mime || entry.mime, entry.kind);
+  const name = `cut-day-${entry.cutDay || 'note'}-${entry.date}.${ext}`;
+  const how = await Share.file(rec.blob, name, entry.title || 'Cut diary', saveOnly);
+  if (how === 'saved') toast(saveOnly ? 'Saved to this phone' : 'Saved (sharing isn’t available here)');
+  else if (how === 'shared') toast('Shared');
+}
+function openYoutube(entry) {
+  document.querySelector('.toast')?.remove();
+  const draft = Diary.youtubeDraft(entry);
+  openSheet('Upload to YouTube', `
+    <p class="muted small">Nothing is uploaded until you tap Upload now. It stays private unless you change that below.</p>
+    <form id="yt-form" autocomplete="off">
+      <label class="field">Title<input id="yt-title" name="title" maxlength="100" value="${esc(draft.title)}"></label>
+      <label class="field">Description<textarea id="yt-desc" name="description" maxlength="5000" rows="5">${esc(draft.description)}</textarea></label>
+      <label class="field">Who can watch
+        <select id="yt-privacy" name="privacy">
+          <option value="private" selected>Private</option>
+          <option value="unlisted">Unlisted</option>
+          <option value="public">Public</option>
+        </select>
+      </label>
+      <div class="bar" id="yt-bar-wrap" hidden><i id="yt-bar" style="width:0%"></i></div>
+      <p id="yt-status" class="small"></p>
+      <button type="button" class="primary" id="yt-go" data-act="yt-go" data-id="${esc(entry.id)}">Upload now</button>
+    </form>
+    <details class="small"><summary>If YouTube says no</summary>
+      <p>Use the same Google Cloud project as the Drive backup. Enable YouTube Data API v3. On the consent screen add <span class="nowrap">https://www.googleapis.com/auth/youtube.upload</span>. While the app is in Testing, the Gmail on the channel has to be a test user. The first time, Google may say the app isn’t verified: choose Advanced, then continue. Each upload uses about 1,600 of the 10,000 daily units, about 6 a day.</p>
+    </details>`);
+}
+async function startYoutubeUpload(entry) {
+  const btn = document.getElementById('yt-go');
+  const status = document.getElementById('yt-status');
+  const barWrap = document.getElementById('yt-bar-wrap');
+  const bar = document.getElementById('yt-bar');
+  if (!btn || btn.dataset.busy === '1') return;
+  const privacy = document.getElementById('yt-privacy')?.value || 'private';
+  const title = document.getElementById('yt-title')?.value || '';
+  const description = document.getElementById('yt-desc')?.value || '';
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  let rec = null;
+  try { rec = await Diary.get(entry.id); } catch { rec = null; }
+  if (!rec?.blob) {
+    if (status) status.textContent = 'This clip isn’t on this phone, so it can’t be uploaded.';
+    btn.disabled = false;
+    btn.dataset.busy = '';
+    return;
+  }
+  if (barWrap) barWrap.hidden = false;
+  if (status) status.textContent = 'Signing in with Google…';
+  try {
+    const result = await YouTube.send({
+      blob: rec.blob,
+      title,
+      description,
+      privacy,
+      onProgress: (p) => {
+        const pct = Math.max(0, Math.min(100, Math.round(p * 100)));
+        if (bar) bar.style.width = `${pct}%`;
+        if (status?.isConnected) status.textContent = pct ? `Uploading… ${pct}%` : 'Uploading…';
+      },
+    });
+    const live = (S.diary || []).find((x) => x.id === entry.id);
+    const saved = live && Diary.cleanEntry({ ...live, youtube: { id: result.id, privacy: result.privacy } });
+    if (live && saved?.youtube) live.youtube = saved.youtube;
+    save();
+    if (status?.isConnected) status.innerHTML = `Uploaded. <a href="${esc(result.url)}" target="_blank" rel="noopener">Open on YouTube</a>`;
+    toast('Uploaded to YouTube');
+    if (ui.tab === 'diary') fillDiary();
+  } catch (err) {
+    const problem = err?.problem || Diary.youtubeProblem(err?.status, err?.body);
+    if (status?.isConnected) status.textContent = problem.text;
+    if (btn.isConnected) { btn.disabled = false; btn.dataset.busy = ''; }
+  }
+}
+
+// ===========================================================================
 // Render
 // ===========================================================================
 const ICONS = {
   today: '<path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   train: '<path d="M3 10v4M6 7v10M18 7v10M21 10v4M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   fuel: '<path d="M7 3v8a3 3 0 0 0 3 3v7M7 3v5M10 3v5M17 3c-2 2-2 6 0 8v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  diary: '<rect x="3" y="7" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 11l6-3v8l-6-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
   body: '<path d="M4 18l5-5 4 3 7-8M15 8h5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
@@ -2302,6 +2579,7 @@ function viewFor() {
     case 'today': return viewToday();
     case 'train': return ui.sub.train === 'history' ? viewTrainHistory() : viewTrainLog();
     case 'fuel': return ui.sub.fuel === 'recipes' ? viewFuelRecipes() : viewFuelLog();
+    case 'diary': return viewDiary();
     case 'body': return { weight: viewBodyWeight, measure: viewBodyMeasure, settings: viewBodySettings }[ui.sub.body]?.() ?? viewBodyWeight();
   }
   return '';
@@ -2331,6 +2609,7 @@ function render(opts = {}) {
     `<button data-tab="${k}" ${ui.tab === k ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg><span>${label}</span></button>`).join('');
   if (opts.scrollTop) window.scrollTo(0, 0);
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
+  if (ui.tab === 'diary') fillDiary();
   if (ui.tab === 'train' && !LIB) loadLib().then(() => { if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
   armFastClock();
   armSessionLoop();
@@ -2413,7 +2692,7 @@ function restTimer(btn) {
 
 document.addEventListener('click', (e) => {
   const tab = e.target.closest('[data-tab]');
-  if (tab) { ui.tab = tab.dataset.tab; ui.editProgram = false; render({ scrollTop: true }); return; }
+  if (tab) { if (tab.dataset.tab !== ui.tab) stopDiaryRecorder(); ui.tab = tab.dataset.tab; ui.editProgram = false; render({ scrollTop: true }); return; }
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
   const a = el.dataset.act;
@@ -2761,7 +3040,34 @@ document.addEventListener('click', (e) => {
     case 'challenge-end': S.challenge = null; break;
     case 'install-go': if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice?.finally(() => { installPrompt = null; render(); }); } return;
     case 'install-dismiss': S.settings.installDismissed = true; break;
-    case 'reset-all': ask('Delete all of this app\'s data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); }); return;
+    case 'diary-rec': startDiary('video', el.dataset.facing || 'user'); return;
+    case 'diary-voice': startDiary('audio'); return;
+    case 'diary-stop': stopDiaryRecorder(); return;
+    case 'diary-pick': document.getElementById('diary-file')?.click(); return;
+    case 'diary-discard': closeSheet(); return;
+    case 'diary-share': case 'diary-download': {
+      const entry = (S.diary || []).find((x) => x.id === el.dataset.id);
+      if (entry) shareDiary(entry, a === 'diary-download');
+      return;
+    }
+    case 'diary-del': ask('Delete this diary entry? The clip is removed from this phone. A YouTube video, if you uploaded one, stays on YouTube.', 'Delete', () => {
+      const id = el.dataset.id;
+      S.diary = (S.diary || []).filter((x) => x.id !== id);
+      Diary.remove(id).catch(() => {});
+    }); return;
+    case 'diary-yt': {
+      const entry = (S.diary || []).find((x) => x.id === el.dataset.id);
+      if (!entry || entry.kind !== 'video') { toast('Only a video can go to YouTube'); return; }
+      openYoutube(entry);
+      return;
+    }
+    case 'yt-go': {
+      const entry = (S.diary || []).find((x) => x.id === el.dataset.id);
+      if (!entry || entry.kind !== 'video') { toast('Only a video can go to YouTube'); return; }
+      startYoutubeUpload(entry);
+      return;
+    }
+    case 'reset-all': ask('Delete all of this app\'s data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); Diary.clear().catch(() => {}); }); return;
     default: return;
   }
   commit();
@@ -3028,6 +3334,36 @@ document.addEventListener('submit', (e) => {
       ui.fuelDate = date;
       closeSheet(); toast('Saved'); break;
     }
+    case 'diary-save': {
+      const clip = pendingClip;
+      if (!clip?.blob) { toast('That clip is gone. Record it again.'); return; }
+      if (clip.saving) return;
+      clip.saving = true;
+      const blob = clip.blob;
+      const entry = Diary.cleanEntry({
+        id: uid(), at: clip.at, date: clip.date, kind: clip.kind,
+        title: String(fd.get('title') || ''), note: String(fd.get('note') || ''),
+        weight: clip.weight, cutDay: clip.cutDay, mime: clip.mime || blob.type || '', bytes: blob.size || 0,
+      });
+      if (!entry) { clip.saving = false; toast('Couldn’t save that entry'); return; }
+      const btn = f.querySelector('button[type=submit]');
+      if (btn) btn.disabled = true;
+      Diary.put(entry.id, blob, entry.mime).then(() => {
+        if (pendingClip !== clip) { Diary.remove(entry.id).catch(() => {}); return; }
+        pendingClip = null;
+        if (clip.url) URL.revokeObjectURL(clip.url);
+        S.diary = [...(S.diary || []), entry];
+        closeSheet();
+        commit();
+        toast('Diary entry saved');
+      }).catch(() => {
+        if (pendingClip === clip) clip.saving = false;
+        if (btn) btn.disabled = false;
+        toast('Couldn’t store the clip on this phone.');
+      });
+      return;
+    }
+    case 'yt-form': return;
     case 'chain-form': {
       const name = String(fd.get('name') || '').trim().slice(0, 40);
       const since = String(fd.get('since') || '');
@@ -3074,6 +3410,14 @@ function driveStatusPaint() {
   const onToggle = document.activeElement?.id === 'drive-toggle';
   if (ui.tab === 'body' && ui.sub.body === 'settings' && (idle() || onToggle)) render();
 }
+document.addEventListener('change', (e) => {
+  if (e.target?.id !== 'diary-file') return;
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  openDiarySave({ blob: file, mime: file.type || '', kind: clipKind(file), at: new Date().toISOString() });
+});
+window.addEventListener('pagehide', () => stopDiaryRecorder());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   reloadIfChanged();
