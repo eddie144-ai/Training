@@ -190,7 +190,7 @@ await test('progress photos: add, show and delete', async () => {
   await page.locator('nav').getByRole('button', { name: 'Body' }).click();
   await page.locator('.subtabs').getByRole('button', { name: 'Measurements' }).click();
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-  await page.getByLabel('Add a front photo').setInputFiles({ name: 'front.png', mimeType: 'image/png', buffer: png });
+  await page.getByLabel('Upload a front photo').setInputFiles({ name: 'front.png', mimeType: 'image/png', buffer: png });
   await page.locator('#photo-grid img').first().waitFor();
   assert((await page.locator('#photo-grid img').count()) === 1, 'one photo shown');
   await page.getByRole('button', { name: /Delete front photo/ }).click();
@@ -1067,6 +1067,7 @@ await test('cut diary: the front camera records, and discard keeps nothing', asy
     own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [], weights: [{ date: '2026-11-11', kg: 98.5 }] },
     clock: false,
   });
+  await page.evaluate(() => { S.weights = [{ date: today(), kg: 98.5 }]; save(); });
   await page.locator('nav').getByRole('button', { name: 'Diary' }).click();
   await page.getByRole('button', { name: 'Front camera' }).click();
   await page.getByRole('button', { name: 'Stop' }).waitFor({ timeout: 8000 });
@@ -1078,6 +1079,170 @@ await test('cut diary: the front camera records, and discard keeps nothing', asy
   await dlg.getByRole('button', { name: 'Discard' }).click();
   assert(await page.getByText('No notes yet').isVisible(), 'discard keeps the timeline empty');
   assert((await page.evaluate(() => (S.diary || []).length)) === 0, 'discard writes nothing');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+async function shot(page, card, name) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => document.querySelector('.toast')?.remove());
+  if (card) await card.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });
+  await page.screenshot({ path: `/opt/cursor/artifacts/${name}` });
+}
+
+await test('milestones: badges from 104.8 kg, and a new one is celebrated once', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true, startWeight: 104.8, cutStart: '2026-11-01', target: 75 }, chains: [], weights: [{ date: '2026-11-10', kg: 101 }] },
+    time: '2026-11-11T12:00:00Z',
+  });
+  const card = page.locator('#milestones-card');
+  await card.getByText('From 104.8 kg').waitFor();
+  assert(await card.locator('#badge-100').evaluate((el) => !el.classList.contains('on')), '101 kg has not reached 100');
+  await page.getByLabel("Today's weight in kg").fill('99');
+  await page.locator('#weigh-form').getByRole('button', { name: 'Log' }).click();
+  await card.locator('#badge-flash').waitFor();
+  assert(await card.locator('#badge-100').evaluate((el) => el.classList.contains('on')), '100 kg badge');
+  assert(await card.locator('#badge-95').evaluate((el) => !el.classList.contains('on')), '95 stays locked');
+  assert(await card.getByText('5.8').isVisible(), 'kg lost');
+  assert(await card.getByText('24').isVisible(), 'kg to go');
+  await shot(page, card, 'gym-fuel-milestones.png');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('weekly report: Sunday shows this week, and share saves an image', async () => {
+  const { page, ctx, errors } = await open({
+    own: {
+      v: 1,
+      settings: { setupDone: true, installDismissed: true, chainsSeeded: true, proteinGoal: 170 },
+      chains: [{ id: 'coffee', name: 'No coffee', since: '2026-11-02' }],
+      weights: [{ date: '2026-11-05', kg: 100 }, { date: '2026-11-12', kg: 99 }, { date: '2026-11-14', kg: 98 }],
+      workouts: [
+        { id: 'a', date: '2026-11-10', at: '2026-11-10T18:00:00.000Z', sec: 3600, dayName: 'Day 1', entries: [] },
+        { id: 'b', date: '2026-11-12', at: '2026-11-12T18:00:00.000Z', sec: 1800, dayName: 'Day 2', entries: [] },
+      ],
+      meals: [
+        { id: 'm1', date: '2026-11-10', at: '2026-11-10T12:00:00.000Z', name: 'Eggs', kcal: 1900, p: 180, c: 40, f: 10, servings: 1 },
+        { id: 'm2', date: '2026-11-11', at: '2026-11-11T12:00:00.000Z', name: 'Snack', kcal: 1700, p: 100, c: 20, f: 10, servings: 1 },
+      ],
+    },
+    time: '2026-11-15T12:00:00Z',
+  });
+  const card = page.locator('#weekly-card');
+  await card.locator('#week-range').getByText('9 Nov').waitFor();
+  assert(await card.getByText('98.5 kg').isVisible(), 'average weight');
+  assert(await card.getByText('−1.5 kg').isVisible(), 'change');
+  assert(await card.getByText('2 / 4').isVisible(), 'sessions');
+  assert(await card.getByText('1 h 30 min').isVisible(), 'session time');
+  assert(await card.getByText('Day 14').isVisible(), 'chain counted to Sunday');
+  await shot(page, card, 'gym-fuel-weekly.png');
+  const dl = page.waitForEvent('download');
+  await card.getByRole('button', { name: 'Share this week' }).click();
+  assert((await dl).suggestedFilename() === 'iron-and-eggs-week-2026-11-09.png', 'week image');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('progress photos: two dates slide, with day and weight, and the backup keeps no pixels', async () => {
+  const { page, ctx, errors } = await open({
+    own: {
+      v: 1,
+      settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cutStart: '2026-11-01', startWeight: 104.8 },
+      chains: [],
+      weights: [{ date: '2026-11-01', kg: 104.8 }, { date: '2026-11-11', kg: 98.5 }],
+    },
+    time: '2026-11-11T12:00:00Z',
+  });
+  await page.locator('nav').getByRole('button', { name: 'Body' }).click();
+  await page.locator('.subtabs').getByRole('button', { name: 'Measurements' }).click();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await page.locator('#photo-date').fill('2026-11-01');
+  await page.getByLabel('Upload a front photo').setInputFiles({ name: 'a.png', mimeType: 'image/png', buffer: png });
+  await page.locator('#photo-grid img').first().waitFor();
+  await page.locator('#photo-date').fill('2026-11-11');
+  await page.getByLabel('Upload a front photo').setInputFiles({ name: 'b.png', mimeType: 'image/png', buffer: png });
+  await page.locator('#compare-cap-before').waitFor();
+  const before = await page.locator('#compare-cap-before').innerText();
+  const after = await page.locator('#compare-cap-after').innerText();
+  assert(before.includes('Day 1') && before.includes('104.8 kg'), before);
+  assert(after.includes('Day 11') && after.includes('98.5 kg'), after);
+  await page.locator('#compare-range').fill('20');
+  const clip = await page.locator('#compare-img-before').evaluate((el) => el.style.clipPath);
+  assert(clip.includes('80%'), clip);
+  const backup = await page.evaluate(() => JSON.stringify(S));
+  assert(backup.includes('"pose":"front"') && backup.includes('2026-11-01') && backup.includes('2026-11-11'), 'metadata is in the backup');
+  assert(!backup.includes('iVBORw0KGgo'), 'pixels stay out of the backup');
+  await shot(page, page.locator('#photos-card'), 'gym-fuel-photos.png');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('strength: a heavier set is flagged while logging, and the list keeps the best', async () => {
+  const { page, ctx, errors } = await open({
+    own: {
+      v: 1,
+      settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-11-09' },
+      chains: [],
+      workouts: [{ id: 'w', date: '2026-11-04', at: '2026-11-04T18:00:00.000Z', dayName: 'Legs', entries: [{ name: 'Barbell Squat', sets: [{ kg: 80, reps: 5 }] }] }],
+    },
+    time: '2026-11-11T12:00:00Z',
+  });
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: /Day 2 · Legs/ }).first().click();
+  const card = page.locator('.excard', { hasText: 'Barbell Squat' }).first();
+  await card.getByLabel('Barbell Squat set 1 kg').fill('90');
+  await card.getByLabel('Barbell Squat set 1 reps').fill('5');
+  await card.getByText(/heavier than your best/).waitFor();
+  await shot(page, card, 'gym-fuel-prs.png');
+  await page.locator('.subtabs').getByRole('button', { name: 'History' }).click();
+  const list = page.locator('#strength-card');
+  assert(await list.getByText('80 kg × 5').isVisible(), 'saved best weight');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('swap: a deadlift can become a supported row for this session, with the physio note', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-11-09' }, chains: [] },
+    time: '2026-11-11T12:00:00Z',
+  });
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: /Back, Biceps/ }).first().click();
+  const card = page.locator('.excard', { hasText: 'Barbell Deadlift' }).first();
+  await card.getByRole('button', { name: 'Swap' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Swap' });
+  await sheet.getByText('This is not medical advice. Follow your physio plan.').waitFor();
+  await shot(page, sheet, 'gym-fuel-swaps.png');
+  await sheet.getByRole('button', { name: /Chest-supported row/ }).click();
+  await card.getByText('Swapped from Barbell Deadlift').waitFor();
+  await card.getByText('Chest-supported row').waitFor();
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('streak saver: yesterday can take a weight and a Gironda meal without touching a chain', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [{ id: 'weed', name: 'No weed', since: '2026-07-07' }] },
+    time: '2026-11-11T12:00:00Z',
+  });
+  const card = page.locator('#catchup-card');
+  await card.getByText('10 Nov').waitFor();
+  await shot(page, card, 'gym-fuel-streak.png');
+  await card.getByRole('button', { name: 'Log Gironda Meal 1 for yesterday' }).click();
+  await card.getByLabel("Yesterday's weight in kg").fill('99');
+  await card.getByRole('button', { name: 'Log yesterday' }).click();
+  const saved = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('gymfuel.v1'));
+    return {
+      meal: s.meals.find((m) => m.date === '2026-11-10'),
+      weight: s.weights.find((w) => w.date === '2026-11-10'),
+      since: s.chains[0].since,
+    };
+  });
+  assert(saved.meal && saved.meal.kcal === 933 && saved.meal.date === '2026-11-10', `meal ${JSON.stringify(saved.meal)}`);
+  assert(saved.weight && saved.weight.kg === 99, 'yesterday weight');
+  assert(saved.since === '2026-07-07', 'chain start is untouched');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

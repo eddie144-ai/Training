@@ -1,7 +1,7 @@
 'use strict';
 /* Progress photos, stored only in this browser (IndexedDB database `gymfuel-photos`).
-   Photos are shrunk to 1080 px on the long side as JPEG before saving. They are not in JSON backups (too big);
-   delete them from Body → Measurements or with "Delete all data". */
+   Photos are shrunk to 1080 px on the long side as JPEG before saving. The picture itself is not in JSON backups;
+   the date, pose and id are. Delete them from Body → Measurements or with "Delete all data". */
 const Photos = (() => {
   const DB = 'gymfuel-photos', STORE = 'photos', MAX = 1080;
   let dbp = null;
