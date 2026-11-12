@@ -103,6 +103,35 @@ const Share = (() => {
     return cv;
   }
 
+  // A plain card for the weekly report, sized to the rows, so it can go to the phone's share sheet.
+  async function reportCard(d) {
+    await fontsReady();
+    const rows = d.rows || [];
+    const W = 1080;
+    const H = Math.max(1350, 320 + rows.length * 108 + 120);
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = C.text; ctx.font = `800 78px ${DISPLAY}`;
+    ctx.fillText('Weekly report', 72, 130);
+    ctx.fillStyle = C.text2; ctx.font = `600 36px ${BODY}`;
+    ctx.fillText(fitText(ctx, d.range || '', W - 144), 72, 190);
+    let y = 280;
+    for (const [label, value] of rows) {
+      roundRect(ctx, 56, y, W - 112, 92, 16);
+      ctx.fillStyle = C.card; ctx.fill();
+      ctx.fillStyle = C.muted; ctx.font = `600 26px ${BODY}`;
+      ctx.fillText(label, 80, y + 34);
+      ctx.fillStyle = C.text; ctx.font = `800 36px ${BODY}`;
+      ctx.fillText(fitText(ctx, String(value), W - 180), 80, y + 72);
+      y += 108;
+    }
+    ctx.fillStyle = C.muted; ctx.font = `600 26px ${BODY}`;
+    ctx.fillText(fitText(ctx, d.note || '', W - 144), 72, H - 56);
+    return cv;
+  }
+
   const toBlob = (cv) => new Promise((resolve) => cv.toBlob(resolve, 'image/png'));
 
   // The phone's share sheet when it can take files (unless saveOnly), otherwise a download.
@@ -120,5 +149,5 @@ const Share = (() => {
     return 'saved';
   }
 
-  return { weekCard, toBlob, file };
+  return { weekCard, reportCard, toBlob, file };
 })();

@@ -68,7 +68,7 @@ function freshState() {
       kcalGoal: 1900, proteinGoal: 170, carbGoal: 80, fatGoal: 90,
       startWeight: null, target: 75, heightCm: null, sex: 'male', age: null, activity: 'moderate', setupDone: false,
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab', custom: null }, cycleStart: weekStart(today()),
-      highContrast: false, driveAuto: false,
+      highContrast: false, driveAuto: false, cutStart: '2026-11-01',
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
     baselines: {},
@@ -85,6 +85,7 @@ function freshState() {
     chains: [],
     mealPresets: DEFAULT_PRESETS.map((p) => ({ ...p })),
     diary: [],
+    photos: [],
     challenge: null,
     notice: null,
   };
@@ -161,6 +162,9 @@ function normalise(s) {
   out.chains = (Array.isArray(out.chains) ? out.chains : []).map(cleanChain).filter(Boolean);
   out.mealPresets = Array.isArray(s.mealPresets) ? s.mealPresets.map(cleanPreset).filter(Boolean) : DEFAULT_PRESETS.map((p) => ({ ...p }));
   out.diary = (Array.isArray(out.diary) ? out.diary : []).map((x) => Diary.cleanEntry(x)).filter(Boolean);
+  if (!isoDay(out.settings.cutStart)) out.settings.cutStart = Cut.START_DATE;
+  out.photos = Cut.cleanPhotos(out.photos);
+  if (!Array.isArray(s.settings?.milestonesSeen)) out.settings.milestonesSeen = Cut.milestones(out.weights, out.settings).earned;
   seedChains(out);
   for (const t of PROGRAM_TEMPLATES) {
     const cur = out.programs[t.id];
@@ -941,6 +945,98 @@ function armFastClock() {
   fastClock = setInterval(() => { if (!paintFastElapsed()) { clearInterval(fastClock); fastClock = null; } }, 1000);
 }
 
+function freshBadges() {
+  const earned = Cut.milestones(S.weights, S.settings).earned;
+  const seen = Array.isArray(S.settings.milestonesSeen) ? S.settings.milestonesSeen : [];
+  const fresh = Cut.newBadges(earned, seen);
+  if (fresh.length) {
+    S.settings.milestonesSeen = [...new Set([...seen, ...fresh])];
+    ui.badgeFlash = fresh;
+  }
+  return fresh;
+}
+function milestonesCard() {
+  const m = Cut.milestones(S.weights, S.settings);
+  const flash = ui.badgeFlash || [];
+  ui.badgeFlash = null;
+  const pct = Math.round(m.pct * 100);
+  const lost = m.lost == null ? '—' : m.lost < 0 ? `+${fmtNum(Math.abs(m.lost))}` : fmtNum(m.lost);
+  return `<section class="card" id="milestones-card">
+    <h2>Milestones <span class="right">${pct}%</span></h2>
+    ${bar(m.pct * 100, 100, 'good')}
+    <div class="stats">
+      <div class="stat"><b>${lost}</b><span>kg lost</span></div>
+      <div class="stat"><b>${m.toGo == null ? '—' : fmtNum(m.toGo)}</b><span>kg to go</span></div>
+      <div class="stat"><b>${pct}%</b><span>done</span></div>
+    </div>
+    <p class="muted small">From ${fmtNum(m.start)} kg on ${fmtDate(m.startDate)} to ${fmtNum(m.target)} kg. A badge at every 5 kg.</p>
+    ${flash.length ? `<p class="good-text" id="badge-flash">New badge: ${flash.map((k) => `${k} kg`).join(', ')}.</p>` : ''}
+    <div class="badges">${m.badges.map((b) => `<span class="badge ${b.earned ? 'on' : ''}" id="badge-${b.kg}">${b.kg}</span>`).join('')}</div>
+  </section>`;
+}
+function reportRows(rep) {
+  const change = rep.weightChange == null ? '—' : `${rep.weightChange > 0 ? '+' : rep.weightChange < 0 ? '−' : ''}${fmtNum(Math.abs(rep.weightChange))} kg`;
+  return [
+    ['Average weight', rep.avgWeight == null ? '—' : `${fmtNum(rep.avgWeight)} kg`],
+    ['Change from last week', change],
+    ['Sessions', `${rep.sessions} / ${rep.sessionTarget}`],
+    ['Protein days', `${rep.proteinDays} at ${fmtNum(rep.proteinGoal)} g`],
+    ['Average kcal', rep.avgKcal == null ? '—' : String(rep.avgKcal)],
+    ['Average carbs', rep.avgCarbs == null ? '—' : `${fmtNum(rep.avgCarbs)} g`],
+    ['Session time', Cut.fmtDuration(rep.sessionSec)],
+    ...rep.chains.map((c) => [c.name, `Day ${c.day}`]),
+  ];
+}
+function weeklyReportFor(monday) {
+  return Cut.weeklyReport({ weights: S.weights, meals: S.meals, workouts: S.workouts, chains: S.chains, settings: S.settings }, monday);
+}
+function weeklyCard() {
+  const weeks = Cut.weeksFor(today(), '2026-10-01');
+  if (!weeks.length) return '';
+  const monday = ui.reportWeek && weeks.some((w) => w.monday === ui.reportWeek) ? ui.reportWeek : weeks[0].monday;
+  const rep = weeklyReportFor(monday);
+  const rows = reportRows(rep);
+  return `<section class="card" id="weekly-card">
+    <h2>Weekly report</h2>
+    <p id="week-range"><b>${fmtDate(rep.monday)} – ${fmtDate(rep.sunday)}</b>${weeks.find((w) => w.monday === monday)?.current ? ' · this week' : ''}</p>
+    <label class="field">Week<select id="report-week">${weeks.map((w) => `<option value="${w.monday}" ${w.monday === monday ? 'selected' : ''}>${fmtDate(w.monday)} – ${fmtDate(w.sunday)}${w.current ? ' (this week)' : ''}</option>`).join('')}</select></label>
+    <div class="stats">${rows.slice(0, 6).map(([label, value]) => `<div class="stat"><b>${esc(String(value))}</b><span>${esc(label)}</span></div>`).join('')}</div>
+    <p class="small">Session time <b id="week-time">${esc(Cut.fmtDuration(rep.sessionSec))}</b></p>
+    ${rep.chains.length ? `<div class="list">${rep.chains.map((c) => `<div class="row between"><span>${esc(c.name)}</span><b>Day ${c.day}</b></div>`).join('')}</div>` : '<p class="muted small">No chains on this phone.</p>'}
+    <button type="button" class="primary" data-act="report-share">Share this week</button>
+    <p class="muted small">Monday to Sunday. This week is listed on Sunday; finished weeks stay here. Averages use the days you logged. Chains keep counting from their start date.</p>
+  </section>`;
+}
+function catchUpCard() {
+  const y = addDays(today(), -1);
+  const gap = Cut.catchUp(y, S.weights, S.meals);
+  if (!gap.show) return '';
+  const meals = presets().filter((p) => p.id === 'gironda1' || p.id === 'gironda2' || p.ref === 'gironda1' || p.ref === 'gironda2');
+  const missing = [gap.needWeight ? 'no weigh-in' : '', gap.needFood ? 'no food log' : ''].filter(Boolean).join(' and ');
+  return `<section class="card" id="catchup-card">
+    <h2>Yesterday</h2>
+    <p class="small">${fmtDate(y)} has ${missing}.</p>
+    ${gap.needWeight ? `<form id="catch-weight" class="row" autocomplete="off"><input name="kg" inputmode="decimal" required aria-label="Yesterday's weight in kg" placeholder="Weight (kg)"><button class="primary" type="submit">Log yesterday</button></form>` : ''}
+    ${gap.needFood ? `<div class="grid2">${meals.map((p) => `<button type="button" data-act="catch-meal" data-id="${esc(p.id)}">Log ${esc(p.name.split(':')[0])} for yesterday</button>`).join('')}</div>` : ''}
+    <p class="muted small">Chains keep counting from their start date. A chain is broken only when you reset it or change the date.</p>
+  </section>`;
+}
+const PR_WORDS = { weight: 'heavier than your best', reps: 'more reps at that weight', e1rm: 'a better estimated 1RM' };
+function prText(name, sets) {
+  const prior = Cut.priorSets(S.workouts, name);
+  const flags = [];
+  for (const s of sets || []) flags.push(...Cut.prFlags({ kg: num(s?.kg), reps: num(s?.reps) }, prior));
+  const uniq = [...new Set(flags)];
+  return uniq.length ? `Personal record: ${uniq.map((f) => PR_WORDS[f]).join(', ')}.` : '';
+}
+function strengthCard() {
+  const rows = Cut.personalRecords(S.workouts);
+  return `<section class="card" id="strength-card"><h2>Strength PRs</h2>
+    ${rows.length ? `<div class="list">${rows.map((r) => `<div><b>${esc(r.name)}</b><br><span class="muted small">${fmtNum(r.bestKg)} kg × ${fmtNum(r.bestKgReps)}${r.bestKgDate ? ` · ${fmtDate(r.bestKgDate)}` : ''}<br>Est. 1RM ${fmtNum(round1(r.bestE1))} kg (${fmtNum(r.bestE1Kg)}×${fmtNum(r.bestE1Reps)})</span></div>`).join('')}</div>` : '<p class="muted">Log a weight and reps and the best set for each exercise shows here.</p>'}
+    <p class="muted small">A set is a record when it is heavier, when the same weight goes for more reps, or when the estimated 1-rep max is higher.</p>
+  </section>`;
+}
+
 function viewToday() {
   const d = today();
   const st = S.settings;
@@ -960,6 +1056,8 @@ function viewToday() {
   <img class="logo-banner" src="icons/logo.jpg" alt="Iron and Eggs: training and nutrition" width="960" height="524">
   ${(() => { const a = adaptive(); return a.ready && Math.abs(a.delta) >= 100 && st.adaptSnooze !== weekStart(d) ? adaptCard(a, 'today') : ''; })()}
   ${!st.setupDone ? `<section class="card alert"><h2>Set up your targets</h2><p class="small">Your calorie, protein and target weight are still the app's defaults. Takes a minute.</p><button class="primary" data-act="setup">Set up my targets</button></section>` : ''}
+  ${milestonesCard()}
+  ${catchUpCard()}
   ${growthCards(d)}
   ${chainsBoard(d)}
   ${chainsCard(d)}
@@ -1004,6 +1102,7 @@ function viewToday() {
     <button data-act="share-week">Share my week</button>
     ${S.challenge ? '' : '<button class="ghost" data-act="challenge-start">Start a 30-day "Cut with me" challenge</button>'}
   </section>
+  ${weeklyCard()}
   ${!storageOk ? '<section class="card alert"><p class="small">This browser is blocking storage, so nothing will be saved. Turn off private mode or allow site data.</p></section>' : ''}`;
 }
 
@@ -1174,7 +1273,8 @@ function restPicks(prog, day, e) {
 
 function exerciseLogCard(prog, day, e, i) {
   const draft = getDraft(prog.id, day.id)[e.id] || {};
-  const last = lastEntryFor(e.name);
+  const lifted = (draft.swap && String(draft.swap.name || '').trim()) || e.name;
+  const last = lastEntryFor(lifted);
   const hint = progressionHint(e, prog.family);
   const tech = techOf(e);
   const mode = logMode(e);
@@ -1195,20 +1295,23 @@ function exerciseLogCard(prog, day, e, i) {
     return `<div class="setrow ${s >= planned ? 'extra' : ''}"><span class="muted small">${label}</span>${kg}<span class="muted">kg ×</span>${reps}</div>`;
   }).join('');
   const prevSs = i > 0 && day.exercises[i - 1].ss;
+  const live = prText(lifted, draft.sets);
   return `<div class="excard ${e.ss ? 'ss-start' : ''} ${prevSs ? 'ss-end' : ''}">
-    <div class="row between"><span class="grow"><b>${esc(e.name)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span>${LIB ? `<br><button class="linkish inline-link" data-act="howto" ${base}>${libFor(e) ? 'How to do it' : 'Find it in the library'}</button>` : ''}</span>${prevBadge(last)}</div>
+    <div class="row between"><span class="grow"><b>${esc(lifted)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span>${draft.swap ? `<br><span class="muted small">Swapped from ${esc(e.name)}. ${esc(draft.swap.why || '')}</span>` : ''}${LIB ? `<br><button class="linkish inline-link" data-act="howto" ${base}>${libFor(e) ? 'How to do it' : 'Find it in the library'}</button>` : ''}</span>${prevBadge(last)}</div>
     ${tech ? `<p class="small"><span class="chip tech">${esc(tech.name)}</span> ${esc(tech.summary)}</p>` : ''}
     ${e.note ? `<p class="muted small">${esc(e.note)}</p>` : ''}
     ${e.ss ? '<p class="small accent">Superset: go straight to the next exercise, no rest.</p>' : ''}
     ${last ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${last.entry.sets.filter(hasData).map(setText).join(', ')}${last.entry.note ? ` · ${esc(last.entry.note)}` : ''}</p>` : ''}
     ${hint ? `<p class="small good-text">▲ ${esc(hint)}</p>` : ''}
+    <p class="pr-live small good-text">${esc(live)}</p>
     ${rows}
     ${restPicks(prog, day, e)}
     <div class="row wrap">
       ${mode === 'singles' ? '<button class="small-btn" data-act="rp-timer">10 s rest</button>' : `<button class="small-btn" data-act="set-add" ${base}>+ Add set</button>`}
       ${extra ? `<button class="small-btn" data-act="set-del" ${base}>− Remove extra set</button>` : ''}
       ${last ? `<button class="small-btn" data-act="copy-last" ${base}>Fill from last time</button>` : ''}
-      <input class="grow" placeholder="Note (forced reps, negatives, feel…)" value="${esc(draft.note || '')}" aria-label="${esc(e.name)} note" data-draft="${ref}|note">
+      <button class="small-btn" data-act="swap-open" ${base}>Swap</button>
+      <input class="grow" placeholder="Note (forced reps, negatives, feel…)" value="${esc(draft.note || '')}" aria-label="${esc(lifted)} note" data-draft="${ref}|note">
     </div>
   </div>`;
 }
@@ -1492,6 +1595,7 @@ function viewTrainHistory() {
   const recs = records();
   return `
   ${progressCard()}
+  ${strengthCard()}
   <section class="card">
     <h2>Sessions <span class="right">${S.workouts.length}</span></h2>
     ${hist.length ? `<div class="list">${hist.map((w) => `<div>
@@ -1821,11 +1925,34 @@ function navyBodyFat(m) {
 // ---- progress photos (photos.js): front, side and back, first next to latest
 const POSES = ['front', 'side', 'back'];
 let photoUrls = [];
+let photoCache = [];
+function photoCaption(p) {
+  const day = Cut.cutDay(p.date, Cut.startDate(S.settings));
+  const kg = Cut.weightOn(S.weights, p.date);
+  return `${cap(p.pose)} · Day ${day || '—'} · ${kg == null ? 'no weigh-in' : `${fmtNum(kg)} kg`} · ${fmtDate(p.date)}`;
+}
+function paintCompare() {
+  const before = document.getElementById('compare-before');
+  const after = document.getElementById('compare-after');
+  const imgB = document.getElementById('compare-img-before');
+  const imgA = document.getElementById('compare-img-after');
+  const range = document.getElementById('compare-range');
+  if (!before || !imgB || !imgA) return;
+  const b = photoCache.find((p) => p.id === before.value);
+  const a = photoCache.find((p) => p.id === after.value);
+  if (b?.url) { imgB.src = b.url; const capB = document.getElementById('compare-cap-before'); if (capB) capB.textContent = `Before · ${photoCaption(b)}`; }
+  if (a?.url) { imgA.src = a.url; const capA = document.getElementById('compare-cap-after'); if (capA) capA.textContent = `After · ${photoCaption(a)}`; }
+  imgB.style.clipPath = `inset(0 ${100 - Number(range?.value ?? 50)}% 0 0)`;
+}
 function photosCard() {
   return `<section class="card" id="photos-card"><h2>Progress photos <span class="right">every 2–4 weeks</span></h2>
-    <div class="grid3">${POSES.map((pose) => `<label class="btn">+ ${cap(pose)}<input type="file" accept="image/*" class="sr photo-in" data-pose="${pose}" aria-label="Add a ${pose} photo"></label>`).join('')}</div>
+    <label class="field">Date of the photo<input id="photo-date" type="date" value="${today()}" max="${today()}"></label>
+    <div class="grid3">${POSES.map((pose) => `<div class="grid1">
+      <label class="btn">Take ${pose}<input type="file" accept="image/*" capture="environment" class="sr photo-in" data-pose="${pose}" aria-label="Take a ${pose} photo"></label>
+      <label class="btn">Upload ${pose}<input type="file" accept="image/*" class="sr photo-in" data-pose="${pose}" aria-label="Upload a ${pose} photo"></label>
+    </div>`).join('')}</div>
     <div id="photo-grid"><p class="muted small">Loading…</p></div>
-    <p class="muted small">Same light, same place, same time of day. Photos stay on this phone only: they aren't in backups and never leave the device.</p></section>`;
+    <p class="muted small">Same light, same place, same time of day. The picture stays on this phone. A backup keeps the date and the pose, not the file.</p></section>`;
 }
 async function fillPhotos() {
   const grid = document.getElementById('photo-grid');
@@ -1835,9 +1962,16 @@ async function fillPhotos() {
   if (!document.getElementById('photo-grid')) return;
   for (const u of photoUrls) URL.revokeObjectURL(u);
   photoUrls = [];
-  if (!all.length) { grid.innerHTML = '<p class="muted small">No photos yet. Take your first set today.</p>'; return; }
-  const img = (p) => { const u = URL.createObjectURL(p.blob); photoUrls.push(u); return `<figure><img src="${u}" alt="${p.pose} photo, ${fmtDate(p.date)}"><figcaption>${fmtDate(p.date)} <button class="icon ghost" data-act="photo-del" data-id="${esc(p.id)}" aria-label="Delete ${p.pose} photo from ${fmtDate(p.date)}">✕</button></figcaption></figure>`; };
-  grid.innerHTML = POSES.map((pose) => {
+  const known = new Set((S.photos || []).map((p) => p.id));
+  const extra = all.filter((p) => !known.has(p.id));
+  if (extra.length) {
+    S.photos = Cut.cleanPhotos([...(S.photos || []), ...extra.map((p) => ({ id: p.id, date: p.date, pose: p.pose, at: p.at }))]);
+    save();
+  }
+  if (!all.length) { photoCache = []; grid.innerHTML = '<p class="muted small">No photos yet. Take your first set today.</p>'; return; }
+  photoCache = all.map((p) => { const url = URL.createObjectURL(p.blob); photoUrls.push(url); return { ...p, url }; });
+  const img = (p) => { const hit = photoCache.find((x) => x.id === p.id); return `<figure><img src="${hit?.url || ''}" alt="${p.pose} photo, ${fmtDate(p.date)}"><figcaption>${esc(photoCaption(p))} <button class="icon ghost" data-act="photo-del" data-id="${esc(p.id)}" aria-label="Delete ${p.pose} photo from ${fmtDate(p.date)}">✕</button></figcaption></figure>`; };
+  const rows = POSES.map((pose) => {
     const ps = all.filter((p) => p.pose === pose).sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
     if (!ps.length) return '';
     const f = ps[0], l = ps[ps.length - 1];
@@ -1846,6 +1980,22 @@ async function fillPhotos() {
       ${ps.length > 2 ? `<button class="small-btn ghost" data-act="photo-all" data-v="${pose}">${ui.photoAll === pose ? 'Show less' : `All ${ps.length}`}</button>` : ''}</div>
       <div class="pair">${shown.map(img).join('')}</div></div>`;
   }).join('');
+  const sorted = [...photoCache].sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
+  const opts = (pick) => sorted.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? 'selected' : ''}>${esc(photoCaption(p))}</option>`).join('');
+  const compare = sorted.length < 2 ? '' : `<div id="photo-compare">
+    <h3>Before and after</h3>
+    <label class="field">Before<select id="compare-before">${opts(sorted[0].id)}</select></label>
+    <label class="field">After<select id="compare-after">${opts(sorted[sorted.length - 1].id)}</select></label>
+    <div class="compare">
+      <img id="compare-img-after" alt="Later photo">
+      <img id="compare-img-before" alt="Earlier photo">
+      <input id="compare-range" type="range" min="0" max="100" value="50" aria-label="Before and after">
+    </div>
+    <p class="small" id="compare-cap-before"></p>
+    <p class="small" id="compare-cap-after"></p>
+  </div>`;
+  grid.innerHTML = rows + compare;
+  paintCompare();
 }
 
 function viewBodyMeasure() {
@@ -1932,13 +2082,15 @@ function viewBodySettings() {
       <label class="field">Protein (g)<input name="proteinGoal" inputmode="numeric" value="${st.proteinGoal}" required></label>
       <label class="field">Carbs (g)<input name="carbGoal" inputmode="numeric" value="${st.carbGoal}" required></label>
       <label class="field">Fat (g)<input name="fatGoal" inputmode="numeric" value="${st.fatGoal}" required></label>
-      <label class="field">Start weight (kg)<input name="startWeight" inputmode="decimal" value="${st.startWeight ?? ''}" placeholder="first weigh-in"></label>
+      <label class="field">Start weight (kg)<input name="startWeight" inputmode="decimal" value="${st.startWeight ?? ''}" placeholder="104.8"></label>
+      <label class="field">Cut started<input name="cutStart" type="date" value="${esc(st.cutStart || '2026-11-01')}"></label>
       <label class="field">Target weight (kg)<input name="target" inputmode="decimal" value="${st.target ?? ''}"></label>
       <label class="field">Height (cm)<input name="heightCm" inputmode="decimal" value="${st.heightCm ?? ''}" placeholder="for body fat"></label>
       <label class="field">Sex (for body fat)<select name="sex"><option value="male" ${st.sex !== 'female' ? 'selected' : ''}>Male</option><option value="female" ${st.sex === 'female' ? 'selected' : ''}>Female</option></select></label>
       <label class="field">4-week cycle started<input name="cycleStart" type="date" value="${esc(st.cycleStart)}" required></label>
       <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
     </form>
+    <p class="muted small">Milestones use the start weight. Leave it blank to start from 104.8 kg. The cut date is day 1 on progress photos. Badges sit at 100, 95, 90, 85, 80 and 75 kg.</p>
     <button class="ghost" data-act="setup">Work out targets from my stats again</button>
   </section>
   <section class="card">
@@ -2648,7 +2800,9 @@ function completeSession(pid, did) {
     const sets = (dr.sets || []).map((s) => ({ kg: num(s?.kg), reps: mode === 'singles' ? (num(s?.kg) != null ? 1 : null) : mode === 'hold' ? null : num(s?.reps), hold: num(s?.hold) }))
       .filter(hasData)
       .map((s) => (s.hold == null ? { kg: s.kg, reps: s.reps } : s));
-    return { exId: e.id, name: e.name, tech: e.tech || '', sets, note: (dr.note || '').trim() };
+    const lifted = (dr.swap && String(dr.swap.name || '').trim()) || e.name;
+    const note = [dr.swap?.why, (dr.note || '').trim()].filter(Boolean).join(' · ');
+    return { exId: e.id, name: lifted, tech: e.tech || '', sets, note };
   }).filter((e) => e.sets.length || e.note);
   const sess = draft._session || {};
   const w = { id: uid(), date: today(), at: new Date().toISOString(), programId: pid, programName: prog.name, family: prog.family, dayId: did, dayName: day.name, entries };
@@ -2899,7 +3053,50 @@ document.addEventListener('click', (e) => {
     // ---- body
     case 'setup': openSetup(); return;
     case 'photo-all': ui.photoAll = ui.photoAll === el.dataset.v ? null : el.dataset.v; fillPhotos(); return;
-    case 'photo-del': ask('Delete this photo?', 'Delete', () => { Photos.remove(el.dataset.id).then(() => render(), () => toast('Couldn\'t delete it')); }); return;
+    case 'photo-del': ask('Delete this photo?', 'Delete', () => { const id = el.dataset.id; S.photos = (S.photos || []).filter((p) => p.id !== id); Photos.remove(id).then(() => render(), () => toast('Couldn\'t delete it')); }); return;
+    case 'swap-open': {
+      const { ex } = findEx(pid, did, eid);
+      if (!ex) return;
+      const dr = getDraft(pid, did)[eid] || {};
+      const lifted = (dr.swap && dr.swap.name) || ex.name;
+      const options = Cut.swapsFor(lifted);
+      const list = options.length
+        ? options.map((o) => `<button type="button" class="linkish" data-act="swap-pick" data-pid="${esc(pid)}" data-did="${esc(did)}" data-eid="${esc(eid)}" data-name="${esc(o.name)}" data-why="${esc(o.why)}"><b>${esc(o.name)}</b><br><span class="muted small">${esc(o.area)}</span><br><span class="small">${esc(o.why)}</span></button>`).join('')
+        : `<p>No kinder swap is listed for ${esc(lifted)}.</p>`;
+      const clear = dr.swap ? `<button type="button" data-act="swap-clear" data-pid="${esc(pid)}" data-did="${esc(did)}" data-eid="${esc(eid)}">Use ${esc(ex.name)} again</button>` : '';
+      openSheet('Swap', `${list}${clear}<p class="muted small">${esc(Cut.PHYSIO)}</p>`);
+      return;
+    }
+    case 'swap-pick': {
+      const dr = (getDraft(pid, did)[eid] ||= {});
+      dr.swap = { name: el.dataset.name, why: el.dataset.why };
+      saveDrafts(); closeSheet(); render(); return;
+    }
+    case 'swap-clear': {
+      const dr = getDraft(pid, did)[eid];
+      if (dr) delete dr.swap;
+      saveDrafts(); closeSheet(); render(); return;
+    }
+    case 'catch-meal': {
+      const p = presets().find((x) => x.id === el.dataset.id);
+      const date = addDays(today(), -1);
+      if (!p) return;
+      S.meals.push({ id: uid(), date, at: atOn(date, '12:00'), name: p.name, kcal: p.kcal, p: p.p, c: p.c, f: p.f, servings: 1, ref: p.ref || `preset:${p.id}`, kind: 'preset', slot: 'Lunch' });
+      toast(`Logged ${p.name.split(':')[0]} for yesterday`);
+      break;
+    }
+    case 'report-share': {
+      const weeks = Cut.weeksFor(today(), '2026-10-01');
+      const monday = ui.reportWeek && weeks.some((w) => w.monday === ui.reportWeek) ? ui.reportWeek : weeks[0]?.monday;
+      if (!monday) return;
+      const rep = weeklyReportFor(monday);
+      const rows = reportRows(rep);
+      Share.reportCard({ range: `${fmtDate(rep.monday)} – ${fmtDate(rep.sunday)}`, rows, note: 'Chains keep counting from their start date. Iron & Eggs' }).then((cv) => Share.toBlob(cv)).then((blob) => {
+        if (!blob) { toast('Couldn\'t make the image'); return; }
+        return Share.file(blob, `iron-and-eggs-week-${monday}.png`, 'Weekly report');
+      }).then((how) => { if (how && how !== 'cancelled') toast(how === 'shared' ? 'Shared' : 'Image saved'); });
+      return;
+    }
     case 'lib-open': openLibrary({ mode: el.dataset.mode, pid, did, eid }); return;
     case 'lib-back': if (libMode) openLibrary(libMode); return;
     case 'lib-howto': { const l = LIB?.byId.get(el.dataset.lib); if (l) openHowTo(l, true); return; }
@@ -3076,12 +3273,19 @@ document.addEventListener('click', (e) => {
 // Typing into set inputs saves the draft without re-rendering (so focus isn't lost).
 document.addEventListener('input', (e) => {
   const t = e.target;
+  if (t.id === 'compare-range') { paintCompare(); return; }
   if (t.dataset.draft) {
     const [pid, did, eid, s, field] = t.dataset.draft.split('|');
     const dr = (getDraft(pid, did)[eid] ||= {});
     if (s === 'note') dr.note = t.value;
     else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; noteSet(pid, did, eid, Number(s)); }
     saveDrafts();
+    const live = t.closest('.excard')?.querySelector('.pr-live');
+    if (live && s !== 'note') {
+      const { ex } = findEx(pid, did, eid);
+      const shown = dr.swap?.name || ex?.name || '';
+      live.textContent = prText(shown, dr.sets);
+    }
     return;
   }
   if (t.dataset.live === 'recipe-q') {
@@ -3154,10 +3358,20 @@ document.addEventListener('change', (e) => {
   if (t.id === 'ai-gmodel') { FoodAI.setGeminiModel(t.value); toast('Gemini model saved'); return; }
   if (t.classList?.contains('photo-in')) {
     const file = t.files?.[0];
-    if (file) Photos.add(today(), t.dataset.pose, file).then(() => { toast(`${cap(t.dataset.pose)} photo saved`); fillPhotos(); }, () => toast('Couldn\'t save the photo'));
+    const date = document.getElementById('photo-date')?.value || today();
+    if (file && isoDay(date) && date <= today()) {
+      Photos.add(date, t.dataset.pose, file).then((rec) => {
+        S.photos = Cut.cleanPhotos([...(S.photos || []).filter((p) => p.id !== rec.id), rec]);
+        save();
+        toast(`${cap(t.dataset.pose)} photo saved`);
+        fillPhotos();
+      }, () => toast('Couldn\'t save the photo'));
+    }
     t.value = '';
     return;
   }
+  if (t.id === 'compare-before' || t.id === 'compare-after') { paintCompare(); return; }
+  if (t.id === 'report-week') { ui.reportWeek = t.value; render(); return; }
   if (t.id === 'chart-ex') { ui.chartEx = t.value; render(); return; }
   // The library list redraws on 'input' only: redrawing again on 'change' (when the search box loses focus to a
   // tap on a result) would replace the result under the finger and lose the tap.
@@ -3244,12 +3458,23 @@ document.addEventListener('submit', (e) => {
       S.weights = S.weights.filter((w) => w.date !== date);
       S.weights.push({ date, kg: round1(kg) });
       if (S.settings.startWeight == null) S.settings.startWeight = round1(kg);
-      toast(`${fmtNum(round1(kg))} kg saved`); break;
+      const fresh = freshBadges();
+      toast(fresh.length ? `${fmtNum(round1(kg))} kg saved · badge ${fresh.join(', ')} kg` : `${fmtNum(round1(kg))} kg saved`); break;
+    }
+    case 'catch-weight': {
+      const kg = formNum(fd, 'kg');
+      if (!kg || kg < 20 || kg > 400) { toast('Enter a weight in kg'); return; }
+      const date = addDays(today(), -1);
+      S.weights = S.weights.filter((w) => w.date !== date);
+      S.weights.push({ date, kg: round1(kg) });
+      const fresh = freshBadges();
+      toast(fresh.length ? `${fmtNum(round1(kg))} kg for yesterday · badge ${fresh.join(', ')} kg` : `${fmtNum(round1(kg))} kg saved for yesterday`); break;
     }
     case 'targets-form': {
       const st = S.settings;
       for (const k of ['kcalGoal', 'proteinGoal', 'carbGoal', 'fatGoal']) { const v = formNum(fd, k); if (v != null && v >= 0) st[k] = Math.round(v); }
       st.startWeight = formNum(fd, 'startWeight');
+      if (isoDay(fd.get('cutStart'))) st.cutStart = fd.get('cutStart');
       { const h = formNum(fd, 'heightCm'); st.heightCm = h && h > 100 && h < 250 ? h : null; }
       st.sex = fd.get('sex') === 'female' ? 'female' : 'male';
       const tgt = formNum(fd, 'target'); if (tgt) st.target = tgt;

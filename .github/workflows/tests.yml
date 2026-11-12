@@ -41,6 +41,8 @@ jobs:
         run: node --test gym-fuel/tests/session.test.mjs
       - name: Iron & Eggs cut diary
         run: node --test gym-fuel/tests/diary.test.mjs
+      - name: Iron & Eggs cut tools
+        run: node --test gym-fuel/tests/cut.test.mjs
 
   browser-apps:
     name: Phone apps (Playwright)

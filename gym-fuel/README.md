@@ -148,6 +148,20 @@ again.
 - **Body → Weight:** weigh-ins, 7-day average, progress from start to target and a 60-day chart. The chart draws
   the raw weigh-ins and a 7-day rolling average over them, and states the current trend (that average) and how it
   changed over the last 7 days.
+- **Milestones (Today):** a bar from the start weight (104.8 kg when that box is empty) on the cut date (1 Nov 2026)
+  down to the target (75 kg). Badges at 100, 95, 90, 85, 80 and 75 kg. The first time a weigh-in reaches one, the card
+  says so. Start weight and cut date are in Body → Settings.
+- **Weekly report (Today):** Monday to Sunday. This week appears on Sunday; finished weeks stay in the list. Average
+  weight and the change from the week before, sessions out of 4, days the protein target was hit, average kcal and
+  carbs, chain day counts, and total session time. **Share this week** uses the phone's share sheet.
+- **Strength PRs:** while you log a set, the exercise says if it is heavier than your best, more reps at that same
+  weight, or a higher estimated 1-rep max. Train → History lists the best of each.
+- **Swap:** on a workout exercise, **Swap** offers a kinder alternative for the left biceps (neutral grip, not a heavy
+  supinated curl or chin-up), the left hip and knees (box squat, short-range leg press, hip thrust, light leg extension;
+  not a deep lunge), or the lower back (chest-supported or machine row; not a conventional deadlift or good morning).
+  The swap is for that session. The sheet says this is not medical advice and to follow your physio plan.
+- **Yesterday:** if yesterday has no weigh-in or no food, Today offers a one-tap catch-up: log the weight, or add a
+  Gironda meal for that date. Chains still count from their start date and break only when you reset one or change the date.
 - **Diary:** short video notes (front or back camera), voice notes, or a clip already on the phone. Each one is
   stamped with the date and time, that day's weigh-in if one is logged, and the day of this cut (8 Nov 2026 is day 1).
   Title and note are optional. The clip stays on the phone (its own IndexedDB database, `gymfuel-diary`). Delete asks
@@ -160,8 +174,9 @@ again.
   See [YouTube](#youtube).
 - **Body → Measurements:** waist, chest, arms, thighs, hips and neck (cm), change since your first entry, a
   waist trend line, a US Navy body-fat estimate (men and women, with your height set) and the history.
-  **Progress photos** (front, side, back) show your first next to your latest. They're stored only on the phone
-  (IndexedDB) and aren't in backups.
+  **Progress photos** (front, side, back) can be taken or uploaded for a chosen date. A slider compares any two.
+  Each side shows the cut day (1 Nov 2026 is day 1, editable under Body → Settings) and the weight on or before that
+  date. The picture stays on the phone. A backup keeps the date and the pose, not the file.
 - **Body → Settings:** calorie and macro targets, start and target weight, height, sex, redo the setup, cycle start, copy from Iron & Eggs,
   backup and restore, high contrast, delete all data.
 
@@ -244,8 +259,8 @@ Limits worth knowing:
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
-(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/diary.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `cut.js` (milestones, weekly report, strength records, swaps and catch-up), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+(background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/diary.test.mjs`, `tests/cut.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
 ```bash
@@ -254,6 +269,7 @@ node gym-fuel/tests/app.test.mjs
 node --test gym-fuel/tests/label.test.mjs
 node --test gym-fuel/tests/session.test.mjs
 node --test gym-fuel/tests/diary.test.mjs
+node --test gym-fuel/tests/cut.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```
