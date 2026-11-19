@@ -53,8 +53,17 @@ again.
 - **Gironda plates (Fuel → Log, marked cut):** twelve more one-tap plates beside those two: hormone meal (6 eggs +
   beef), steak and eggs, fish and eggs, salmon, liver and onions, chicken, cottage cheese, a cream-and-egg shake,
   mince, tuna, sardines, beef and liver. Macros are estimates from an in-house table (an egg is 50 g). Not text from a book.
-- **Dolce-style plates (Fuel → Log, marked post-cut):** eight whole-food plates written here (lean protein, veg, fruit,
-  oats, quinoa, nuts). Labelled Dolce-style. They are not his recipes and they do not copy his book.
+- **Dolce-style plates (Fuel → Log, marked post-cut):** eight whole-food plates written here, plus twenty
+  **Coach Mike's Dolce-style recipes, not from Mike Dolce's books**. Five breakfasts, six lunches, six dinners,
+  three snacks. Each one is tagged **No chopping**: tins, frozen veg, microwave pouches, oats, eggs, ready chicken
+  or yogurt, five steps or fewer, and a total time. Open one for the ingredients, method and per-serving macros.
+  A stepper sets how many servings to log. **Save to My recipes** copies it so you can edit it.
+- **Vince Gironda eating (Today → Chains):** sits with No weed, No energy drinks and No coffee. It counts the
+  current run of days on plan, from a start date that begins at 8 Nov 2026 and can be edited. A day is on plan when
+  every meal logged is a Gironda plate, or the day's carbs are 20 g or under. An empty day does not break the run.
+  **On plan today** and **Slipped** cover a day the log does not show. Reset sets the start date to today, the same
+  as the other chains. Deleting it does not bring it back. Old backups keep their chains and gain this one if it
+  is missing.
 - **My recipes (Fuel → Log):** type a recipe, or photograph a page. Lines such as `200 g chicken` or `6 eggs` estimate
   the macros from the same table; you can type the numbers instead. Save it once. After that, one tap logs one serving.
   The photo stays on the phone. Recipes are in the backup.

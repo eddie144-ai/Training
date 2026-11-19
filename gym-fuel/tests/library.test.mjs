@@ -125,7 +125,7 @@ test('a machine photo is matched from words, and custom exercises round-trip', (
 
 test('the picture cache is separate from the versioned app cache', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /const VERSION = 'gymfuel-v1\.25'/);
+  assert.match(sw, /const VERSION = 'gymfuel-v1\.26'/);
   assert.match(sw, /gymfuel-pics/);
   assert.match(sw, /startsWith\('gymfuel-v'\)/);
   assert.match(sw, /\.\/library\.js/);

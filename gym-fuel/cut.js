@@ -299,10 +299,40 @@ const Cut = (() => {
   }
   const cleanPhotos = (list) => (Array.isArray(list) ? list : []).map(cleanPhoto).filter(Boolean);
 
+  const GIRONDA_CARBS = 20;
+  function girondaMeal(m) {
+    const ref = String(m?.ref || '');
+    const kind = String(m?.kind || '');
+    if (kind === 'gironda') return true;
+    return ref === 'gironda1' || ref === 'gironda2' || ref.startsWith('gironda:');
+  }
+  // 'on' or 'off' when the log or a tap decides. 'open' when nothing is logged and he has not tapped.
+  function girondaDay(meals, mark) {
+    if (mark === 'on' || mark === 'off') return mark;
+    const list = (meals || []).filter(Boolean);
+    if (!list.length) return 'open';
+    const carbs = list.reduce((a, m) => a + (Number(m.c) || 0) * (m.servings == null ? 1 : Number(m.servings) || 0), 0);
+    if (list.every(girondaMeal) || carbs <= GIRONDA_CARBS + 1e-6) return 'on';
+    return 'off';
+  }
+  // Current run of on-plan days ending at `end`, not before `since`. An unmarked empty day does not break it.
+  function girondaStreak(since, end, dayStatus) {
+    if (!iso(since) || !iso(end) || end < since) return 0;
+    let n = 0;
+    let d = end;
+    while (d >= since) {
+      if (dayStatus(d) === 'off') break;
+      n += 1;
+      d = addDays(d, -1);
+    }
+    return n;
+  }
+
   return {
     START_KG, START_DATE, BADGES, SESSIONS, PHYSIO,
     exKey, resolveKey, startKg, startDate, targetKg, milestones, newBadges, cutDay, weightOn,
     weeksFor, weeklyReport, fmtDuration, priorSets, prFlags, personalRecords, swapsFor, catchUp,
     cleanPhoto, cleanPhotos, addDays, weekMonday,
+    GIRONDA_CARBS, girondaMeal, girondaDay, girondaStreak,
   };
 })();
