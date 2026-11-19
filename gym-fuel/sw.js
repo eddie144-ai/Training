@@ -1,8 +1,8 @@
 // Offline cache for the Iron & Eggs (gym-fuel/) app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.24';
-const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './diary.js', './youtube.js', './cut.js', './library.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
+const VERSION = 'gymfuel-v1.25';
+const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './diary.js', './youtube.js', './cut.js', './library.js', './garmin.js', './meals.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
 // Pictures and the on-device readers live outside the versioned cache, so a version bump does not wipe them.
 const PICS = 'gymfuel-pics';
 const VENDOR = 'gymfuel-vendor';

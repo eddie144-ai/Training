@@ -70,6 +70,7 @@ function freshState() {
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab', custom: null }, cycleStart: weekStart(today()),
       highContrast: false, driveAuto: false, cutStart: '2026-11-01',
       barKg: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25], currentGym: null, kindJoints: false,
+      garminRemind: false, garminRemindAt: '21:00',
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
     baselines: {},
@@ -91,6 +92,8 @@ function freshState() {
     customExercises: [],
     exAliases: {},
     exPhotos: {},
+    garmin: [],
+    myRecipes: [],
     gyms: Library.seedGyms(),
     notice: null,
   };
@@ -182,6 +185,14 @@ function normalise(s) {
   out.settings.plates = plateList.length ? plateList : [25, 20, 15, 10, 5, 2.5, 1.25];
   if (out.settings.currentGym && !out.gyms.some((g) => g.id === out.settings.currentGym)) out.settings.currentGym = null;
   out.settings.kindJoints = !!out.settings.kindJoints;
+  out.garmin = Garmin.cleanDays(out.garmin).map((g) => (g.id ? g : { ...g, id: g.date }));
+  out.myRecipes = (Array.isArray(out.myRecipes) ? out.myRecipes : []).map((x) => {
+    const r = Meals.cleanRecipe(x);
+    if (r && !r.id) r.id = `rc-${uid()}`;
+    return r;
+  }).filter((x) => x && x.id);
+  out.settings.garminRemind = !!out.settings.garminRemind;
+  if (!/^\d{2}:\d{2}$/.test(String(out.settings.garminRemindAt || ''))) out.settings.garminRemindAt = '21:00';
   if (!Array.isArray(s.settings?.milestonesSeen)) out.settings.milestonesSeen = Cut.milestones(out.weights, out.settings).earned;
   seedChains(out);
   for (const t of PROGRAM_TEMPLATES) {
@@ -1073,6 +1084,91 @@ function strengthCard() {
   </section>`;
 }
 
+function garminFor(date) {
+  return (S.garmin || []).find((g) => g.date === date) || null;
+}
+function grp(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+let garminTimer = null;
+function armGarminReminder() {
+  clearTimeout(garminTimer);
+  garminTimer = null;
+  if (!S.settings.garminRemind || garminFor(today()) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const [hh, mm] = String(S.settings.garminRemindAt || '21:00').split(':').map(Number);
+  const when = new Date();
+  when.setHours(hh || 21, mm || 0, 0, 0);
+  const wait = when.getTime() - Date.now();
+  if (wait < 0 || wait > 18 * 3600000) return;
+  garminTimer = setTimeout(() => {
+    if (garminFor(today())) return;
+    try { new Notification('Garmin tonight', { body: 'Photograph the watch before bed.', tag: 'garmin-tonight' }); } catch { /* the card on Today still shows */ }
+    toast('Time to log Garmin.');
+  }, wait);
+}
+function garminCard() {
+  const row = garminFor(today());
+  const recent = (S.garmin || []).filter((g) => g.date <= today()).slice(-14);
+  const series = (key) => recent.map((g) => g[key]).filter((n) => n != null);
+  const line = (label, key, fmt) => {
+    const vals = series(key);
+    const last = vals.length ? vals[vals.length - 1] : null;
+    return `<div><span class="muted small">${label}</span><div><b>${last == null ? '—' : fmt(last)}</b></div>${spark(vals)}</div>`;
+  };
+  const when = S.settings.garminRemindAt || '21:00';
+  const nudge = S.settings.garminRemind && !row && new Date().toTimeString().slice(0, 5) >= when;
+  const notify = typeof Notification === 'undefined'
+    ? 'This browser has no notification feature.'
+    : Notification.permission === 'granted'
+      ? 'Notifications are allowed. They fire only while this page is still open.'
+      : 'Notifications are not allowed yet.';
+  return `<section class="card" id="garmin-card">
+    <h2>Garmin tonight ${row ? '<span class="right">logged</span>' : ''}</h2>
+    ${nudge ? '<p class="small">Evening nudge: photograph the watch before bed.</p>' : ''}
+    <p class="small">${row ? `Today: ${row.steps != null ? `${grp(row.steps)} steps` : 'steps —'} · sleep ${Garmin.fmtSleep(row.sleepMin)} · HRV ${row.hrv ?? '—'} · resting HR ${row.rhr ?? '—'}` : 'Not logged yet. Photograph the watch or Garmin Connect, then check every number.'}</p>
+    ${row?.photoId ? `<img data-thumb="${esc(row.photoId)}" alt="Tonight's Garmin photo" class="exthumb">` : ''}
+    <div class="grid2">
+      <label class="btn" for="garmin-file">Garmin tonight</label>
+      <button type="button" data-act="garmin-type">Type the numbers</button>
+    </div>
+    <input id="garmin-file" class="sr" type="file" accept="image/*" capture="environment">
+    <label class="field check-field"><span>Evening nudge</span><input type="checkbox" id="garmin-remind" ${S.settings.garminRemind ? 'checked' : ''}></label>
+    <label class="field">From<input type="time" id="garmin-time" value="${esc(when)}"></label>
+    <p class="muted small">${esc(Garmin.REMINDER)} ${esc(notify)}</p>
+    ${recent.length ? `<div class="grid2">${line('Steps', 'steps', grp)}${line('Sleep', 'sleepMin', Garmin.fmtSleep)}${line('Resting HR', 'rhr', String)}${line('HRV', 'hrv', String)}</div>
+      <div class="list small">${[...recent].reverse().slice(0, 7).map((g) => `<div class="row between"><span>${fmtDate(g.date)}</span><span>${g.steps != null ? grp(g.steps) : '—'} steps · ${Garmin.fmtSleep(g.sleepMin)}</span></div>`).join('')}</div>` : '<p class="muted small">Steps, sleep, resting heart rate and HRV are charted after the first night.</p>'}
+  </section>`;
+}
+function openGarminForm(parsed = {}, photoId = '', date = today()) {
+  const g = parsed || {};
+  openSheet('Garmin tonight', `<form id="garmin-form" class="grid2" autocomplete="off">
+    <label class="field" style="grid-column:1/-1">Date<input type="date" name="date" required value="${esc(date)}" max="${today()}"></label>
+    ${photoId ? `<img data-thumb="${esc(photoId)}" alt="Garmin screen" class="exthumb" style="grid-column:1/-1">` : ''}
+    <input type="hidden" name="photoId" value="${esc(photoId)}">
+    <label class="field">Steps<input name="steps" inputmode="numeric" value="${g.steps ?? ''}"></label>
+    <label class="field">Sleep hours<input name="sleepH" inputmode="numeric" value="${g.sleepMin != null ? Math.floor(g.sleepMin / 60) : ''}"></label>
+    <label class="field">Sleep minutes<input name="sleepM" inputmode="numeric" value="${g.sleepMin != null ? g.sleepMin % 60 : ''}"></label>
+    <label class="field">HRV<input name="hrv" inputmode="numeric" value="${g.hrv ?? ''}"></label>
+    <label class="field">Resting HR<input name="rhr" inputmode="numeric" value="${g.rhr ?? ''}"></label>
+    <label class="field">Body Battery<input name="battery" inputmode="numeric" value="${g.battery ?? ''}"></label>
+    <label class="field">Stress<input name="stress" inputmode="numeric" value="${g.stress ?? ''}"></label>
+    <label class="field">Calories<input name="kcal" inputmode="numeric" value="${g.kcal ?? ''}"></label>
+    <label class="field">Intensity minutes<input name="intensity" inputmode="numeric" value="${g.intensity ?? ''}"></label>
+    <label class="field" style="grid-column:1/-1">Note<input name="note" maxlength="200" value="${esc(g.note || '')}"></label>
+    <p class="muted small" style="grid-column:1/-1">${g.found?.length ? `Read from the photo: ${esc(g.found.join(', '))}. Change anything that looks wrong.` : 'No numbers came off the photo. Type them from the screen. The reader needs internet once, then works offline, and it often misses a stylised watch face.'}</p>
+    <button class="primary" style="grid-column:1/-1" type="submit">Save this night</button>
+  </form>`);
+  paintThumbs(document.querySelector('.sheet'));
+}
+async function onGarminFile(file) {
+  const photoId = `gm-${uid()}`;
+  try { await Photos.addThumb(photoId, file); } catch { toast('Couldn\'t save the photo'); return; }
+  let text = '';
+  try {
+    const read = await Label.readImage(file);
+    if (read?.text) text = read.text;
+  } catch { /* the form still opens */ }
+  const parsed = Garmin.parseGarmin(text);
+  openGarminForm(parsed, photoId, today());
+}
 function viewToday() {
   const d = today();
   const st = S.settings;
@@ -1119,6 +1215,7 @@ function viewToday() {
     ${photoButton()}
     <div class="row wrap">${quickAdd()}<button class="small-btn" data-act="go-fuel">Food log</button>${fastButton(d)}</div>
   </section>
+  ${garminCard()}
   <section class="card">
     <h2>Body weight</h2>
     <div class="stats">
@@ -1980,6 +2077,7 @@ function viewFuelLog() {
   <button data-act="label-open">Read a nutrition label</button>
   ${savedLabelRow()}
   ${girondaBar(d)}
+  ${styleMealCards(d)}
   ${presetBar(d)}
   ${quickAdd() ? `<div class="row wrap">${quickAdd()}</div>` : ''}
   <section class="card">
@@ -2042,6 +2140,100 @@ function presetForm(p = {}) {
     <button class="primary" style="grid-column:1/-1" type="submit">Save</button>
     ${p.id ? `<button type="button" class="ghost danger" style="grid-column:1/-1" data-act="preset-del" data-id="${esc(p.id)}">Delete this preset</button>` : ''}
   </form>`;
+}
+function styleMealCards(d) {
+  const btn = (meal) => {
+    const n = mealsOn(d).filter((m) => m.ref === `${meal.style}:${meal.id}`).length;
+    return `<button class="gbtn" data-act="style-log" data-style="${meal.style}" data-id="${esc(meal.id)}" data-date="${esc(d)}">
+      <b>${n ? `${n}× ` : ''}${esc(meal.name)}</b>
+      <span class="small">${meal.kcal} kcal · P ${fmtNum(meal.p)} · C ${fmtNum(meal.c)} · F ${fmtNum(meal.f)}</span>
+      <span class="muted small">${esc(meal.blurb)}</span></button>`;
+  };
+  const mine = S.myRecipes || [];
+  return `<section class="card" id="gironda-extra">
+      <h2>Gironda <span class="right">cut</span></h2>
+      <p class="muted small">More one-tap plates in the Gironda style, next to the two staples above. Eggs, beef, fish, liver and cottage cheese. The numbers are estimates.</p>
+      <div class="grid1">${Meals.GIRONDA.map(btn).join('')}</div>
+    </section>
+    <section class="card" id="dolce-style">
+      <h2>Dolce-style <span class="right">post-cut</span></h2>
+      <p class="muted small">Whole-food plates written for this app: lean protein, vegetables, fruit, oats, quinoa, nuts. Not recipes from a book. Estimates.</p>
+      <div class="grid1">${Meals.DOLCE.map(btn).join('')}</div>
+    </section>
+    <section class="card" id="my-recipes">
+      <h2>My recipes <span class="right">one tap after the first</span></h2>
+      ${mine.length ? mine.map((r) => {
+        const one = Meals.perServing(r);
+        return `<div class="row"><button class="gbtn grow" data-act="recipe-log" data-id="${esc(r.id)}" data-date="${esc(d)}"><b>${esc(r.name)}</b><span class="small">1 of ${r.serves} · ${one.kcal} kcal · P ${fmtNum(one.p)} · C ${fmtNum(one.c)} · F ${fmtNum(one.f)}</span></button>
+          <button class="icon" data-act="recipe-edit" data-id="${esc(r.id)}" aria-label="Edit ${esc(r.name)}">✎</button></div>`;
+      }).join('') : '<p class="muted small">None saved yet. Type one, or photograph a page and fill the numbers once.</p>'}
+      <div class="grid2"><button data-act="recipe-new">+ My recipe</button><label class="btn" for="recipe-file">Photograph a recipe</label></div>
+      <input id="recipe-file" class="sr" type="file" accept="image/*" capture="environment">
+      <p class="muted small">A photo is read for words such as "200 g chicken" or "6 eggs". You still confirm the macros. The picture stays on this phone.</p>
+    </section>`;
+}
+function openRecipeForm(prefill = {}) {
+  const lines = (prefill.lines || []).map((l) => {
+    const bit = Meals.ofGrams(l.id, l.grams);
+    return bit ? `${bit.grams} g ${bit.name}` : '';
+  }).filter(Boolean).join('\n');
+  openSheet(prefill.id ? 'Edit recipe' : 'My recipe', `<form id="recipe-form" class="grid2" autocomplete="off" data-id="${esc(prefill.id || '')}">
+    <label class="field" style="grid-column:1/-1">Name<input name="name" required maxlength="80" value="${esc(prefill.name || '')}"></label>
+    <label class="field" style="grid-column:1/-1">Servings the whole recipe makes<input name="serves" inputmode="numeric" value="${esc(prefill.serves || 1)}"></label>
+    <input type="hidden" name="photoId" value="${esc(prefill.photoId || '')}">
+    ${prefill.photoId ? `<img data-thumb="${esc(prefill.photoId)}" alt="Recipe photo" class="exthumb" style="grid-column:1/-1">` : ''}
+    <label class="field" style="grid-column:1/-1">Ingredients, one per line<textarea id="recipe-lines" name="lines" rows="5" placeholder="200 g chicken&#10;150 g quinoa&#10;6 eggs">${esc(prefill.lineText || lines)}</textarea></label>
+    <p id="recipe-calc" class="small" style="grid-column:1/-1"></p>
+    <label class="field">kcal for the whole recipe<input name="kcal" inputmode="decimal" required value="${prefill.kcal ?? ''}"></label>
+    <label class="field">Protein (g)<input name="p" inputmode="decimal" value="${prefill.p ?? ''}"></label>
+    <label class="field">Carbs (g)<input name="c" inputmode="decimal" value="${prefill.c ?? ''}"></label>
+    <label class="field">Fat (g)<input name="f" inputmode="decimal" value="${prefill.f ?? ''}"></label>
+    <button class="primary" style="grid-column:1/-1" type="submit">Save recipe</button>
+    ${prefill.id ? `<button type="button" class="ghost danger" style="grid-column:1/-1" data-act="recipe-del" data-id="${esc(prefill.id)}">Delete this recipe</button>` : ''}
+    <p class="muted small" style="grid-column:1/-1">Logging later adds one serving. An egg is 50 g in the estimate. Unrecognised lines are left for you to type as macros.</p>
+  </form>`);
+  paintRecipeCalc();
+  paintThumbs(document.querySelector('.sheet'));
+}
+function paintRecipeCalc() {
+  const box = document.getElementById('recipe-lines');
+  const out = document.getElementById('recipe-calc');
+  if (!box || !out) return;
+  const parsed = Meals.parseRecipeText(box.value);
+  const missed = parsed.missed.length ? ` Not used: ${parsed.missed.slice(0, 3).join('; ')}.` : '';
+  out.textContent = parsed.lines.length ? `From the lines: ${parsed.kcal} kcal · P ${fmtNum(parsed.p)} · C ${fmtNum(parsed.c)} · F ${fmtNum(parsed.f)}.${missed}` : (box.value.trim() ? `No ingredient lines recognised.${missed}` : 'Type ingredients to estimate the macros, or enter the numbers yourself.');
+  if (parsed.lines.length) {
+    const form = box.form;
+    for (const k of ['kcal', 'p', 'c', 'f']) {
+      const input = form.elements[k];
+      if (input && !input.dataset.touched) input.value = parsed[k];
+    }
+  }
+}
+function styleById(style, id) {
+  const list = style === 'dolce' ? Meals.DOLCE : Meals.GIRONDA;
+  return list.find((m) => m.id === id) || null;
+}
+function logStyleMeal(meal, d) {
+  const at = nowOn(d);
+  S.meals.push({ id: uid(), date: d, at, name: meal.name, kcal: meal.kcal, p: meal.p, c: meal.c, f: meal.f, servings: 1, ref: `${meal.style}:${meal.id}`, kind: meal.style, slot: slotForTime(at) });
+}
+function logRecipe(r, d) {
+  const one = Meals.perServing(r);
+  const at = nowOn(d);
+  S.meals.push({ id: uid(), date: d, at, name: r.name, kcal: one.kcal, p: one.p, c: one.c, f: one.f, servings: 1, ref: `recipe:${r.id}`, kind: 'recipe', slot: slotForTime(at) });
+}
+async function onRecipeFile(file) {
+  const photoId = `rp-${uid()}`;
+  try { await Photos.addThumb(photoId, file); } catch { toast('Couldn\'t save the photo'); return; }
+  let text = '';
+  try {
+    const read = await Label.readImage(file);
+    if (read?.text) text = read.text;
+  } catch { /* the form still opens */ }
+  const parsed = Meals.parseRecipeText(text);
+  const title = String(text || '').split(/\n/).map((l) => l.trim()).find((l) => /[A-Za-z]{4}/.test(l) && l.length < 60) || '';
+  openRecipeForm({ name: title.slice(0, 80), photoId, lineText: text, kcal: parsed.kcal, p: parsed.p, c: parsed.c, f: parsed.f, lines: parsed.lines });
 }
 function logPreset(p, d) {
   const at = nowOn(d);
@@ -3117,6 +3309,7 @@ function render(opts = {}) {
   if (ui.tab === 'train' && !LIB) loadLib().then(() => { warmProgramImages(); if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
   else if (ui.tab === 'train') warmProgramImages();
   paintThumbs();
+  armGarminReminder();
   armFastClock();
   armSessionLoop();
   const sessionBarEl = document.getElementById('session-bar');
@@ -3682,6 +3875,33 @@ document.addEventListener('click', (e) => {
       toast(`Added ${p.name.split(':')[0]}`);
       break;
     }
+    case 'style-log': {
+      const meal = styleById(el.dataset.style, el.dataset.id);
+      if (!meal) return;
+      logStyleMeal(meal, el.dataset.date || ui.fuelDate || today());
+      toast(`Logged ${meal.name.split(':')[0]}`);
+      break;
+    }
+    case 'recipe-log': {
+      const r = (S.myRecipes || []).find((x) => x.id === el.dataset.id);
+      if (!r) return;
+      logRecipe(r, el.dataset.date || ui.fuelDate || today());
+      toast(`Logged ${r.name}`);
+      break;
+    }
+    case 'recipe-new': openRecipeForm(); return;
+    case 'recipe-edit': {
+      const r = (S.myRecipes || []).find((x) => x.id === el.dataset.id);
+      if (r) openRecipeForm(r);
+      return;
+    }
+    case 'recipe-del': {
+      const r = (S.myRecipes || []).find((x) => x.id === el.dataset.id);
+      if (!r) return;
+      ask(`Delete ${r.name}? Meals already logged stay.`, 'Delete', () => { S.myRecipes = S.myRecipes.filter((x) => x.id !== r.id); closeSheet(); });
+      return;
+    }
+    case 'garmin-type': openGarminForm(garminFor(today()) || {}, garminFor(today())?.photoId || '', today()); return;
     case 'preset-add': openSheet('New preset', presetForm()); return;
     case 'preset-edit': {
       const p = presets().find((x) => x.id === el.dataset.id);
@@ -3807,6 +4027,8 @@ document.addEventListener('input', (e) => {
     return;
   }
   if (t.dataset.live === 'lib-q') { drawLib(); return; }
+  if (t.id === 'recipe-lines') { paintRecipeCalc(); return; }
+  if (t.form?.id === 'recipe-form' && ['kcal', 'p', 'c', 'f'].includes(t.name)) t.dataset.touched = '1';
   if (t.dataset.ph && photoState) {
     const [i, k] = t.dataset.ph.split('|');
     const it = photoState.items[Number(i)];
@@ -3921,6 +4143,31 @@ document.addEventListener('change', (e) => {
     const file = t.files?.[0];
     t.value = '';
     if (file) readLabelFile(file);
+    return;
+  }
+  if (t.id === 'garmin-file') {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) onGarminFile(file);
+    return;
+  }
+  if (t.id === 'recipe-file') {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) onRecipeFile(file);
+    return;
+  }
+  if (t.id === 'garmin-remind') {
+    S.settings.garminRemind = t.checked;
+    save();
+    if (t.checked && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().then(() => { render(); armGarminReminder(); }).catch(() => {});
+    } else armGarminReminder();
+    render();
+    return;
+  }
+  if (t.id === 'garmin-time') {
+    if (/^\d{2}:\d{2}$/.test(t.value)) { S.settings.garminRemindAt = t.value; save(); armGarminReminder(); }
     return;
   }
   if (t.id === 'machine-file') {
@@ -4151,6 +4398,50 @@ document.addEventListener('submit', (e) => {
       if (cur) Object.assign(cur, data);
       else presets().push({ id: uid(), ...data });
       closeSheet(); toast('Preset saved'); break;
+    }
+    case 'garmin-form': {
+      const date = String(fd.get('date') || '');
+      if (!isoDay(date) || date > today()) { toast('Pick a date up to today'); return; }
+      const sleepH = num(fd.get('sleepH'));
+      const sleepM = num(fd.get('sleepM'));
+      const sleepMin = sleepH == null && sleepM == null ? null : Math.round((sleepH || 0) * 60 + (sleepM || 0));
+      const day = Garmin.cleanDay({
+        id: garminFor(date)?.id || uid(),
+        date,
+        steps: num(fd.get('steps')),
+        sleepMin,
+        hrv: num(fd.get('hrv')),
+        rhr: num(fd.get('rhr')),
+        battery: num(fd.get('battery')),
+        stress: num(fd.get('stress')),
+        kcal: num(fd.get('kcal')),
+        intensity: num(fd.get('intensity')),
+        note: fd.get('note'),
+        photoId: fd.get('photoId'),
+        at: new Date().toISOString(),
+      });
+      if (!day) { toast('Enter at least one number, or keep the photo'); return; }
+      S.garmin = Garmin.cleanDays([...(S.garmin || []).filter((g) => g.date !== date), day]);
+      closeSheet(); toast('Garmin night saved'); break;
+    }
+    case 'recipe-form': {
+      const parsed = Meals.parseRecipeText(String(fd.get('lines') || ''));
+      const data = Meals.cleanRecipe({
+        id: f.dataset.id || `rc-${uid()}`,
+        name: fd.get('name'),
+        serves: num(fd.get('serves')) || 1,
+        lines: parsed.lines,
+        kcal: num(fd.get('kcal')),
+        p: num(fd.get('p')),
+        c: num(fd.get('c')),
+        f: num(fd.get('f')),
+        photoId: fd.get('photoId'),
+      });
+      if (!data) { toast('Name it and add macros or ingredients'); return; }
+      const cur = (S.myRecipes ||= []).find((x) => x.id === data.id);
+      if (cur) Object.assign(cur, data);
+      else S.myRecipes.push(data);
+      closeSheet(); toast('Recipe saved. One tap logs a serving.'); break;
     }
     case 'myfood-form': {
       const name = String(fd.get('name') || '').trim();

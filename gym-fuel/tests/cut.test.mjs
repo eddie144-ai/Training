@@ -118,7 +118,7 @@ test('yesterday needs a catch-up only for the weigh-in or the food that is missi
 
 test('the cache is v1.23 and the new script is on the page', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /gymfuel-v1\.24/);
+  assert.match(sw, /gymfuel-v1\.25/);
   assert.match(sw, /\.\/cut\.js/);
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /<script src="cut\.js"><\/script>/);
