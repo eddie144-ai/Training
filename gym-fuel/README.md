@@ -75,14 +75,18 @@ again.
   change of 100+ kcal is due (**Not this week** hides it until Monday) and always in Body → Weight, with what's
   still needed before it can work.
 - **Exercise library:** 876 exercises from [free-exercise-db](https://github.com/yuhonas/free-exercise-db)
-  (public domain, `exercises.json`, trimmed; licence in `exercises-LICENSE.md`), loaded the first time Train opens.
-  Each exercise in a workout has **How to do it** (start and end pictures, muscles worked, equipment, level and
-  numbered steps), matched by name, a short alias list for generic names ("Deadlift", "Pec Deck") or the closest
-  name containing every word of yours. **Find it in the library** appears when there's no good match: **Link**
-  keeps your exercise's name and adds the how-to; **Swap** changes the exercise. In Edit exercises,
-  **+ Add exercise** picks from the library (search, muscle and equipment filters) or lets you type your own.
-  Pictures load from GitHub and are cached once seen. The data is public domain; the pictures' licence is less
-  clear upstream, which is fine for personal use.
+  (public domain, `exercises.json`, trimmed; licence in `exercises-LICENSE.md`) plus an Iron & Eggs pack of
+  machine, cable and rehab movements written for this app (`library.js`, no third-party exercise text).
+  Loaded the first time Train opens. **+ Add exercise** is on the workout and in Edit. Search is typo-tolerant
+  and knows gym shorthand (RDL, OHP, pec deck, chest supported row). Recent and most-used exercises come first.
+  Tick several, then **Add**. The last row is **Create "…"**, a one-screen form that saves the exercise to
+  **My exercises** so the next search finds it. **Add after** puts the new one under the exercise you tapped.
+  **Only this workout** keeps it off the programme. Renaming an exercise keeps its log under the new name.
+  Each exercise has **How to do it**. **Find it in the library** appears when there's no good match: **Link**
+  keeps your name; **Swap** changes the exercise. **Change exercise** does that mid-workout.
+  **Kind to my joints** hides moves tagged avoid for the lower back, left hip, knees or left biceps. The tags
+  are guidance, not medical advice. Pictures for exercises in your programmes are cached in `gymfuel-pics`,
+  which survives an app update. The whole picture library is not cached.
 - **Train → History:** a **progress chart** per lift (best estimated 1-rep max each session; tap a dot for the set;
   a table view underneath), every session (tap for the sets) with PR tags, and personal records as estimated
   1-rep max (tap one to chart it).
@@ -159,7 +163,17 @@ again.
 - **Swap:** on a workout exercise, **Swap** offers a kinder alternative for the left biceps (neutral grip, not a heavy
   supinated curl or chin-up), the left hip and knees (box squat, short-range leg press, hip thrust, light leg extension;
   not a deep lunge), or the lower back (chest-supported or machine row; not a conventional deadlift or good morning).
+  Those names are real library entries. A word has to match on its own, so "machine" is not treated as a chin-up.
   The swap is for that session. The sheet says this is not medical advice and to follow your physio plan.
+- **Plates and warm-ups:** **Plates** splits a weight across the bar (20 kg until you change it) and the plates
+  you have, per side. **Warm-up ramp** adds two lighter sets. Marking a set **Warm** does the same. Warm-up sets
+  are saved but left out of personal records and the progress chart.
+- **Photograph a machine:** from **+ Add exercise**, take a photo. The phone reads any words with the same
+  on-device reader as nutrition labels (it needs internet once, then works offline). It suggests library matches
+  or opens the create form. You confirm. The photo stays on the phone as the thumbnail. A backup keeps the id, not the file.
+- **Gyms:** Train shows **Choose gym**. The five Aberdeen gyms start with a typical commercial kit marked
+  **Typical, please confirm**. Nothing is claimed as the real floor. Tick what's there, then **I've checked this list**.
+  **Fit this day to the gym** keeps the day's muscles and offers swaps for kit that isn't on the list, or for a move tagged avoid.
 - **Yesterday:** if yesterday has no weigh-in or no food, Today offers a one-tap catch-up: log the weight, or add a
   Gironda meal for that date. Chains still count from their start date and break only when you reset one or change the date.
 - **Diary:** short video notes (front or back camera), voice notes, or a clip already on the phone. Each one is
@@ -259,7 +273,7 @@ Limits worth knowing:
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress and meal photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `cut.js` (milestones, weekly report, strength records, swaps and catch-up), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress, meal and exercise photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `cut.js` (milestones, weekly report, strength records, swaps and catch-up), `library.js` (search, the Iron & Eggs pack, joint tags, plates and gyms), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/diary.test.mjs`, `tests/cut.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
@@ -270,6 +284,7 @@ node --test gym-fuel/tests/label.test.mjs
 node --test gym-fuel/tests/session.test.mjs
 node --test gym-fuel/tests/diary.test.mjs
 node --test gym-fuel/tests/cut.test.mjs
+node --test gym-fuel/tests/library.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```

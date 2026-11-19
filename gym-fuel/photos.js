@@ -9,19 +9,23 @@ const Photos = (() => {
     if (dbp) return dbp;
     dbp = new Promise((resolve, reject) => {
       if (!('indexedDB' in self)) { reject(new Error('unavailable')); return; }
-      const req = indexedDB.open(DB, 1);
-      req.onupgradeneeded = () => { const s = req.result.createObjectStore(STORE, { keyPath: 'id' }); s.createIndex('date', 'date'); };
+      const req = indexedDB.open(DB, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) { const s = db.createObjectStore(STORE, { keyPath: 'id' }); s.createIndex('date', 'date'); }
+        if (!db.objectStoreNames.contains('thumbs')) db.createObjectStore('thumbs', { keyPath: 'id' });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     dbp.catch(() => { dbp = null; });
     return dbp;
   }
-  async function tx(mode, fn) {
+  async function tx(mode, fn, store = STORE) {
     const d = await db();
     return new Promise((resolve, reject) => {
-      const t = d.transaction(STORE, mode);
-      const out = fn(t.objectStore(STORE));
+      const t = d.transaction(store, mode);
+      const out = fn(t.objectStore(store));
       t.oncomplete = () => resolve(out?.result ?? out);
       t.onerror = () => reject(t.error);
       t.onabort = () => reject(t.error || new Error('aborted'));
@@ -51,6 +55,16 @@ const Photos = (() => {
     async get(id) { return (await tx('readonly', (s) => s.get(id))) || null; },
     async remove(id) { await tx('readwrite', (s) => s.delete(id)); },
     async clear() { await tx('readwrite', (s) => s.clear()); },
+    // Exercise and machine thumbnails. The file stays on the phone; backups keep only the id.
+    async addThumb(id, file) {
+      const blob = await shrink(file);
+      const rec = { id: String(id).slice(0, 80), blob, type: blob.type || 'image/jpeg', at: new Date().toISOString() };
+      await tx('readwrite', (s) => s.put(rec), 'thumbs');
+      return rec;
+    },
+    async getThumb(id) { return (await tx('readonly', (s) => s.get(id), 'thumbs')) || null; },
+    async removeThumb(id) { await tx('readwrite', (s) => s.delete(id), 'thumbs'); },
+    async clearThumbs() { await tx('readwrite', (s) => s.clear(), 'thumbs'); },
     // Copies progress photos from Iron & Eggs (same site, its own database). Returns how many were added.
     async importFrom(name) {
       const src = await new Promise((resolve) => {
