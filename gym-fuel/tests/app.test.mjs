@@ -825,7 +825,7 @@ await test('fasting: a multi-day fast shows days, hours and minutes, then a hist
   await page.getByRole('button', { name: 'Replace' }).click();
   let restored = await state(page);
   assert(restored.meals.length === 1 && restored.settings.kcalGoal === 1800 && restored.settings.proteinGoal === 160 && restored.settings.carbGoal === 40 && restored.settings.fatGoal === 70, 'old backup keeps its targets');
-  assert(Array.isArray(restored.fasts) && restored.fasts.length === 0 && restored.chains.map((c) => c.name).join() === 'No weed,No energy drinks,No coffee', `old log gains chains ${JSON.stringify(restored.chains)}`);
+  assert(Array.isArray(restored.fasts) && restored.fasts.length === 0 && restored.chains.map((c) => c.name).join() === 'No weed,No energy drinks,No coffee,Vince Gironda eating', `old log gains chains ${JSON.stringify(restored.chains)}`);
   assert(restored.mealPresets.length === 2 && restored.mealPresets[1].kcal === 880, 'old backup gains the meal presets');
   const round = JSON.stringify({ kind: 'gym-fuel-backup', at: '2026-11-10T00:00:00.000Z', state: restored });
   await page.evaluate(() => { S.fasts = [{ id: 'x', start: new Date().toISOString(), end: null }]; S.chains[0].name = 'No weed edited'; save(); });
@@ -1406,6 +1406,52 @@ await test('Garmin tonight prefills the numbers from the photo and keeps one row
   assert(await page.getByText('8,432 steps').first().isVisible(), 'today shows the steps');
   assert(await page.getByText(/cannot wake the phone/).isVisible(), 'the reminder limit is on the card');
   assert(!JSON.stringify(s).includes('iVBORw0KGgo'), 'the watch photo stays out of the backup');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('a Dolce-style recipe shows its method and logs the servings you pick', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] } });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.locator('#dolce-style').getByRole('button', { name: 'Breakfast', exact: true }).click();
+  await page.locator('#dolce-style').getByRole('button', { name: /Porridge, egg whites and frozen blueberries/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Porridge, egg whites and frozen blueberries' });
+  await sheet.getByText("Coach Mike's Dolce-style recipes, not from Mike Dolce's books").waitFor();
+  await sheet.getByText('Stir the oats into the milk').waitFor();
+  await sheet.getByText('No chopping').waitFor();
+  await sheet.getByText(/min total/).waitFor();
+  await sheet.getByRole('button', { name: 'More servings' }).click();
+  await sheet.getByRole('button', { name: 'Log 2 servings' }).click();
+  let s = await state(page);
+  const meal = s.meals.find((m) => m.name.startsWith('Porridge'));
+  const one = await page.evaluate(() => Meals.perServing(Meals.recipeById('dr-porridge')));
+  assert(meal && meal.servings === 2 && meal.kcal === one.kcal && meal.fi === one.fi, `logged ${JSON.stringify(meal)} vs ${JSON.stringify(one)}`);
+  await page.locator('#dolce-style').getByRole('button', { name: /Porridge, egg whites and frozen blueberries/ }).click();
+  await page.getByRole('button', { name: 'Save to My recipes' }).click();
+  s = await state(page);
+  assert(s.myRecipes.some((r) => r.name.startsWith('Porridge') && r.note.includes('not from Mike Dolce')), 'copied into My recipes');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('Vince Gironda eating counts on-plan days and a slip breaks the run', async () => {
+  const { page, ctx, errors } = await open({
+    own: { v: 1, settings: { setupDone: true, installDismissed: true }, weights: [{ date: '2026-11-18', kg: 97 }] },
+    time: '2026-11-19T12:00:00Z',
+  });
+  const card = page.locator('#chains-card');
+  const badge = () => card.locator('.streak', { hasText: 'Vince Gironda eating' }).locator('.daybadge').getAttribute('aria-label');
+  // 8 Nov through 19 Nov, no slips: 12 days. The start date is day 1.
+  assert(await badge() === 'Day 12', `streak ${await badge()}`);
+  await card.locator('.streak', { hasText: 'Vince Gironda eating' }).getByRole('button', { name: 'Slipped' }).click();
+  assert(await badge() === 'Day 0', 'a slip ends the run');
+  await card.locator('.streak', { hasText: 'Vince Gironda eating' }).getByRole('button', { name: 'On plan today' }).click();
+  assert(await badge() === 'Day 12', 'today counts again');
+  await card.locator('.streak', { hasText: 'Vince Gironda eating' }).getByRole('button', { name: 'Reset' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Reset' }).click();
+  assert(await badge() === 'Day 1', 'reset starts today');
+  const s = await state(page);
+  assert(s.chains.find((c) => c.id === 'gironda-eating').since === '2026-11-19', 'start date moved');
   assert(!errors.length, errors.join('; '));
   await ctx.close();
 });

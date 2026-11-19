@@ -40,3 +40,29 @@ test('ingredient lines become macros, and one serving is the whole recipe divide
   assert.equal(M.cleanRecipe({ name: '' }), null);
   assert.equal(M.parseLine('3 egg whites').grams, 99);
 });
+
+test('the twenty Dolce-style recipes match their ingredients, per serving', () => {
+  const list = M.DOLCE_RECIPES;
+  assert.equal(list.length, 20);
+  const n = (meal) => list.filter((r) => r.meal === meal).length;
+  assert.deepEqual([n('breakfast'), n('lunch'), n('dinner'), n('snack')], [5, 6, 6, 3]);
+  for (const r of list) {
+    const again = M.sum(r.lines.map((l) => ({ id: l.id, grams: l.grams })));
+    assert.equal(r.kcal, again.kcal, r.name);
+    assert.equal(r.p, again.p, r.name);
+    assert.equal(r.c, again.c, r.name);
+    assert.equal(r.f, again.f, r.name);
+    assert.equal(r.fi, again.fi, r.name);
+    assert.ok(r.steps.length >= 2 && r.steps.length <= 5 && r.lines.length >= 2, r.name);
+    assert.equal(r.tag, 'No chopping', r.name);
+    assert.ok(r.minutes > 0 && r.minutes <= 20, r.name);
+    assert.equal(JSON.stringify(r.steps).toLowerCase().includes('chop'), false, r.name);
+    assert.equal(JSON.stringify(r.steps).toLowerCase().includes('dice'), false, r.name);
+    const one = M.perServing(r);
+    assert.equal(one.kcal, Math.round(r.kcal / r.serves), r.name);
+    assert.ok(one.fi >= 0, r.name);
+  }
+  const src = fs.readFileSync(path.join(root, 'meals.js'), 'utf8');
+  assert.equal(/3 weeks to shredded|the dolce diet|pitbull pancake|east coast breakfast/i.test(src), false);
+  assert.match(M.CREDIT, /not from Mike Dolce's books/);
+});

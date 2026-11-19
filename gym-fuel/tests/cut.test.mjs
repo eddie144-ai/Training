@@ -106,6 +106,19 @@ test('swaps stay on the curated list and tell him to follow his physio plan', ()
   assert.equal(merged[0].bestKg, 100);
 });
 
+test('a Gironda eating day is on plan from the meals, the carbs, or a tap', () => {
+  assert.equal(C.girondaDay([], null), 'open');
+  assert.equal(C.girondaDay([{ ref: 'gironda1', c: 4, servings: 1 }, { ref: 'gironda:g-fish', kind: 'gironda', c: 1, servings: 1 }], null), 'on');
+  assert.equal(C.girondaDay([{ ref: 'dolce:d-lunch', kind: 'dolce', c: 40, servings: 1 }], null), 'off');
+  assert.equal(C.girondaDay([{ ref: 'recipe:rc', c: 8, servings: 2 }], null), 'on');
+  assert.equal(C.girondaDay([{ ref: 'dolce:x', c: 40, servings: 1 }], 'on'), 'on');
+  assert.equal(C.girondaDay([{ ref: 'gironda1', c: 4 }], 'off'), 'off');
+  const status = (date) => ({ '2026-11-08': 'on', '2026-11-09': 'open', '2026-11-10': 'off', '2026-11-11': 'on', '2026-11-12': 'on' }[date]);
+  assert.equal(C.girondaStreak('2026-11-08', '2026-11-12', status), 2);
+  assert.equal(C.girondaStreak('2026-11-08', '2026-11-09', status), 2);
+  assert.equal(C.GIRONDA_CARBS, 20);
+});
+
 test('yesterday needs a catch-up only for the weigh-in or the food that is missing', () => {
   assert.equal(JSON.stringify(C.catchUp('2026-11-10', [], [])), JSON.stringify({ date: '2026-11-10', needWeight: true, needFood: true, show: true }));
   assert.equal(C.catchUp('2026-11-10', [{ date: '2026-11-10', kg: 99 }], [{ date: '2026-11-10' }]).show, false);
@@ -118,7 +131,7 @@ test('yesterday needs a catch-up only for the weigh-in or the food that is missi
 
 test('the cache is v1.23 and the new script is on the page', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /gymfuel-v1\.25/);
+  assert.match(sw, /gymfuel-v1\.26/);
   assert.match(sw, /\.\/cut\.js/);
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /<script src="cut\.js"><\/script>/);

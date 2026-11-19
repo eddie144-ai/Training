@@ -83,6 +83,7 @@ function freshState() {
     measurements: [],
     targetLog: [],
     fastDays: {},
+    girondaDays: {},
     fasts: [],
     chains: [],
     mealPresets: DEFAULT_PRESETS.map((p) => ({ ...p })),
@@ -105,6 +106,7 @@ const DEFAULT_CHAINS = [
   { id: 'weed', name: 'No weed', since: '2026-07-07' },
   { id: 'energy', name: 'No energy drinks', since: '2026-07-15' },
   { id: 'coffee', name: 'No coffee', since: '2026-11-02' },
+  { id: 'gironda-eating', name: 'Vince Gironda eating', since: '2026-11-08' },
 ];
 // One-tap meals on Fuel → Log. The steak numbers are this cut's plate, not the staple's.
 const DEFAULT_PRESETS = [
@@ -149,6 +151,19 @@ function seedChains(state) {
   if (!used) return false;
   state.chains = DEFAULT_CHAINS.map((c) => ({ ...c }));
   state.settings.chainsSeeded = true;
+  state.settings.girondaChainSeeded = true;
+  return true;
+}
+// Eddie already has the three abstinence chains. Add this one once, and do not bring it back if he deletes it.
+function ensureGirondaChain(state) {
+  if (!state.settings) state.settings = {};
+  if (state.settings.girondaChainSeeded) return false;
+  if (!Array.isArray(state.chains)) state.chains = [];
+  if (state.chains.some((c) => c.id === 'gironda-eating')) { state.settings.girondaChainSeeded = true; return false; }
+  const used = state.chains.length || state.meals.length || state.workouts.length || state.weights.length || state.measurements.length;
+  if (!used) return false;
+  state.chains.push({ id: 'gironda-eating', name: 'Vince Gironda eating', since: '2026-11-08' });
+  state.settings.girondaChainSeeded = true;
   return true;
 }
 
@@ -168,6 +183,10 @@ function normalise(s) {
   if (!out.fastDays || typeof out.fastDays !== 'object' || Array.isArray(out.fastDays)) out.fastDays = {};
   out.fasts = (Array.isArray(out.fasts) ? out.fasts : []).map(cleanFast).filter(Boolean);
   out.chains = (Array.isArray(out.chains) ? out.chains : []).map(cleanChain).filter(Boolean);
+  out.girondaDays = {};
+  if (s.girondaDays && typeof s.girondaDays === 'object' && !Array.isArray(s.girondaDays)) {
+    for (const [k, v] of Object.entries(s.girondaDays)) if (isoDay(k) && (v === 'on' || v === 'off')) out.girondaDays[k] = v;
+  }
   out.mealPresets = Array.isArray(s.mealPresets) ? s.mealPresets.map(cleanPreset).filter(Boolean) : DEFAULT_PRESETS.map((p) => ({ ...p }));
   out.diary = (Array.isArray(out.diary) ? out.diary : []).map((x) => Diary.cleanEntry(x)).filter(Boolean);
   if (!isoDay(out.settings.cutStart)) out.settings.cutStart = Cut.START_DATE;
@@ -195,6 +214,7 @@ function normalise(s) {
   if (!/^\d{2}:\d{2}$/.test(String(out.settings.garminRemindAt || ''))) out.settings.garminRemindAt = '21:00';
   if (!Array.isArray(s.settings?.milestonesSeen)) out.settings.milestonesSeen = Cut.milestones(out.weights, out.settings).earned;
   seedChains(out);
+  ensureGirondaChain(out);
   for (const t of PROGRAM_TEMPLATES) {
     const cur = out.programs[t.id];
     if (!cur || (t.version && (cur.version || 1) < t.version && !cur.edited)) out.programs[t.id] = programFromTemplate(t);
@@ -897,13 +917,29 @@ function chainsCard(d) {
     <a class="btn" href="../shredded-trainer/">Check in on my chains</a></section>`;
 }
 
+function girondaStatus(date) {
+  const meals = (S.meals || []).filter((m) => m && m.date === date);
+  return Cut.girondaDay(meals, S.girondaDays?.[date]);
+}
+function chainCount(c, d) {
+  if (c.id !== 'gironda-eating') return chainDays(c.since, d);
+  return Cut.girondaStreak(c.since, d, girondaStatus);
+}
 function chainsBoard(d) {
   const list = (S.chains || []).filter((c) => c && c.name && isoDay(c.since));
   const rows = list.map((c) => {
-    const n = chainDays(c.since, d);
+    const n = chainCount(c, d);
+    const eating = c.id === 'gironda-eating';
+    const mark = S.girondaDays?.[d];
+    const confirm = eating && d === today() ? `<div class="row wrap">
+        <button class="small-btn" data-act="gironda-on" aria-pressed="${mark === 'on'}">On plan today</button>
+        <button class="small-btn" data-act="gironda-off" aria-pressed="${mark === 'off'}">Slipped</button>
+      </div>
+      <p class="muted small">A day counts when every meal is a Gironda plate, or the day's carbs are 20 g or under. Tap if the log is incomplete. An empty day does not break the run.</p>` : '';
     return `<div class="streak">
       <div class="row between"><span class="grow"><b>${esc(c.name)}</b><br><span class="muted small">since ${fmtDate(c.since)}</span></span>
         <span class="daybadge ${n ? '' : 'zero'}" aria-label="Day ${n}"><small>Day</small>${n}</span></div>
+      ${confirm}
       <div class="row wrap">
         <button class="small-btn" data-act="chain-edit" data-id="${esc(c.id)}">Edit</button>
         <button class="small-btn" data-act="chain-reset" data-id="${esc(c.id)}">Reset</button>
@@ -2157,8 +2193,10 @@ function styleMealCards(d) {
     </section>
     <section class="card" id="dolce-style">
       <h2>Dolce-style <span class="right">post-cut</span></h2>
-      <p class="muted small">Whole-food plates written for this app: lean protein, vegetables, fruit, oats, quinoa, nuts. Not recipes from a book. Estimates.</p>
+      <p class="small">${esc(Meals.CREDIT)}</p>
+      <p class="muted small">Quick plates, then twenty recipes with ingredients and a method. Macros are worked out from the ingredient weights.</p>
       <div class="grid1">${Meals.DOLCE.map(btn).join('')}</div>
+      ${dolceRecipeList(d)}
     </section>
     <section class="card" id="my-recipes">
       <h2>My recipes <span class="right">one tap after the first</span></h2>
@@ -2171,6 +2209,46 @@ function styleMealCards(d) {
       <input id="recipe-file" class="sr" type="file" accept="image/*" capture="environment">
       <p class="muted small">A photo is read for words such as "200 g chicken" or "6 eggs". You still confirm the macros. The picture stays on this phone.</p>
     </section>`;
+}
+function dolceRecipeList(d) {
+  const meal = ui.dolceMeal || 'all';
+  const meals = [['all', 'All'], ['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snack', 'Snack']];
+  const list = Meals.DOLCE_RECIPES.filter((r) => meal === 'all' || r.meal === meal);
+  const chips = `<div class="chiprow" role="group" aria-label="Meal">${meals.map(([v, label]) => `<button type="button" class="pchip" data-act="dolce-filter" data-v="${v}" aria-pressed="${meal === v}">${label}</button>`).join('')}</div>`;
+  const rows = list.map((r) => {
+    const one = Meals.perServing(r);
+    return `<button class="linkish" data-act="dolce-open" data-id="${esc(r.id)}" data-date="${esc(d)}"><b>${esc(r.name)}</b> <span class="chip good">${esc(r.tag || 'No chopping')}</span><br><span class="muted small">${esc(r.meal)} · ${r.minutes} min · ${one.kcal} kcal · P ${fmtNum(one.p)} · C ${fmtNum(one.c)} · F ${fmtNum(one.f)} · fibre ${fmtNum(one.fi)} g</span></button>`;
+  }).join('');
+  return `${chips}<div class="list">${rows}</div>`;
+}
+let dolceCount = 1;
+let dolceDate = null;
+function openDolceRecipe(id, date) {
+  const r = Meals.recipeById(id);
+  if (!r) return;
+  dolceCount = 1;
+  dolceDate = date || ui.fuelDate || today();
+  drawDolceRecipe(r);
+}
+function drawDolceRecipe(r) {
+  const one = Meals.perServing(r);
+  const n = dolceCount;
+  const word = n === 1 ? 'serving' : 'servings';
+  openSheet(r.name, `
+    <p class="small">${esc(Meals.CREDIT)}</p>
+    <p class="muted small">${esc(r.meal)} · makes ${r.serves} · ${r.minutes} min total · <span class="chip good">${esc(r.tag || 'No chopping')}</span></p>
+    <p class="small"><b>Per serving:</b> ${one.kcal} kcal · P ${fmtNum(one.p)} g · C ${fmtNum(one.c)} g · F ${fmtNum(one.f)} g · fibre ${fmtNum(one.fi)} g</p>
+    <p class="small"><b>Ingredients</b> (whole recipe)</p>
+    <ul>${r.lines.map((l) => `<li>${l.grams} g ${esc(l.name)}</li>`).join('')}</ul>
+    <p class="small"><b>Method</b></p>
+    <ol class="steps">${r.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <div class="row">
+      <button type="button" class="icon" data-act="dolce-step" data-dir="-1" data-id="${esc(r.id)}" aria-label="Fewer servings">−</button>
+      <b class="grow" style="text-align:center">${n} ${word}</b>
+      <button type="button" class="icon" data-act="dolce-step" data-dir="1" data-id="${esc(r.id)}" aria-label="More servings">+</button>
+    </div>
+    <button class="primary" data-act="dolce-log" data-id="${esc(r.id)}">Log ${n} ${word}</button>
+    <button data-act="dolce-save" data-id="${esc(r.id)}">Save to My recipes</button>`);
 }
 function openRecipeForm(prefill = {}) {
   const lines = (prefill.lines || []).map((l) => {
@@ -3849,6 +3927,15 @@ document.addEventListener('click', (e) => {
     case 'fast-del':
       ask('Delete this fast? Days it marked stay marked.', 'Delete', () => { S.fasts = (S.fasts || []).filter((x) => x.id !== el.dataset.id); });
       return;
+    case 'gironda-on':
+    case 'gironda-off': {
+      const v = a === 'gironda-on' ? 'on' : 'off';
+      const date = today();
+      if (!S.girondaDays || typeof S.girondaDays !== 'object') S.girondaDays = {};
+      if (S.girondaDays[date] === v) delete S.girondaDays[date];
+      else S.girondaDays[date] = v;
+      break;
+    }
     case 'chain-add': openSheet('New chain', chainForm()); return;
     case 'chain-edit': {
       const c = (S.chains || []).find((x) => x.id === el.dataset.id);
@@ -3864,7 +3951,11 @@ document.addEventListener('click', (e) => {
     case 'chain-del': {
       const c = (S.chains || []).find((x) => x.id === el.dataset.id);
       if (!c) return;
-      ask(`Delete ${c.name}?`, 'Delete', () => { S.chains = S.chains.filter((x) => x.id !== c.id); S.settings.chainsSeeded = true; });
+      ask(`Delete ${c.name}?`, 'Delete', () => {
+        S.chains = S.chains.filter((x) => x.id !== c.id);
+        S.settings.chainsSeeded = true;
+        if (c.id === 'gironda-eating') S.settings.girondaChainSeeded = true;
+      });
       return;
     }
     case 'preset-log': {
@@ -3873,6 +3964,37 @@ document.addEventListener('click', (e) => {
       if (!p) return;
       logPreset(p, d);
       toast(`Added ${p.name.split(':')[0]}`);
+      break;
+    }
+    case 'dolce-filter': ui.dolceMeal = el.dataset.v; render(); return;
+    case 'dolce-open': openDolceRecipe(el.dataset.id, el.dataset.date); return;
+    case 'dolce-step': {
+      const r = Meals.recipeById(el.dataset.id);
+      if (!r) return;
+      dolceCount = Math.max(1, Math.min(6, dolceCount + Number(el.dataset.dir)));
+      drawDolceRecipe(r);
+      return;
+    }
+    case 'dolce-log': {
+      const r = Meals.recipeById(el.dataset.id);
+      if (!r) return;
+      const one = Meals.perServing(r);
+      const n = dolceCount;
+      const d = dolceDate || ui.fuelDate || today();
+      const at = nowOn(d);
+      S.meals.push({ id: uid(), date: d, at, name: r.name, kcal: one.kcal, p: one.p, c: one.c, f: one.f, fi: one.fi, servings: n, ref: `dolce-recipe:${r.id}`, kind: 'dolce', slot: slotForTime(at) });
+      closeSheet();
+      toast(n === 1 ? `Logged ${r.name}` : `Logged ${n} servings`);
+      break;
+    }
+    case 'dolce-save': {
+      const r = Meals.recipeById(el.dataset.id);
+      if (!r) return;
+      const copy = Meals.cleanRecipe({ id: `rc-${uid()}`, name: r.name, serves: r.serves, lines: r.lines, kcal: r.kcal, p: r.p, c: r.c, f: r.f, note: Meals.CREDIT });
+      if (!copy) return;
+      (S.myRecipes ||= []).push(copy);
+      closeSheet();
+      toast('Saved to My recipes. Edit it there if you want.');
       break;
     }
     case 'style-log': {
