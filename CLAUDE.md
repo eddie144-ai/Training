@@ -11,7 +11,7 @@ A collection of Eddie's personal apps, mostly offline-first phone web apps. GitH
 | `/` (root `index.html`, `app.js`, `data.js`) | Trainer: the original RPG habit, training and nutrition app | Plain HTML/JS, `localStorage` | none |
 | `shredded-trainer/` | Iron & Eggs Classic (the original Iron & Eggs): the full training + diet app with all the chains | Plain HTML/JS | `node shredded-trainer/tests/app.test.mjs` |
 | `home-page/` | **Generated copy** of `shredded-trainer/` for `eddie144-ai.github.io`. Don't edit by hand: change `shredded-trainer/`, then run `node home-page/build.mjs` | — | — |
-| `gym-fuel/` | Iron & Eggs (was Gym & Fuel): Iron & Eggs Classic cut down to gym + nutrition | Plain HTML/JS | `node gym-fuel/tests/app.test.mjs` |
+| `gym-fuel/` | Iron & Eggs (was Gym & Fuel): Iron & Eggs Classic cut down to gym + nutrition | Plain HTML/JS | `node gym-fuel/tests/app.test.mjs` and `node --test gym-fuel/tests/*.test.mjs` |
 | `gym-fuel/worker/` | Cloudflare Worker for photo food logging (Gemini). Deployed by `.github/workflows/deploy-food-ai.yml` | Workers JS | `node gym-fuel/worker/test/worker.test.mjs` |
 | `shredded-system/` | Gironda Cut guide, spec, datasets; app in `shredded-system/app/` | Plain HTML/JS | `node shredded-system/tests/app.test.mjs` |
 | `floor/` | The Floor: six-a-day minimum, girls contact log, parked ideas (was a Claude artifact) | Plain HTML/JS | `node floor/tests/app.test.mjs` |

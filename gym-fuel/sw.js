@@ -1,8 +1,11 @@
 // Offline cache for the Iron & Eggs (gym-fuel/) app shell. Bump VERSION whenever a file below changes.
 // Network first for every same-origin file, so a deploy is picked up on the next online load; the cache is
 // only the offline fallback. Open Food Facts lookups (another origin) are never touched.
-const VERSION = 'gymfuel-v1.23';
-const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './diary.js', './youtube.js', './cut.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
+const VERSION = 'gymfuel-v1.24';
+const FILES = ['./', './index.html', './data.js', './scan.js', './label.js', './photos.js', './foodai.js', './share.js', './coach.js', './drive.js', './session.js', './diary.js', './youtube.js', './cut.js', './library.js', './app.js', './exercises.json', './bg.jpg', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/logo.jpg'];
+// Pictures and the on-device readers live outside the versioned cache, so a version bump does not wipe them.
+const PICS = 'gymfuel-pics';
+const VENDOR = 'gymfuel-vendor';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -11,7 +14,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('gymfuel-') && k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('gymfuel-v') && k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -32,13 +35,29 @@ function googleHost(url) {
   } catch { return false; }
 }
 
+function cacheFirst(e, cacheName) {
+  const req = e.request;
+  e.respondWith(caches.open(cacheName).then((cache) => cache.match(req).then((hit) => hit || fetch(req).then((res) => {
+    if (res.ok) cache.put(req, res.clone());
+    return res;
+  }))));
+}
+
+// The page asks for the pictures of exercises in the current programmes. Cap the list so the whole library is never cached.
+self.addEventListener('message', (e) => {
+  const urls = e.data?.type === 'warm-images' && Array.isArray(e.data.urls) ? e.data.urls.slice(0, 80) : null;
+  if (!urls) return;
+  e.waitUntil(caches.open(PICS).then((cache) => Promise.all(urls.map((url) => cache.match(url).then((hit) => {
+    if (hit) return null;
+    return fetch(url).then((res) => { if (res.ok) return cache.put(url, res); }).catch(() => {});
+  })))));
+});
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (googleHost(req.url)) return;
-  if (req.method === 'GET' && (SCANNER.test(req.url) || OCR.test(req.url) || EX_IMAGES.test(req.url))) {
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; })));
-    return;
-  }
+  if (req.method === 'GET' && EX_IMAGES.test(req.url)) { cacheFirst(e, PICS); return; }
+  if (req.method === 'GET' && (SCANNER.test(req.url) || OCR.test(req.url))) { cacheFirst(e, VENDOR); return; }
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
     fetch(req, { cache: 'no-cache' })

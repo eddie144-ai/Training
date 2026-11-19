@@ -88,6 +88,22 @@ test('swaps stay on the curated list and tell him to follow his physio plan', ()
   assert.match(C.PHYSIO, /not medical advice/);
   assert.match(C.PHYSIO, /physio plan/);
   assert.equal(JSON.stringify(C.swapsFor('Barbell Deadlift')).toLowerCase().includes('diagnos'), false);
+  assert.equal(C.swapsFor('Leg Curl Machine for Lower Abs').length, 0);
+  assert.equal(C.swapsFor('Ab Crunch Machine').some((s) => s.area === 'Left biceps'), false);
+  assert.equal(C.swapsFor('Smith Machine Squat').some((s) => s.area === 'Left biceps'), false);
+  assert.ok(C.swapsFor('Chin-Up').some((s) => s.area === 'Left biceps' && s.libId));
+  assert.ok(C.swapsFor('Barbell Deadlift').every((s) => s.libId));
+  const warm = C.priorSets([{ entries: [{ name: 'Squat', sets: [{ kg: 100, reps: 5, wu: true }, { kg: 80, reps: 5 }] }] }], 'Squat');
+  assert.equal(warm.length, 1);
+  assert.equal(warm[0].kg, 80);
+  const rec = C.personalRecords([{ date: '2026-11-01', entries: [{ name: 'Squat', sets: [{ kg: 100, reps: 5, wu: true }, { kg: 80, reps: 3 }] }] }]);
+  assert.equal(rec[0].bestKg, 80);
+  const merged = C.personalRecords([
+    { date: '2026-11-01', entries: [{ name: 'Barbell Squat', sets: [{ kg: 100, reps: 5 }] }] },
+    { date: '2026-11-08', entries: [{ name: 'High Bar Squat', sets: [{ kg: 90, reps: 5 }] }] },
+  ], { 'high bar squat': 'barbell squat' });
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].bestKg, 100);
 });
 
 test('yesterday needs a catch-up only for the weigh-in or the food that is missing', () => {
@@ -102,7 +118,7 @@ test('yesterday needs a catch-up only for the weigh-in or the food that is missi
 
 test('the cache is v1.23 and the new script is on the page', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  assert.match(sw, /gymfuel-v1\.23/);
+  assert.match(sw, /gymfuel-v1\.24/);
   assert.match(sw, /\.\/cut\.js/);
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /<script src="cut\.js"><\/script>/);

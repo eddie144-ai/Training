@@ -69,6 +69,7 @@ function freshState() {
       startWeight: null, target: 75, heightCm: null, sex: 'male', age: null, activity: 'moderate', setupDone: false,
       family: 'cycle', tier: 'intermediate', active: { cycle: 'my4week', hit: 'mentzer_ab', custom: null }, cycleStart: weekStart(today()),
       highContrast: false, driveAuto: false, cutStart: '2026-11-01',
+      barKg: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25], currentGym: null, kindJoints: false,
     },
     programs: Object.fromEntries(PROGRAM_TEMPLATES.map((t) => [t.id, programFromTemplate(t)])),
     baselines: {},
@@ -87,6 +88,10 @@ function freshState() {
     diary: [],
     photos: [],
     challenge: null,
+    customExercises: [],
+    exAliases: {},
+    exPhotos: {},
+    gyms: Library.seedGyms(),
     notice: null,
   };
 }
@@ -164,6 +169,19 @@ function normalise(s) {
   out.diary = (Array.isArray(out.diary) ? out.diary : []).map((x) => Diary.cleanEntry(x)).filter(Boolean);
   if (!isoDay(out.settings.cutStart)) out.settings.cutStart = Cut.START_DATE;
   out.photos = Cut.cleanPhotos(out.photos);
+  out.customExercises = (Array.isArray(out.customExercises) ? out.customExercises : []).map((x) => {
+    const c = Library.cleanCustom(x);
+    if (c && !c.id) c.id = `cx-${uid()}`;
+    return c;
+  }).filter((x) => x && x.id);
+  out.exAliases = Library.cleanAliases(out.exAliases);
+  out.exPhotos = Library.cleanPhotos(out.exPhotos);
+  out.gyms = Library.ensureGyms(out.gyms);
+  if (!(Number(out.settings.barKg) > 0)) out.settings.barKg = 20;
+  const plateList = Array.isArray(s.settings?.plates) ? s.settings.plates.map(Number).filter((n) => n > 0 && n <= 60) : [];
+  out.settings.plates = plateList.length ? plateList : [25, 20, 15, 10, 5, 2.5, 1.25];
+  if (out.settings.currentGym && !out.gyms.some((g) => g.id === out.settings.currentGym)) out.settings.currentGym = null;
+  out.settings.kindJoints = !!out.settings.kindJoints;
   if (!Array.isArray(s.settings?.milestonesSeen)) out.settings.milestonesSeen = Cut.milestones(out.weights, out.settings).earned;
   seedChains(out);
   for (const t of PROGRAM_TEMPLATES) {
@@ -366,7 +384,8 @@ function avgWeight(end, days) {
 // Training
 // ===========================================================================
 const e1rm = (kg, reps) => (kg && reps ? kg * (1 + reps / 30) : 0);
-const entryBest = (e) => Math.max(0, ...(e.sets || []).map((s) => e1rm(s.kg, s.reps)));
+const entryBest = (e) => Math.max(0, ...(e.sets || []).filter((s) => s && !s.wu).map((s) => e1rm(s.kg, s.reps)));
+function historyKey(name) { return Cut.resolveKey(name, S.exAliases); }
 const techOf = (e) => TECHNIQUES.find((t) => t.id === e?.tech) || null;
 const logMode = (e) => techOf(e)?.log || 'normal';
 const hasData = (s) => s.kg != null || s.reps != null || s.hold != null;
@@ -385,7 +404,7 @@ function prSessions() {
     for (const e of w.entries || []) {
       const b = entryBest(e);
       if (!b) continue;
-      const k = exKey(e.name);
+      const k = historyKey(e.name);
       const prior = best[k] ?? (S.baselines[k] ? entryBest(S.baselines[k]) : 0);
       if (prior && b > prior + 0.01) prs.add(w.id);
       best[k] = Math.max(prior || 0, b);
@@ -400,8 +419,9 @@ function records() {
   for (const w of S.workouts) {
     for (const e of w.entries || []) {
       for (const s of e.sets || []) {
+        if (s?.wu) continue;
         const v = e1rm(s.kg, s.reps);
-        const k = exKey(e.name);
+        const k = historyKey(e.name);
         if (v && (!out[k] || v > out[k].e1rm)) out[k] = { name: e.name, e1rm: v, set: s, date: w.date };
       }
     }
@@ -411,14 +431,14 @@ function records() {
 
 // Last time you did an exercise: your newest session here, or a newer weight found in your other apps.
 function lastEntryFor(name) {
-  const k = exKey(name);
+  const k = historyKey(name);
   const ws = [...S.workouts].sort((a, b) => b.at.localeCompare(a.at));
   let own = null;
   for (const w of ws) {
-    const e = (w.entries || []).find((x) => exKey(x.name) === k && x.sets?.some(hasData));
+    const e = (w.entries || []).find((x) => historyKey(x.name) === k && x.sets?.some((s) => hasData(s) && !s.wu));
     if (e) { own = { entry: e, date: w.date }; break; }
   }
-  const b = S.baselines[k];
+  const b = S.baselines[k] || S.baselines[exKey(name)];
   return b && (!own || b.date > own.date) ? { entry: b, date: b.date, baseline: true } : own;
 }
 
@@ -427,7 +447,7 @@ function lastEntryFor(name) {
 // point here when it's newer than anything this app has. The other apps are only read.
 function gatherLifts() {
   const ownDate = {};
-  for (const w of S.workouts) for (const e of w.entries || []) if (e.sets?.some(hasData)) { const k = exKey(e.name); if (!ownDate[k] || w.date > ownDate[k]) ownDate[k] = w.date; }
+  for (const w of S.workouts) for (const e of w.entries || []) if (e.sets?.some((s) => hasData(s) && !s.wu)) { const k = historyKey(e.name); if (!ownDate[k] || w.date > ownDate[k]) ownDate[k] = w.date; }
   let found = 0;
   for (const [key, label] of [[IRON_KEY, 'Iron & Eggs Classic'], [TRAINER_KEY, 'Trainer']]) {
     const src = readKey(key);
@@ -438,8 +458,9 @@ function gatherLifts() {
     for (const c of cands) {
       if (typeof c.name !== 'string' || !isoDay(c.date) || !Array.isArray(c.sets)) continue;
       const sets = c.sets.filter((x) => x && typeof x === 'object').map((x) => ({ kg: num(x.kg), reps: num(x.reps), hold: num(x.hold) })).filter(hasData);
-      const k = exKey(c.name);
-      if (!sets.length || (ownDate[k] && ownDate[k] >= c.date) || (S.baselines[k]?.date && S.baselines[k].date >= c.date)) continue;
+      const k = historyKey(c.name);
+      const prior = S.baselines[k] || S.baselines[exKey(c.name)];
+      if (!sets.length || (ownDate[k] && ownDate[k] >= c.date) || (prior?.date && prior.date >= c.date)) continue;
       S.baselines[k] = { name: c.name, date: c.date, note: `From ${label}${c.note ? `: ${c.note}` : ''}`, sets };
       found++;
     }
@@ -469,20 +490,28 @@ function progressionHint(ex, family) {
 // ===========================================================================
 // Exercise library: free-exercise-db (public domain), loaded on first use from exercises.json
 // ===========================================================================
-let LIB = null, libP = null;
+let LIB = null, libP = null, LIB_RAW = null;
+function assembleLib(j) {
+  const items = j.items.map(([id, name, level, equipment, primary, secondary, category, mechanic, steps, images]) =>
+    Library.prepare({ id, name, level, equipment, primary, secondary, category, mechanic, steps, images, source: 'free' }));
+  for (const p of Library.PACK) items.push(Library.prepare({ ...p, joints: { ...p.joints }, also: [...(p.also || [])] }));
+  for (const c of S.customExercises || []) items.push(Library.prepare({ ...c, source: 'custom' }));
+  LIB = { images: j.images, items };
+  LIB.byId = new Map(items.map((x) => [x.id, x]));
+  LIB.byKey = new Map();
+  for (const x of items) if (!LIB.byKey.has(x.key)) LIB.byKey.set(x.key, x);
+  return LIB;
+}
 function loadLib() {
   if (LIB) return Promise.resolve(LIB);
-  return (libP ||= fetch('exercises.json').then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((j) => {
-    LIB = { images: j.images, items: j.items.map(([id, name, level, equipment, primary, secondary, category, mechanic, steps, images]) =>
-      ({ id, name, level, equipment, primary, secondary, category, mechanic, steps, images, key: exKey(name), toks: new Set(libToks(name)) })) };
-    LIB.byId = new Map(LIB.items.map((x) => [x.id, x]));
-    LIB.byKey = new Map(LIB.items.map((x) => [x.key, x]));
-    return LIB;
-  }).catch((e) => { libP = null; throw e; }));
+  const raw = LIB_RAW ? Promise.resolve(LIB_RAW) : fetch('exercises.json').then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); });
+  return (libP ||= raw.then((j) => { LIB_RAW = j; return assembleLib(j); }).catch((e) => { libP = null; throw e; }));
 }
-const LIB_STOP = new Set(['the', 'into', 'for', 'x', '2x', 'a', 'with', 'of', 'and', 'on', 'to']);
-const LIB_SYN = { db: 'dumbbell', flye: 'fly' };
-const libToks = (n) => exKey(n).split(' ').filter((t) => t && !LIB_STOP.has(t)).map((t) => LIB_SYN[t] || t);
+function refreshLib() {
+  if (!LIB_RAW) return loadLib();
+  assembleLib(LIB_RAW);
+  return Promise.resolve(LIB);
+}
 // Generic names in the programmes (from Mentzer's books) and the library entry they mean.
 const LIB_ALIAS = {
   deadlift: 'Barbell Deadlift', squat: 'Barbell Squat', 'machine or barbell squat': 'Barbell Squat', curl: 'Barbell Curl', 'machine or barbell curl': 'Barbell Curl',
@@ -500,23 +529,27 @@ const LIB_ALIAS = {
 // The library entry for a programme exercise: the one you linked, the same name, an alias, or the closest name
 // that contains every word of yours (generic one-word names only through the alias list). null = no good match.
 function libFor(e) {
-  if (!LIB) return null;
-  if (e.libId) return LIB.byId.get(e.libId) || null;
+  if (!LIB || !e) return null;
+  if (e.libId && LIB.byId.get(e.libId)) return LIB.byId.get(e.libId);
   const k = exKey(e.name);
   const named = (n) => (n ? LIB.byKey.get(exKey(n)) : null);
   const base = libBase(e.name);
   const hit = LIB.byKey.get(k) || named(LIB_ALIAS[k]) || named(LIB_ALIAS[exKey(base)]);
   if (hit) return hit;
-  const q = libToks(base);
+  const q = exKey(base).split(' ').filter((t) => t && t.length > 2);
   if (q.length < 2) return null;
   let best = null, score = 0;
   for (const l of LIB.items) {
     if (l.category === 'stretching' && !q.includes('stretch')) continue;
-    if (!q.every((t) => l.toks.has(t))) continue;
-    const sc = q.length / l.toks.size;
+    if (!q.every((t) => (l.toks || []).some((x) => x.startsWith(t)))) continue;
+    const sc = q.length / (l.toks.length || 1);
     if (sc > score || (sc === score && l.name.length < best.name.length)) { best = l; score = sc; }
   }
   return score >= 0.4 ? best : null;
+}
+function libForShown(e, draft) {
+  if (draft?.swap?.libId || draft?.swap?.name) return libFor({ name: draft.swap.name || e?.name, libId: draft.swap.libId || '' });
+  return libFor(e);
 }
 // "Squats (or Leg Presses)", "Pec Deck / Flyes": the first choice only.
 function libBase(name) { return String(name).split(/\s+\/\s+|\s+or\s+|,|\(/i)[0].trim(); }
@@ -586,7 +619,10 @@ const saveDrafts = () => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify
 const rememberUi = () => { try { sessionStorage.setItem('gymfuel.ui', JSON.stringify({ tab: ui.tab, sub: ui.sub })); } catch { /* ignore */ } };
 const draftKey = (pid, did) => `${pid}|${did}`;
 const getDraft = (pid, did) => (ui.drafts[draftKey(pid, did)] ||= {});
-const draftStarted = (pid, did) => Object.entries(ui.drafts[draftKey(pid, did)] || {}).some(([k, v]) => k !== '_session' && (v.sets || []).some((s) => s && Object.values(s).some((x) => String(x).trim())));
+const draftStarted = (pid, did) => Object.entries(ui.drafts[draftKey(pid, did)] || {}).some(([k, v]) => {
+  if (k === '_session' || k === '_once' || !v || typeof v !== 'object' || Array.isArray(v)) return false;
+  return [...(v.sets || []), ...(v.warmups || [])].some((s) => s && Object.entries(s).some(([kk, x]) => kk !== 'wu' && String(x ?? '').trim()));
+});
 
 // ===========================================================================
 // Small renderers
@@ -651,7 +687,7 @@ function weekData(d = today()) {
     for (const e of w.entries || []) {
       const v = entryBest(e);
       if (!v) continue;
-      const k = exKey(e.name), m = w.date >= ws && w.date <= d ? best : w.date < ws ? before : null;
+      const k = historyKey(e.name), m = w.date >= ws && w.date <= d ? best : w.date < ws ? before : null;
       if (m && v > (m.get(k)?.v || 0)) m.set(k, { name: e.name, v });
     }
   }
@@ -1023,14 +1059,14 @@ function catchUpCard() {
 }
 const PR_WORDS = { weight: 'heavier than your best', reps: 'more reps at that weight', e1rm: 'a better estimated 1RM' };
 function prText(name, sets) {
-  const prior = Cut.priorSets(S.workouts, name);
+  const prior = Cut.priorSets(S.workouts, name, S.exAliases);
   const flags = [];
-  for (const s of sets || []) flags.push(...Cut.prFlags({ kg: num(s?.kg), reps: num(s?.reps) }, prior));
+  for (const s of sets || []) if (!s?.wu) flags.push(...Cut.prFlags({ kg: num(s?.kg), reps: num(s?.reps) }, prior));
   const uniq = [...new Set(flags)];
   return uniq.length ? `Personal record: ${uniq.map((f) => PR_WORDS[f]).join(', ')}.` : '';
 }
 function strengthCard() {
-  const rows = Cut.personalRecords(S.workouts);
+  const rows = Cut.personalRecords(S.workouts, S.exAliases);
   return `<section class="card" id="strength-card"><h2>Strength PRs</h2>
     ${rows.length ? `<div class="list">${rows.map((r) => `<div><b>${esc(r.name)}</b><br><span class="muted small">${fmtNum(r.bestKg)} kg × ${fmtNum(r.bestKgReps)}${r.bestKgDate ? ` · ${fmtDate(r.bestKgDate)}` : ''}<br>Est. 1RM ${fmtNum(round1(r.bestE1))} kg (${fmtNum(r.bestE1Kg)}×${fmtNum(r.bestE1Reps)})</span></div>`).join('')}</div>` : '<p class="muted">Log a weight and reps and the best set for each exercise shows here.</p>'}
     <p class="muted small">A set is a record when it is heavier, when the same weight goes for more reps, or when the estimated 1-rep max is higher.</p>
@@ -1121,7 +1157,7 @@ function prevBadge(last) {
 }
 
 function exerciseRestSec(name) {
-  const picked = Number(S.settings.restByName?.[exKey(name)]);
+  const picked = Number(S.settings.restByName?.[historyKey(name)] ?? S.settings.restByName?.[exKey(name)]);
   if (Session.REST_CHOICES.includes(picked)) return picked;
   const fallback = Number(S.settings.restSec);
   return Session.REST_CHOICES.includes(fallback) ? fallback : Session.DEFAULT_REST;
@@ -1271,10 +1307,17 @@ function restPicks(prog, day, e) {
   return `<div class="restpicks" role="group" aria-label="Rest after ${esc(e.name)}">${Session.REST_CHOICES.map((n) => `<button type="button" data-act="rest-pick" data-v="${n}" ${base} aria-pressed="${sec === n}">${n}</button>`).join('')}<button type="button" class="primary" data-act="rest-now" ${base}>Rest</button></div>`;
 }
 
+function jointChips(l) {
+  if (!l?.joints) return '';
+  const bits = Library.JOINTS.filter((a) => l.joints[a] && l.joints[a] !== 'ok')
+    .map((a) => `<span class="chip ${l.joints[a] === 'avoid' ? 'bad' : 'warn'}">${esc(Library.JOINT_LABEL[a])}: ${l.joints[a]}</span>`);
+  return bits.length ? `<span class="jointline">${bits.join('')}</span>` : '';
+}
 function exerciseLogCard(prog, day, e, i) {
   const draft = getDraft(prog.id, day.id)[e.id] || {};
   const lifted = (draft.swap && String(draft.swap.name || '').trim()) || e.name;
   const last = lastEntryFor(lifted);
+  const workLast = (last?.entry.sets || []).filter((s) => hasData(s) && !s.wu);
   const hint = progressionHint(e, prog.family);
   const tech = techOf(e);
   const mode = logMode(e);
@@ -1284,33 +1327,47 @@ function exerciseLogCard(prog, day, e, i) {
   const ref = `${esc(prog.id)}|${esc(day.id)}|${esc(e.id)}`;
   const base = `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}" data-eid="${esc(e.id)}"`;
   const input = (s, field, ph, label, im = 'numeric') => `<input inputmode="${im}" placeholder="${esc(ph)}" value="${esc(draft.sets?.[s]?.[field] ?? '')}" aria-label="${esc(e.name)} ${label}" data-draft="${ref}|${s}|${field}">`;
+  const linked = libForShown(e, draft);
   const rows = Array.from({ length: nSets }, (_, s) => {
-    const ls = last?.entry.sets[s] || last?.entry.sets[last.entry.sets.length - 1];
+    const ls = workLast[s] || workLast[workLast.length - 1];
     const kg = input(s, 'kg', ls?.kg ?? 'kg', `set ${s + 1} kg`, 'decimal');
     const label = s < planned ? `Set ${s + 1}` : `Extra ${s - planned + 1}`;
     if (mode === 'singles') return `<div class="setrow two"><span class="muted small">Rep ${s + 1}</span>${kg}<span class="muted">kg × 1</span></div>`;
     if (mode === 'hold') return `<div class="setrow"><span class="muted small">Hold</span>${kg}<span class="muted">kg ·</span>${input(s, 'hold', ls?.hold ?? 'sec', `set ${s + 1} seconds held`)}</div>`;
     const reps = input(s, 'reps', ls?.reps ?? 'reps', `set ${s + 1} reps`);
     if (mode === 'failhold') return `<div class="setrow three"><span class="muted small">Set</span>${kg}<span class="muted">×</span>${reps}<span class="muted">+</span>${input(s, 'hold', ls?.hold ?? 'sec', `set ${s + 1} hold seconds`)}</div>`;
-    return `<div class="setrow ${s >= planned ? 'extra' : ''}"><span class="muted small">${label}</span>${kg}<span class="muted">kg ×</span>${reps}</div>`;
+    const wu = !!draft.sets?.[s]?.wu;
+    return `<div class="setrow ${s >= planned ? 'extra' : ''} ${wu ? 'warm' : ''}"><button type="button" class="small-btn" data-act="set-wu" data-i="${s}" ${base} aria-pressed="${wu}" aria-label="${esc(e.name)} set ${s + 1} warm-up">${wu ? 'Warm' : esc(label)}</button>${kg}<span class="muted">kg ×</span>${reps}</div>`;
   }).join('');
-  const prevSs = i > 0 && day.exercises[i - 1].ss;
+  const warms = (draft.warmups || []).map((s, wi) => `<div class="setrow warm">
+      <button type="button" class="small-btn" data-act="warmup-del" data-i="${wi}" ${base} aria-label="Remove warm-up ${wi + 1}">Warm</button>
+      <input inputmode="decimal" placeholder="kg" value="${esc(s?.kg ?? '')}" aria-label="${esc(e.name)} warm-up ${wi + 1} kg" data-draft="${ref}|wu${wi}|kg">
+      <span class="muted">kg ×</span>
+      <input inputmode="numeric" placeholder="reps" value="${esc(s?.reps ?? '')}" aria-label="${esc(e.name)} warm-up ${wi + 1} reps" data-draft="${ref}|wu${wi}|reps">
+    </div>`).join('');
+  const prevSs = i > 0 && day.exercises[i - 1]?.ss;
   const live = prText(lifted, draft.sets);
   return `<div class="excard ${e.ss ? 'ss-start' : ''} ${prevSs ? 'ss-end' : ''}">
-    <div class="row between"><span class="grow"><b>${esc(lifted)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span>${draft.swap ? `<br><span class="muted small">Swapped from ${esc(e.name)}. ${esc(draft.swap.why || '')}</span>` : ''}${LIB ? `<br><button class="linkish inline-link" data-act="howto" ${base}>${libFor(e) ? 'How to do it' : 'Find it in the library'}</button>` : ''}</span>${prevBadge(last)}</div>
+    <div class="row between"><span class="grow"><b>${esc(lifted)}</b><br><span class="muted small">${esc(e.sets)} × ${esc(e.reps)}</span>${e.flash ? ' <span class="muted small">· only this workout</span>' : ''}${draft.swap ? `<br><span class="muted small">Swapped from ${esc(e.name)}. ${esc(draft.swap.why || '')}</span>` : ''}${jointChips(linked) ? `<br>${jointChips(linked)}` : ''}${LIB ? `<br><button class="linkish inline-link" data-act="howto" ${base}>${linked ? 'How to do it' : 'Find it in the library'}</button>` : ''}</span>${prevBadge(last)}</div>
     ${tech ? `<p class="small"><span class="chip tech">${esc(tech.name)}</span> ${esc(tech.summary)}</p>` : ''}
     ${e.note ? `<p class="muted small">${esc(e.note)}</p>` : ''}
     ${e.ss ? '<p class="small accent">Superset: go straight to the next exercise, no rest.</p>' : ''}
-    ${last ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${last.entry.sets.filter(hasData).map(setText).join(', ')}${last.entry.note ? ` · ${esc(last.entry.note)}` : ''}</p>` : ''}
+    ${workLast.length ? `<p class="muted small">${last.baseline ? 'Starting point' : 'Last'} (${fmtDate(last.date)}): ${workLast.map(setText).join(', ')}${last.entry.note ? ` · ${esc(last.entry.note)}` : ''}</p>` : ''}
     ${hint ? `<p class="small good-text">▲ ${esc(hint)}</p>` : ''}
     <p class="pr-live small good-text">${esc(live)}</p>
+    ${warms}
     ${rows}
     ${restPicks(prog, day, e)}
     <div class="row wrap">
       ${mode === 'singles' ? '<button class="small-btn" data-act="rp-timer">10 s rest</button>' : `<button class="small-btn" data-act="set-add" ${base}>+ Add set</button>`}
       ${extra ? `<button class="small-btn" data-act="set-del" ${base}>− Remove extra set</button>` : ''}
-      ${last ? `<button class="small-btn" data-act="copy-last" ${base}>Fill from last time</button>` : ''}
+      ${mode === 'normal' ? `<button class="small-btn" data-act="warmup-ramp" ${base}>Warm-up ramp</button>` : ''}
+      ${workLast.length ? `<button class="small-btn" data-act="copy-last" ${base}>Fill from last time</button>` : ''}
       <button class="small-btn" data-act="swap-open" ${base}>Swap</button>
+      <button class="small-btn" data-act="lib-open" data-mode="live-swap" ${base}>Change exercise</button>
+      <button class="small-btn" data-act="ex-add" data-where="log" data-after="${esc(e.id)}" ${base}>Add after</button>
+      <button class="small-btn" data-act="plates-open" ${base}>Plates</button>
+      ${e.flash ? `<button class="small-btn danger" data-act="ex-del" ${base}>Remove</button>` : ''}
       <input class="grow" placeholder="Note (forced reps, negatives, feel…)" value="${esc(draft.note || '')}" aria-label="${esc(lifted)} note" data-draft="${ref}|note">
     </div>
   </div>`;
@@ -1415,6 +1472,19 @@ async function shareCoachBrief() {
   toast(how === 'shared' ? 'Brief sent. Paste his reply below.' : 'Brief saved. Send that file to Coach Mike.');
 }
 
+function currentGym() {
+  return (S.gyms || []).find((g) => g.id === S.settings.currentGym) || null;
+}
+function gymBar(prog, day) {
+  const gym = currentGym();
+  const pd = `data-pid="${esc(prog.id)}" data-did="${esc(day.id)}"`;
+  const label = gym ? gym.name : 'Choose gym';
+  return `<div class="row wrap">
+    <button class="small-btn" data-act="gym-open" ${pd}>${esc(label)}</button>
+    ${gym ? `<button class="small-btn" data-act="gym-fit" ${pd}>Fit this day to the gym</button>` : ''}
+    ${gym?.typical ? `<span class="muted small">${esc(Library.TYPICAL_NOTE)}</span>` : ''}
+  </div>`;
+}
 function viewTrainLog() {
   const fam = S.settings.family;
   const familyTabs = segmented('family', [['cycle', '4-Week Cycle'], ['hit', 'Mentzer HIT'], ['custom', 'My workouts']], fam, 'Training style');
@@ -1452,6 +1522,7 @@ function viewTrainLog() {
     ${dayButtons}
     <div class="row between wrap"><h3 class="dayname">${esc(day.name)}</h3>
       <button class="small-btn" data-act="toggle-edit" aria-pressed="${ui.editProgram}">${ui.editProgram ? 'Done editing' : 'Edit exercises'}</button></div>
+    ${ui.editProgram ? '' : `<div class="grid2"><button data-act="ex-add" data-where="log" ${pd}>+ Add exercise</button><button data-act="plates-open" ${pd}>Plates</button></div>`}
     ${ui.editProgram ? `
       ${prog.family === 'custom' ? `<label class="field">Programme name<input value="${esc(prog.name)}" data-edit="progname" ${pd}></label>` : ''}
       <label class="field">Day name<input value="${esc(day.name)}" data-edit="dayname" ${pd}></label>
@@ -1461,7 +1532,7 @@ function viewTrainLog() {
       ${day.exercises.length ? '' : '<p class="muted small">No exercises on this day yet.</p>'}
       ${day.exercises.map((e, i) => exerciseEditRow(prog, day, e, i)).join('')}
       <div class="grid2">
-        <button data-act="ex-add" ${pd}>+ Add exercise</button>
+        <button data-act="ex-add" data-where="edit" ${pd}>+ Add exercise</button>
         <button data-act="day-add" data-pid="${esc(prog.id)}">+ Add day</button>
       </div>
       ${prog.days.length > 1 ? `<button class="danger" data-act="day-del" ${pd}>Delete this day</button>` : ''}
@@ -1470,8 +1541,10 @@ function viewTrainLog() {
       ${prog.family === 'custom' ? `<button class="ghost danger" data-act="prog-del" data-pid="${esc(prog.id)}">Delete this programme</button>` : ''}
     ` : `
       ${sessionBar(prog, day)}
-      ${day.exercises.length ? '' : `<p class="muted">No exercises on this day yet. Tap <b>Edit exercises</b>, then <b>+ Add exercise</b>.</p>`}
+      ${gymBar(prog, day)}
+      ${day.exercises.length ? '' : `<p class="muted">No exercises on this day yet. Tap <b>+ Add exercise</b>.</p>`}
       ${day.exercises.map((e, i) => exerciseLogCard(prog, day, e, i)).join('')}
+      ${(getDraft(prog.id, day.id)._once || []).map((e) => exerciseLogCard(prog, day, e, -1)).join('')}
       ${sessionFeelCard(prog, day)}
       <button class="primary" data-act="complete" ${pd}>Complete session</button>
       ${draftStarted(prog.id, day.id) ? `<button class="ghost danger" data-act="draft-clear" ${pd}>Clear what I've entered</button>` : ''}
@@ -1488,9 +1561,9 @@ function liftSeries() {
   const by = new Map();
   for (const w of [...S.workouts].sort((a, b) => a.at.localeCompare(b.at))) {
     for (const e of w.entries || []) {
-      const best = (e.sets || []).reduce((b, st) => { const v = e1rm(st.kg, st.reps); return v > (b?.v || 0) ? { v, st } : b; }, null);
+      const best = (e.sets || []).filter((st) => !st.wu).reduce((b, st) => { const v = e1rm(st.kg, st.reps); return v > (b?.v || 0) ? { v, st } : b; }, null);
       if (!best) continue;
-      const k = exKey(e.name);
+      const k = historyKey(e.name);
       if (!by.has(k)) by.set(k, { key: k, name: e.name, pts: [] });
       by.get(k).pts.push({ date: w.date, v: best.v, set: best.st, id: w.id });
     }
@@ -1543,50 +1616,329 @@ function progressCard() {
 }
 
 // ---- library sheets
-let libMode = null; // { mode: 'add' | 'swap' | 'browse', pid, did, eid }
+let libMode = null; // { mode, pid, did, eid, afterId, where }
+let gymPlan = null;
+let machinePick = null;
+let warmedPics = '';
+function exerciseFromItem(l, sets, reps) {
+  return { id: uid(), name: l.name, sets: sets || 3, reps: reps || '8–12', note: '', ss: false, tech: '', libId: l.id };
+}
+function onceList(pid, did) {
+  const d = getDraft(pid, did);
+  if (!Array.isArray(d._once)) d._once = [];
+  return d._once;
+}
+function insertExercises(day, list, afterId) {
+  let idx = day.exercises.length;
+  if (afterId) {
+    const at = day.exercises.findIndex((e) => e.id === afterId);
+    if (at >= 0) idx = at + 1;
+  }
+  day.exercises.splice(idx, 0, ...list);
+}
+function placeNew(list) {
+  const m = libMode || {};
+  const prog = S.programs[m.pid];
+  const day = prog?.days.find((d) => d.id === m.did);
+  if (!prog || !day) return false;
+  const once = m.where === 'log' && document.getElementById('lib-once')?.checked;
+  if (once) {
+    onceList(m.pid, m.did).push(...list.map((e) => ({ ...e, flash: true })));
+    saveDrafts();
+  } else {
+    insertExercises(day, list, m.afterId);
+    prog.edited = true;
+  }
+  return true;
+}
+function rememberAlias(newName, oldName) {
+  const newK = exKey(newName);
+  const oldK = historyKey(oldName);
+  if (!newK || !oldK || newK === oldK) return false;
+  const seen = new Set([newK]);
+  let k = oldK;
+  while (k && !seen.has(k)) { seen.add(k); k = S.exAliases?.[k]; }
+  if (seen.has(k)) return false;
+  (S.exAliases ||= {})[newK] = oldK;
+  return true;
+}
+function aliasConflict(newK, oldK) {
+  if (!newK || newK === oldK) return false;
+  if (S.baselines?.[newK]) return true;
+  return (S.workouts || []).some((w) => (w.entries || []).some((e) => historyKey(e.name) === newK));
+}
+function currentEx(pid, did, eid) {
+  const found = findEx(pid, did, eid);
+  if (found.ex) return found;
+  const once = (getDraft(pid, did)._once || []).find((x) => x.id === eid) || null;
+  const prog = S.programs[pid];
+  const day = prog?.days.find((d) => d.id === did) || null;
+  return { prog, day, i: -1, ex: once, once: !!once };
+}
+function paintThumbs(root) {
+  const imgs = [...(root || document).querySelectorAll('img[data-thumb]')];
+  if (!imgs.length || !window.Photos?.getThumb) return;
+  for (const img of imgs) {
+    Photos.getThumb(img.dataset.thumb).then((rec) => {
+      if (!rec?.blob || !img.isConnected) return;
+      const url = URL.createObjectURL(rec.blob);
+      img.src = url;
+      img.onload = () => URL.revokeObjectURL(url);
+    }).catch(() => {});
+  }
+}
+function warmProgramImages() {
+  if (!LIB || !navigator.serviceWorker) return;
+  const urls = [];
+  const seen = new Set();
+  for (const p of Object.values(S.programs || {})) {
+    for (const d of p.days || []) {
+      for (const ex of d.exercises || []) {
+        const l = libFor(ex);
+        if (!l || l.source !== 'free' || !l.images?.length) continue;
+        l.images.forEach((_, i) => {
+          const u = libImg(l, i);
+          if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
+        });
+      }
+    }
+  }
+  const list = urls.slice(0, 80);
+  const sig = list.join('|');
+  if (!list.length || sig === warmedPics) return;
+  warmedPics = sig;
+  navigator.serviceWorker.ready.then((reg) => {
+    (reg.active || navigator.serviceWorker.controller)?.postMessage({ type: 'warm-images', urls: list });
+  }).catch(() => {});
+}
+function libRow(l) {
+  const mode = libMode?.mode;
+  const meta = [l.primary.join(', '), l.equipment, l.level].filter(Boolean).join(' · ');
+  const tick = mode === 'add' ? `<input type="checkbox" data-lib-tick="${esc(l.id)}" aria-label="Select ${esc(l.name)}">` : '';
+  const link = mode === 'swap' ? `<button class="small-btn" data-act="lib-pick" data-link="1" data-lib="${esc(l.id)}">Link</button>` : '';
+  const verb = mode === 'add' ? 'Add' : (mode === 'swap' || mode === 'live-swap') ? 'Swap' : mode === 'gym' ? 'At this gym' : '';
+  const edit = l.source === 'custom' && mode === 'add' ? `<button class="small-btn" data-act="ex-custom-edit" data-lib="${esc(l.id)}">Edit</button>` : '';
+  return `<div class="row between">${tick}
+    <button class="linkish grow" data-act="lib-howto" data-lib="${esc(l.id)}"><b>${esc(l.name)}</b><br><span class="muted small">${esc(meta)}</span></button>
+    ${link}${edit}${verb ? `<button class="small-btn primary" data-act="lib-pick" data-lib="${esc(l.id)}">${verb}</button>` : ''}</div>`;
+}
+function usageLists() {
+  const recent = [];
+  const seen = new Set();
+  const counts = new Map();
+  const workouts = [...S.workouts].sort((a, b) => (b.at || b.date || '').localeCompare(a.at || a.date || ''));
+  for (const w of workouts) {
+    for (const e of w.entries || []) {
+      if (!e?.name) continue;
+      const k = historyKey(e.name);
+      counts.set(k, (counts.get(k) || 0) + 1);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const item = LIB.items.find((it) => historyKey(it.name) === k || it.key === exKey(e.name));
+      if (item) recent.push(item);
+    }
+  }
+  const used = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => LIB.items.find((it) => historyKey(it.name) === k)).filter(Boolean);
+  const program = [];
+  const have = new Set();
+  for (const p of Object.values(S.programs || {})) for (const d of p.days || []) for (const e of d.exercises || []) {
+    const item = libFor(e);
+    if (item && !have.has(item.id)) { have.add(item.id); program.push(item); }
+  }
+  return { recent: recent.slice(0, 8), used: used.slice(0, 8), program: program.slice(0, 8), mine: LIB.items.filter((it) => it.source === 'custom').slice(0, 12) };
+}
 function openLibrary(mode) {
   libMode = mode;
-  const title = mode.mode === 'add' ? 'Add an exercise' : mode.mode === 'swap' ? 'Swap or link this exercise' : 'Exercise library';
-  openSheet(title, '<p class="muted small" id="lib-wait">Loading the exercise library…</p>');
+  const titles = { add: 'Add an exercise', swap: 'Swap or link this exercise', 'live-swap': 'Change exercise', gym: 'Add a machine', browse: 'Exercise library' };
+  openSheet(titles[mode.mode] || 'Exercise library', '<p class="muted small" id="lib-wait">Loading the exercise library…</p>');
   loadLib().then(() => {
     if (libMode !== mode || !document.getElementById('lib-wait')) return;
     const muscles = [...new Set(LIB.items.flatMap((x) => x.primary))].sort();
     const equip = [...new Set(LIB.items.map((x) => x.equipment).filter(Boolean))].sort();
-    const cur = mode.eid ? findEx(mode.pid, mode.did, mode.eid).ex : null;
+    const cur = mode.eid ? currentEx(mode.pid, mode.did, mode.eid).ex : null;
+    const n = LIB.items.length;
     document.querySelector('.sheet-wrap .sheet-body').innerHTML = `
-      ${cur ? `<p class="small">Now: <b>${esc(cur.name)}</b>. <b>Link</b> keeps your name and just adds the how-to; <b>Swap</b> changes the exercise.</p>` : ''}
-      <label class="field" for="lib-q">Search<input id="lib-q" type="search" placeholder="e.g. incline press, curl" data-live="lib-q" value="${esc(cur ? libBase(cur.name) : '')}"></label>
+      ${cur && mode.mode !== 'add' ? `<p class="small">Now: <b>${esc(cur.name)}</b>. ${mode.mode === 'swap' ? '<b>Link</b> keeps your name and adds the how-to. <b>Swap</b> changes the exercise.' : 'This changes the exercise for this workout.'}</p>` : ''}
+      ${mode.mode === 'live-swap' ? '<label class="field check-field"><span>Save this swap on the day</span><input type="checkbox" id="swap-remember"></label>' : ''}
+      <label class="field" for="lib-q">Search<input id="lib-q" type="search" placeholder="RDL, OHP, pec deck, chest supported row" data-live="lib-q" value="${esc(cur && mode.mode !== 'add' ? libBase(cur.name) : '')}"></label>
       <div class="grid2">
         <label class="field">Muscle<select id="lib-muscle" data-live="lib-q"><option value="">Any</option>${muscles.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
         <label class="field">Equipment<select id="lib-equip" data-live="lib-q"><option value="">Any</option>${equip.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
       </div>
+      <div class="row wrap">
+        <button type="button" class="pchip" data-act="lib-kind" aria-pressed="${S.settings.kindJoints ? 'true' : 'false'}">Kind to my joints</button>
+        <button type="button" class="pchip" data-act="lib-mine" aria-pressed="${ui.libMine ? 'true' : 'false'}">Mine</button>
+      </div>
+      <p class="muted small">${esc(Library.GUIDANCE)}</p>
+      ${mode.where === 'log' && mode.mode === 'add' ? '<label class="field check-field"><span>Only this workout</span><input type="checkbox" id="lib-once"></label>' : ''}
       <div id="lib-list" class="list"></div>
-      ${mode.mode === 'add' ? '<button class="ghost" data-act="ex-add-custom">+ Type my own exercise instead</button>' : ''}
-      <p class="muted small">876 exercises from <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener">free-exercise-db</a> (public domain).</p>`;
+      ${mode.mode === 'add' ? '<button class="primary" data-act="lib-add-many" id="lib-add-many">Add selected</button>' : ''}
+      ${mode.mode === 'add' ? '<label class="btn" for="machine-file">Photograph a machine</label><input id="machine-file" class="sr" type="file" accept="image/*" capture="environment">' : ''}
+      <p class="muted small">${n} exercises: free-exercise-db plus the Iron &amp; Eggs pack. Your own exercises are saved on this phone.</p>`;
     drawLib();
+    document.getElementById('lib-q')?.focus();
   }, () => { const w = document.getElementById('lib-wait'); if (w) w.textContent = 'Couldn\'t load the exercise library. It needs internet the first time.'; });
 }
 function drawLib() {
   const box = document.getElementById('lib-list');
   if (!box || !LIB) return;
-  const q = libToks(document.getElementById('lib-q')?.value || '');
-  const mus = document.getElementById('lib-muscle')?.value, eq = document.getElementById('lib-equip')?.value;
-  const hits = LIB.items.filter((l) => (!mus || l.primary.includes(mus)) && (!eq || l.equipment === eq) && q.every((t) => [...l.toks].some((x) => x.startsWith(t))));
-  const verb = libMode?.mode === 'add' ? 'Add' : libMode?.mode === 'swap' ? 'Swap' : '';
-  box.innerHTML = hits.slice(0, 40).map((l) => `<div class="row between">
-      <button class="linkish grow" data-act="lib-howto" data-lib="${esc(l.id)}"><b>${esc(l.name)}</b><br><span class="muted small">${esc([l.primary.join(', '), l.equipment, l.level].filter(Boolean).join(' · '))}</span></button>
-      ${libMode?.mode === 'swap' ? `<button class="small-btn" data-act="lib-pick" data-link="1" data-lib="${esc(l.id)}">Link</button>` : ''}
-      ${verb ? `<button class="small-btn primary" data-act="lib-pick" data-lib="${esc(l.id)}">${verb}</button>` : ''}</div>`).join('')
-    + (hits.length > 40 ? `<p class="muted small">${hits.length - 40} more: narrow the search.</p>` : hits.length ? '' : '<p class="muted small">No matches. Try fewer words.</p>');
+  const raw = document.getElementById('lib-q')?.value || '';
+  const mus = document.getElementById('lib-muscle')?.value;
+  const eq = document.getElementById('lib-equip')?.value;
+  const opts = { muscle: mus, equipment: eq, kind: !!S.settings.kindJoints, mine: !!ui.libMine };
+  const mode = libMode?.mode;
+  let html = '';
+    const allow = (rows) => (rows || []).filter((l) => (!opts.muscle || l.primary.includes(opts.muscle)) && (!opts.equipment || l.equipment === opts.equipment) && (!opts.kind || Library.worst(l.joints) < 2) && (!opts.mine || l.source === 'custom'));
+    if (!raw.trim()) {
+    if (mode === 'add') {
+      const u = usageLists();
+      const section = (title, rows) => (rows.length ? `<p class="muted small grouplabel">${title}</p>${rows.map(libRow).join('')}` : '');
+      html = opts.mine ? section('My exercises', allow(u.mine)) : section('Recent', allow(u.recent)) + section('Most used', allow(u.used.filter((x) => !u.recent.includes(x)))) + section('In my programmes', allow(u.program.slice(0, 8))) + section('My exercises', allow(u.mine));
+    }
+  } else {
+    const hits = Library.search(LIB.items, raw, opts);
+    html = hits.slice(0, 60).map(libRow).join('')
+      + (hits.length > 60 ? `<p class="muted small">${hits.length - 60} more: narrow the search.</p>` : hits.length ? '' : '<p class="muted small">No matches. Create it below, or try fewer words.</p>');
+  }
+  if (mode === 'add') {
+    const typed = raw.trim();
+    html += `<button class="ghost" data-act="ex-create">+ Create "${esc(typed || 'a new exercise')}"</button>`;
+  }
+  box.innerHTML = html;
+  for (const id of libMode?.picked || []) {
+    const tick = box.querySelector(`[data-lib-tick="${String(id).replace(/"/g, '')}"]`);
+    if (tick) tick.checked = true;
+  }
 }
 function openHowTo(l, back) {
+  const photo = l.photoId || S.exPhotos?.[l.id] || '';
+  const src = l.source === 'pack' ? 'Iron & Eggs pack, written for this app.'
+    : l.source === 'custom' ? 'Your exercise, saved on this phone.'
+      : 'From free-exercise-db (public domain). Pictures load from GitHub when online.';
   openSheet(l.name, `
-    ${l.images.length ? `<div class="pair">${l.images.map((_, i) => `<figure><img src="${esc(libImg(l, i))}" alt="${esc(l.name)}, ${i ? 'end' : 'start'} position" loading="lazy"><figcaption>${i ? 'End' : 'Start'}</figcaption></figure>`).join('')}</div>` : ''}
+    ${l.images?.length ? `<div class="pair">${l.images.map((_, i) => `<figure><img src="${esc(libImg(l, i))}" alt="${esc(l.name)}, ${i ? 'end' : 'start'} position" loading="lazy"><figcaption>${i ? 'End' : 'Start'}</figcaption></figure>`).join('')}</div>` : ''}
+    ${photo ? `<img data-thumb="${esc(photo)}" alt="${esc(l.name)}" class="exthumb">` : ''}
     <div class="row wrap">${[l.level, l.equipment, l.mechanic].filter(Boolean).map((x) => chip(x)).join('')}</div>
-    <p class="small"><b>Works:</b> ${esc(l.primary.join(', '))}${l.secondary.length ? ` <span class="muted">· also ${esc(l.secondary.join(', '))}</span>` : ''}</p>
-    ${l.steps.length ? `<ol class="steps">${l.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+    ${jointChips(l)}
+    <p class="muted small">${esc(Library.GUIDANCE)}</p>
+    <p class="small"><b>Works:</b> ${esc((l.primary || []).join(', '))}${l.secondary?.length ? ` <span class="muted">· also ${esc(l.secondary.join(', '))}</span>` : ''}</p>
+    ${l.steps?.length ? `<ol class="steps">${l.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+    <button data-act="ex-duplicate" data-lib="${esc(l.id)}">Save a copy to my exercises</button>
     ${back ? `<button class="ghost" data-act="lib-back">‹ Back to the library</button>` : ''}
-    <p class="muted small">From free-exercise-db (public domain). Pictures load from GitHub when online.</p>`);
+    <p class="muted small">${esc(src)}</p>`);
+  paintThumbs(document.querySelector('.sheet'));
+}
+function openCreate(prefill = {}) {
+  const guessed = Library.guess(prefill.name || '');
+  const primary = (Array.isArray(prefill.primary) ? prefill.primary[0] : prefill.primary) || guessed.primary;
+  const joints = prefill.joints || guessed.joints;
+  const equipment = prefill.equipment || guessed.equipment;
+  const type = prefill.type || guessed.type;
+  openSheet(prefill.id ? 'Edit exercise' : 'New exercise', `<form id="ex-create-form" class="grid1" autocomplete="off" ${prefill.id ? `data-id="${esc(prefill.id)}"` : ''}>
+    <label class="field">Name<input name="name" required maxlength="80" value="${esc(prefill.name || '')}"></label>
+    <div class="grid2">
+      <label class="field">Muscle<select name="primary">${Library.MUSCLES.map((m) => `<option ${m === primary ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <label class="field">Equipment<select name="equipment">${Library.GEAR.map((m) => `<option ${m === equipment ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+    </div>
+    <label class="field">Type<select name="type">${[['weight', 'Weight × reps'], ['bodyweight', 'Bodyweight'], ['time', 'Time or hold']].map(([v, label]) => `<option value="${v}" ${type === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+    <div class="grid2">${Library.JOINTS.map((a) => `<label class="field">${esc(Library.JOINT_LABEL[a])}<select name="j-${a}">${['ok', 'caution', 'avoid'].map((v) => `<option ${joints[a] === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`).join('')}</div>
+    <p class="muted small">${esc(Library.GUIDANCE)}</p>
+    <div class="grid2">
+      <label class="field">Sets<input name="sets" inputmode="numeric" value="${esc(prefill.sets || guessed.sets || 3)}"></label>
+      <label class="field">Reps<input name="reps" value="${esc(prefill.reps || guessed.reps || '8–12')}"></label>
+    </div>
+    <input type="hidden" name="photoId" value="${esc(prefill.photoId || '')}">
+    ${prefill.photoId ? `<img data-thumb="${esc(prefill.photoId)}" alt="" class="exthumb">` : ''}
+    <button class="primary" type="submit">Save</button>
+    ${prefill.id ? `<button type="button" class="danger" data-act="ex-custom-del" data-lib="${esc(prefill.id)}">Delete from my exercises</button>` : ''}
+  </form>`);
+  paintThumbs(document.querySelector('.sheet'));
+}
+function openPlates(kg) {
+  const bar = S.settings.barKg || 20;
+  const list = S.settings.plates || [];
+  const plan = kg ? Library.plates(Number(kg), bar, list) : null;
+  openSheet('Plates', `<form id="plate-form" class="grid1" autocomplete="off">
+    <label class="field">Weight on the bar (kg)<input name="target" inputmode="decimal" value="${esc(kg || '')}" required></label>
+    <label class="field">Bar (kg)<input name="bar" inputmode="decimal" value="${esc(bar)}"></label>
+    <label class="field">Plates you have, heaviest first<input name="plates" value="${esc(list.join(', '))}"></label>
+    <button class="primary" type="submit">Work it out</button>
+    <p id="plate-out">${esc(plan?.text || 'Each side is (weight − bar) ÷ 2. The usual UK set runs 25 down to 1.25 kg.')}</p>
+  </form>`);
+}
+function openGym(pid, did) {
+  const cur = currentGym();
+  const gyms = S.gyms || [];
+  openSheet('Gym', `
+    <p class="small">Pick the gym for this workout. A list marked <b>${esc(Library.TYPICAL_NOTE)}</b> is a guess for a commercial gym, not an inventory.</p>
+    <div class="list">${gyms.map((g) => `<button type="button" class="linkish" data-act="gym-pick" data-id="${esc(g.id)}" data-pid="${esc(pid || '')}" data-did="${esc(did || '')}"><b>${esc(g.name)}</b>${g.id === cur?.id ? ' <span class="chip good">Current</span>' : ''}${g.typical ? `<br><span class="muted small">${esc(Library.TYPICAL_NOTE)}</span>` : ''}</button>`).join('')}</div>
+    ${cur ? gymEditor(cur, pid, did) : ''}`);
+}
+function gymEditor(g, pid, did) {
+  const names = (g.machines || []).map((id) => LIB?.byId.get(id)?.name || id);
+  return `<h3>${esc(g.name)}</h3>
+    ${g.typical ? `<p class="small">${esc(Library.TYPICAL_NOTE)}. Untick what isn't there, then confirm.</p>` : '<p class="small">This is the list you confirmed.</p>'}
+    <div class="list">${Library.GEAR.map((gear) => `<label class="check-field"><span>${esc(gear)}</span><input type="checkbox" data-gear="${esc(gear)}" ${g.gear.includes(gear) ? 'checked' : ''}></label>`).join('')}</div>
+    <button type="button" data-act="gym-confirm" data-id="${esc(g.id)}" data-pid="${esc(pid || '')}" data-did="${esc(did || '')}">I've checked this list</button>
+    <p class="small">Machines added here: ${names.length ? esc(names.join(', ')) : 'none yet'}.</p>
+    <button type="button" data-act="lib-open" data-mode="gym">Add a machine that's here</button>`;
+}
+function openGymFit(pid, did) {
+  const gym = currentGym();
+  const prog = S.programs[pid];
+  const day = prog?.days.find((d) => d.id === did);
+  if (!gym || !day) return;
+  const run = () => {
+    const rows = day.exercises.map((e) => {
+      const known = libFor(e);
+      const g = Library.guess(e.name);
+      const item = known || { name: e.name, equipment: g.equipment, primary: [g.primary], joints: g.joints, category: g.category };
+      return { name: e.name, item, swaps: Cut.swapsFor(e.name) };
+    });
+    const plan = Library.fitPlan(rows, gym, LIB.items).map((p, i) => ({ ...p, exId: day.exercises[i].id }));
+    gymPlan = plan;
+    const line = (p, i) => {
+      if (!p.replacement) return `<p class="small"><b>${esc(p.name)}</b> — ${p.reason === 'missing' ? 'no match in this kit' : 'keep'}</p>`;
+      const why = p.reason === 'missing' ? 'Not in the kit list' : p.reason === 'avoid' ? 'Tagged avoid for a joint' : 'Kinder option. Tick to use it.';
+      return `<label class="check-field"><span><b>${esc(p.name)}</b> → ${esc(p.replacement.name)}<br><span class="muted small">${esc(why)}</span></span><input type="checkbox" name="swap" value="${i}" ${p.action === 'swap' ? 'checked' : ''}></label>`;
+    };
+    openSheet(`Fit ${day.name}`, `<form id="gym-fit-form" class="grid1" data-pid="${esc(pid)}" data-did="${esc(did)}">
+      <p class="small">${esc(gym.name)}. ${gym.typical ? esc(Library.TYPICAL_NOTE) + '. ' : ''}The day's muscles stay. Swaps use kit on the list and skip anything tagged avoid.</p>
+      ${plan.map(line).join('') || '<p>No exercises on this day.</p>'}
+      <label class="check-field"><span>Save the swaps on this day</span><input type="checkbox" name="remember" ${ui.editProgram ? 'checked' : ''}></label>
+      <button class="primary" type="submit">Apply</button>
+      <p class="muted small">${esc(Library.GUIDANCE)}</p>
+    </form>`);
+  };
+  if (LIB) run(); else loadLib().then(run, () => toast('Couldn\'t load the exercise library'));
+}
+function openMachineResult() {
+  const pick = machinePick;
+  if (!pick) return;
+  const note = pick.note || 'The phone reads words on the sticker. It works offline after the nutrition-label reader has downloaded once. Stylised logos often don\'t read, so you confirm the match.';
+  openSheet('Which machine is this?', `
+    <img data-thumb="${esc(pick.photoId)}" alt="The machine you photographed" class="exthumb">
+    <p class="small">${esc(note)}</p>
+    ${pick.text ? `<p class="muted small">Read: ${esc(String(pick.text).replace(/\s+/g, ' ').slice(0, 180))}</p>` : '<p class="small">No words came off the photo. Name it yourself.</p>'}
+    ${(pick.matches || []).map((m) => `<button type="button" data-act="machine-use" data-lib="${esc(m.id)}">Use ${esc(m.name)}</button>`).join('')}
+    <button type="button" data-act="machine-create">None of these. Create "${esc(pick.title || 'a new exercise')}"</button>
+    ${currentGym() ? '<label class="check-field"><span>This machine is at my current gym</span><input type="checkbox" id="machine-at-gym" checked></label>' : ''}`);
+  paintThumbs(document.querySelector('.sheet'));
+}
+async function onMachineFile(file) {
+  const photoId = `mx-${uid()}`;
+  try { await Photos.addThumb(photoId, file); } catch { toast('Couldn\'t save the photo'); return; }
+  let text = '';
+  let note = 'The phone reads words on the sticker. It works offline after the nutrition-label reader has downloaded once. Stylised logos often don\'t read, so you confirm the match.';
+  try {
+    const read = await Label.readImage(file);
+    if (read?.text) text = read.text;
+    if (read && read.ok === false && read.error) note = `${read.error} You can still name it.`;
+  } catch { /* the form still works */ }
+  try { if (!LIB) await loadLib(); } catch { /* suggestions need the library */ }
+  const found = LIB ? Library.matchMachineText(text, LIB.items) : { matches: [], title: '' };
+  machinePick = { photoId, text, title: found.title || '', matches: found.matches || [], note };
+  openMachineResult();
 }
 
 function viewTrainHistory() {
@@ -1607,7 +1959,7 @@ function viewTrainHistory() {
   </section>
   <section class="card">
     <h2>Personal records <span class="right">estimated 1-rep max</span></h2>
-    ${recs.length ? `<div class="list">${recs.map((r) => `<button class="linkish row between" data-act="chart-ex" data-v="${esc(exKey(r.name))}"><span class="grow"><b>${esc(r.name)}</b><br><span class="muted small">${setText(r.set)} · ${fmtDate(r.date)}</span></span><b class="nowrap">${fmtNum(round1(r.e1rm))} kg</b></button>`).join('')}</div><p class="muted small">Tap one to chart it above.</p>` : '<p class="muted">Records appear once you log weight and reps.</p>'}
+    ${recs.length ? `<div class="list">${recs.map((r) => `<button class="linkish row between" data-act="chart-ex" data-v="${esc(historyKey(r.name))}"><span class="grow"><b>${esc(r.name)}</b><br><span class="muted small">${setText(r.set)} · ${fmtDate(r.date)}</span></span><b class="nowrap">${fmtNum(round1(r.e1rm))} kg</b></button>`).join('')}</div><p class="muted small">Tap one to chart it above.</p>` : '<p class="muted">Records appear once you log weight and reps.</p>'}
   </section>`;
 }
 
@@ -2762,7 +3114,9 @@ function render(opts = {}) {
   if (opts.scrollTop) window.scrollTo(0, 0);
   if (ui.tab === 'body' && ui.sub.body === 'measure') fillPhotos();
   if (ui.tab === 'diary') fillDiary();
-  if (ui.tab === 'train' && !LIB) loadLib().then(() => { if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
+  if (ui.tab === 'train' && !LIB) loadLib().then(() => { warmProgramImages(); if (ui.tab === 'train' && !document.querySelector('.sheet-wrap') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) render(); }, () => {});
+  else if (ui.tab === 'train') warmProgramImages();
+  paintThumbs();
   armFastClock();
   armSessionLoop();
   const sessionBarEl = document.getElementById('session-bar');
@@ -2790,20 +3144,36 @@ function findEx(pid, did, eid) {
   return { prog, day, i, ex: i >= 0 ? day.exercises[i] : null };
 }
 
+function loggedSets(dr, mode) {
+  const warm = (dr.warmups || []).map((s) => ({ kg: num(s?.kg), reps: num(s?.reps), wu: true }));
+  const work = (dr.sets || []).map((s) => {
+    const out = { kg: num(s?.kg), reps: mode === 'singles' ? (num(s?.kg) != null ? 1 : null) : mode === 'hold' ? null : num(s?.reps), hold: num(s?.hold) };
+    if (s?.wu) out.wu = true;
+    return out;
+  });
+  return [...warm, ...work].filter(hasData).map((s) => {
+    const out = s.hold == null ? { kg: s.kg, reps: s.reps } : { kg: s.kg, reps: s.reps, hold: s.hold };
+    if (s.wu) out.wu = true;
+    return out;
+  });
+}
 function completeSession(pid, did) {
   const prog = S.programs[pid];
   const day = prog.days.find((d) => d.id === did);
   const draft = getDraft(pid, did);
-  const entries = day.exercises.map((e) => {
+  const all = [...day.exercises, ...(draft._once || [])];
+  const entries = all.map((e) => {
     const dr = draft[e.id] || {};
     const mode = logMode(e);
-    const sets = (dr.sets || []).map((s) => ({ kg: num(s?.kg), reps: mode === 'singles' ? (num(s?.kg) != null ? 1 : null) : mode === 'hold' ? null : num(s?.reps), hold: num(s?.hold) }))
-      .filter(hasData)
-      .map((s) => (s.hold == null ? { kg: s.kg, reps: s.reps } : s));
+    const sets = loggedSets(dr, mode);
     const lifted = (dr.swap && String(dr.swap.name || '').trim()) || e.name;
     const note = [dr.swap?.why, (dr.note || '').trim()].filter(Boolean).join(' · ');
     return { exId: e.id, name: lifted, tech: e.tech || '', sets, note };
   }).filter((e) => e.sets.length || e.note);
+  if (day.exercises.some((e) => e.flash)) {
+    day.exercises = day.exercises.filter((e) => !e.flash);
+    prog.edited = true;
+  }
   const sess = draft._session || {};
   const w = { id: uid(), date: today(), at: new Date().toISOString(), programId: pid, programName: prog.name, family: prog.family, dayId: did, dayName: day.name, entries };
   if (sess.startedAt) w.sec = Session.elapsedSec(sess.startedAt, Date.now());
@@ -2869,18 +3239,51 @@ document.addEventListener('click', (e) => {
     case 'set-add': case 'set-del': {
       const dr = (getDraft(pid, did)[eid] ||= {});
       dr.extra = Math.max(0, (Number(dr.extra) || 0) + (a === 'set-add' ? 1 : -1));
-      if (a === 'set-del') { const { ex } = findEx(pid, did, eid); dr.sets?.splice((Number(ex.sets) || 1) + dr.extra, 1); }
+      if (a === 'set-del') { const { ex } = currentEx(pid, did, eid); dr.sets?.splice((Number(ex?.sets) || 1) + dr.extra, 1); }
       saveDrafts(); render(); return;
     }
     case 'copy-last': {
-      const { ex } = findEx(pid, did, eid);
-      const last = lastEntryFor(ex.name);
-      if (!last) return;
+      const { ex } = currentEx(pid, did, eid);
+      const shown = getDraft(pid, did)[eid]?.swap?.name || ex?.name;
+      const last = lastEntryFor(shown);
+      if (!last || !ex) return;
       const dr = (getDraft(pid, did)[eid] ||= {});
-      const sets = last.entry.sets.filter(hasData);
+      const sets = last.entry.sets.filter((s) => hasData(s) && !s.wu);
       dr.sets = sets.map((s) => ({ kg: s.kg ?? '', reps: s.reps ?? '', hold: s.hold ?? '' }));
       dr.extra = Math.max(0, sets.length - (Number(ex.sets) || 1));
       saveDrafts(); render(); return;
+    }
+    case 'set-wu': {
+      const dr = (getDraft(pid, did)[eid] ||= {});
+      const i = Number(el.dataset.i);
+      dr.sets ||= [];
+      const row = (dr.sets[i] ||= {});
+      row.wu = !row.wu;
+      saveDrafts(); render(); return;
+    }
+    case 'warmup-del': {
+      const dr = getDraft(pid, did)[eid];
+      if (dr?.warmups) dr.warmups.splice(Number(el.dataset.i), 1);
+      saveDrafts(); render(); return;
+    }
+    case 'warmup-ramp': {
+      const { ex } = currentEx(pid, did, eid);
+      if (!ex) return;
+      const shown = getDraft(pid, did)[eid]?.swap?.name || ex.name;
+      const last = lastEntryFor(shown);
+      const work = (last?.entry.sets || []).filter((s) => s && !s.wu && s.kg > 0);
+      const top = work.reduce((m, s) => Math.max(m, Number(s.kg) || 0), 0);
+      const step = (S.settings.plates || []).filter((n) => n > 0).sort((a, b) => a - b)[0] || 2.5;
+      const roundTo = (n) => (n > 0 ? Math.max(step, Math.round(n / step) * step) : '');
+      const dr = (getDraft(pid, did)[eid] ||= {});
+      dr.warmups = [{ kg: roundTo(top * 0.5), reps: 8 }, { kg: roundTo(top * 0.7), reps: 4 }];
+      saveDrafts(); render(); return;
+    }
+    case 'plates-open': {
+      const { ex } = currentEx(pid, did, eid);
+      const kg = ex ? (getDraft(pid, did)[eid]?.sets || []).map((s) => num(s?.kg)).filter((n) => n > 0).pop() : null;
+      openPlates(kg || '');
+      return;
     }
     case 'rp-timer': restTimer(el); return;
     case 'rest-now': startRest(pid, did, eid, true); return;
@@ -2888,7 +3291,7 @@ document.addEventListener('click', (e) => {
       const sec = Number(el.dataset.v);
       const { ex } = findEx(pid, did, eid);
       if (!ex || !Session.REST_CHOICES.includes(sec)) return;
-      (S.settings.restByName ||= {})[exKey(ex.name)] = sec;
+      (S.settings.restByName ||= {})[historyKey(ex.name)] = sec;
       const sess = sessionOf(pid, did);
       if (sess.restEnd && Session.restLeft(sess.restEnd, Date.now()) > 0) {
         sess.restEnd = Session.restEndsAt(Date.now(), sec);
@@ -2932,18 +3335,24 @@ document.addEventListener('click', (e) => {
       prog.edited = true; break;
     }
     case 'ex-del': {
+      const once = getDraft(pid, did)._once || [];
+      const oi = once.findIndex((x) => x.id === eid);
+      if (oi >= 0) {
+        once.splice(oi, 1);
+        delete getDraft(pid, did)[eid];
+        saveDrafts(); render(); return;
+      }
       const { prog, day, i, ex } = findEx(pid, did, eid);
+      if (!ex) return;
       ask(`Remove ${ex.name} from ${day.name}?`, 'Remove', () => { day.exercises.splice(i, 1); prog.edited = true; });
       return;
     }
-    case 'ex-add': openLibrary({ mode: 'add', pid, did }); return;
-    case 'ex-add-custom': {
-      ({ pid, did } = libMode || {});
-      closeSheet();
-      const prog = S.programs[pid];
-      if (!prog) return;
-      prog.days.find((d) => d.id === did).exercises.push({ id: uid(), name: 'New exercise', sets: 3, reps: '8–12', note: '', ss: false, tech: '' });
-      prog.edited = true; break;
+    case 'ex-add': openLibrary({ mode: 'add', pid, did, afterId: el.dataset.after || (el.dataset.where === 'log' ? (ui.focusEid || '') : ''), where: el.dataset.where || (ui.editProgram ? 'edit' : 'log') }); return;
+    case 'ex-add-custom':
+    case 'ex-create': {
+      const name = document.getElementById('lib-q')?.value.trim() || '';
+      openCreate(name && name !== 'a new exercise' ? Library.guess(name) : {});
+      return;
     }
     case 'day-add': {
       const prog = S.programs[pid];
@@ -3055,13 +3464,13 @@ document.addEventListener('click', (e) => {
     case 'photo-all': ui.photoAll = ui.photoAll === el.dataset.v ? null : el.dataset.v; fillPhotos(); return;
     case 'photo-del': ask('Delete this photo?', 'Delete', () => { const id = el.dataset.id; S.photos = (S.photos || []).filter((p) => p.id !== id); Photos.remove(id).then(() => render(), () => toast('Couldn\'t delete it')); }); return;
     case 'swap-open': {
-      const { ex } = findEx(pid, did, eid);
+      const { ex } = currentEx(pid, did, eid);
       if (!ex) return;
       const dr = getDraft(pid, did)[eid] || {};
       const lifted = (dr.swap && dr.swap.name) || ex.name;
       const options = Cut.swapsFor(lifted);
       const list = options.length
-        ? options.map((o) => `<button type="button" class="linkish" data-act="swap-pick" data-pid="${esc(pid)}" data-did="${esc(did)}" data-eid="${esc(eid)}" data-name="${esc(o.name)}" data-why="${esc(o.why)}"><b>${esc(o.name)}</b><br><span class="muted small">${esc(o.area)}</span><br><span class="small">${esc(o.why)}</span></button>`).join('')
+        ? options.map((o) => `<button type="button" class="linkish" data-act="swap-pick" data-pid="${esc(pid)}" data-did="${esc(did)}" data-eid="${esc(eid)}" data-name="${esc(o.name)}" data-why="${esc(o.why)}" data-lib="${esc(o.libId || '')}"><b>${esc(o.name)}</b><br><span class="muted small">${esc(o.area)}</span><br><span class="small">${esc(o.why)}</span></button>`).join('')
         : `<p>No kinder swap is listed for ${esc(lifted)}.</p>`;
       const clear = dr.swap ? `<button type="button" data-act="swap-clear" data-pid="${esc(pid)}" data-did="${esc(did)}" data-eid="${esc(eid)}">Use ${esc(ex.name)} again</button>` : '';
       openSheet('Swap', `${list}${clear}<p class="muted small">${esc(Cut.PHYSIO)}</p>`);
@@ -3069,7 +3478,7 @@ document.addEventListener('click', (e) => {
     }
     case 'swap-pick': {
       const dr = (getDraft(pid, did)[eid] ||= {});
-      dr.swap = { name: el.dataset.name, why: el.dataset.why };
+      dr.swap = { name: el.dataset.name, why: el.dataset.why, libId: el.dataset.lib || '' };
       saveDrafts(); closeSheet(); render(); return;
     }
     case 'swap-clear': {
@@ -3101,27 +3510,117 @@ document.addEventListener('click', (e) => {
     case 'lib-back': if (libMode) openLibrary(libMode); return;
     case 'lib-howto': { const l = LIB?.byId.get(el.dataset.lib); if (l) openHowTo(l, true); return; }
     case 'howto': {
-      const { ex } = findEx(pid, did, eid);
-      const l = ex && libFor(ex);
-      if (l) openHowTo(l, false); else openLibrary({ mode: 'swap', pid, did, eid });
+      const { ex } = currentEx(pid, did, eid);
+      const l = ex && libForShown(ex, getDraft(pid, did)[eid]);
+      if (l) openHowTo(l, false); else openLibrary({ mode: 'swap', pid, did, eid, where: 'log' });
       return;
     }
     case 'lib-pick': {
       const l = LIB?.byId.get(el.dataset.lib);
       const m = libMode;
       if (!l || !m) return;
-      const prog = S.programs[m.pid];
-      const day = prog?.days.find((d) => d.id === m.did);
+      if (m.mode === 'gym') {
+        const g = currentGym();
+        if (g && !g.machines.includes(l.id)) g.machines.push(l.id);
+        closeSheet(); toast(`${l.name} added to ${g?.name || 'this gym'}`); break;
+      }
+      if (m.mode === 'add') {
+        placeNew([exerciseFromItem(l)]);
+        closeSheet(); toast(`${l.name} added`); break;
+      }
+      const { prog, day, ex } = currentEx(m.pid, m.did, m.eid);
+      if (!ex || !prog) return;
+      if (m.mode === 'live-swap') {
+        const remember = document.getElementById('swap-remember')?.checked;
+        if (remember && day?.exercises?.includes(ex)) {
+          const prev = ex.name;
+          ex.name = l.name; ex.libId = l.id;
+          if (!aliasConflict(exKey(l.name), historyKey(prev))) rememberAlias(l.name, prev);
+          prog.edited = true;
+          const dr = getDraft(m.pid, m.did)[ex.id];
+          if (dr) delete dr.swap;
+        } else {
+          const dr = (getDraft(m.pid, m.did)[ex.id] ||= {});
+          dr.swap = { name: l.name, why: 'For this workout', libId: l.id };
+          saveDrafts();
+        }
+        closeSheet(); toast(`Swapped to ${l.name}`); break;
+      }
       if (!day) return;
-      if (m.mode === 'add') { day.exercises.push({ id: uid(), name: l.name, sets: 3, reps: '8–12', note: '', ss: false, tech: '', libId: l.id }); toast(`${l.name} added`); }
+      if (el.dataset.link) { ex.libId = l.id; toast('Linked: How to do it now shows this one'); }
       else {
-        const ex = day.exercises.find((x) => x.id === m.eid);
-        if (!ex) return;
-        if (el.dataset.link) { ex.libId = l.id; toast('Linked: How to do it now shows this one'); }
-        else { ex.name = l.name; ex.libId = l.id; toast(`Swapped to ${l.name}`); }
+        const prev = ex.name;
+        ex.name = l.name; ex.libId = l.id;
+        if (prev !== l.name && !aliasConflict(exKey(l.name), historyKey(prev))) rememberAlias(l.name, prev);
+        toast(`Swapped to ${l.name}`);
       }
       prog.edited = true;
       closeSheet(); break;
+    }
+    case 'lib-add-many': {
+      const ids = [...(libMode?.picked || [])];
+      const list = ids.map((id) => LIB?.byId.get(id)).filter(Boolean).map((l) => exerciseFromItem(l));
+      if (!list.length) { toast('Tick the exercises to add'); return; }
+      placeNew(list);
+      closeSheet(); toast(list.length === 1 ? `${list[0].name} added` : `${list.length} exercises added`); break;
+    }
+    case 'lib-kind':
+      S.settings.kindJoints = !S.settings.kindJoints;
+      el.setAttribute('aria-pressed', S.settings.kindJoints ? 'true' : 'false');
+      save(); drawLib(); return;
+    case 'lib-mine':
+      ui.libMine = !ui.libMine;
+      el.setAttribute('aria-pressed', ui.libMine ? 'true' : 'false');
+      drawLib(); return;
+    case 'ex-custom-edit': {
+      const c = (S.customExercises || []).find((x) => x.id === el.dataset.lib);
+      if (c) openCreate(c);
+      return;
+    }
+    case 'ex-custom-del': {
+      const id = el.dataset.lib;
+      ask('Delete this exercise from your list? Workouts that already use the name keep it.', 'Delete', () => {
+        S.customExercises = (S.customExercises || []).filter((x) => x.id !== id);
+        if (LIB_RAW) refreshLib();
+      });
+      return;
+    }
+    case 'ex-duplicate': {
+      const l = LIB?.byId.get(el.dataset.lib);
+      if (!l) return;
+      const g = Library.guess(l.name);
+      openCreate({ name: l.name, equipment: Library.GEAR.includes(l.equipment) ? l.equipment : g.equipment, primary: l.primary, joints: l.joints, type: g.type, sets: 3, reps: '8–12' });
+      return;
+    }
+    case 'gym-open': openGym(pid, did); return;
+    case 'gym-pick': {
+      S.settings.currentGym = el.dataset.id;
+      save();
+      render();
+      openGym(el.dataset.pid, el.dataset.did);
+      return;
+    }
+    case 'gym-confirm': {
+      const g = (S.gyms || []).find((x) => x.id === el.dataset.id);
+      if (g) g.typical = false;
+      save(); toast('Gym list saved'); openGym(el.dataset.pid, el.dataset.did); return;
+    }
+    case 'gym-fit': openGymFit(pid, did); return;
+    case 'machine-use': {
+      const l = LIB?.byId.get(el.dataset.lib);
+      if (!l || !machinePick) return;
+      (S.exPhotos ||= {})[l.id] = machinePick.photoId;
+      if (document.getElementById('machine-at-gym')?.checked && currentGym() && !currentGym().machines.includes(l.id)) currentGym().machines.push(l.id);
+      if (libMode?.mode === 'add' && libMode.pid) placeNew([exerciseFromItem(l)]);
+      const name = l.name;
+      machinePick = null;
+      closeSheet(); toast(libMode?.pid ? `${name} added` : `Photo saved on ${name}`); break;
+    }
+    case 'machine-create': {
+      const pick = machinePick;
+      const g = Library.guess(pick?.title || '');
+      openCreate({ ...g, name: pick?.title || '', photoId: pick?.photoId || '', primary: g.primary });
+      return;
     }
     case 'chart-ex': ui.chartEx = el.dataset.v; render(); document.getElementById('progress-card')?.scrollIntoView({ block: 'start' }); return;
     case 'chart-pt': {
@@ -3264,7 +3763,7 @@ document.addEventListener('click', (e) => {
       startYoutubeUpload(entry);
       return;
     }
-    case 'reset-all': ask('Delete all of this app\'s data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); Diary.clear().catch(() => {}); }); return;
+    case 'reset-all': ask('Delete all of this app\'s data on this phone? This can\'t be undone.', 'Delete everything', () => { S = freshState(); ui.drafts = {}; saveDrafts(); Photos.clear().catch(() => {}); Photos.clearThumbs?.().catch(() => {}); Diary.clear().catch(() => {}); }); return;
     default: return;
   }
   commit();
@@ -3276,9 +3775,14 @@ document.addEventListener('input', (e) => {
   if (t.id === 'compare-range') { paintCompare(); return; }
   if (t.dataset.draft) {
     const [pid, did, eid, s, field] = t.dataset.draft.split('|');
+    ui.focusEid = eid;
     const dr = (getDraft(pid, did)[eid] ||= {});
     if (s === 'note') dr.note = t.value;
-    else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; noteSet(pid, did, eid, Number(s)); }
+    else if (String(s).startsWith('wu')) {
+      const i = Number(String(s).slice(2));
+      dr.warmups ||= [];
+      (dr.warmups[i] ||= {})[field] = t.value;
+    } else { dr.sets ||= []; (dr.sets[Number(s)] ||= {})[field] = t.value; if (!dr.sets[Number(s)].wu) noteSet(pid, did, eid, Number(s)); }
     saveDrafts();
     const live = t.closest('.excard')?.querySelector('.pr-live');
     if (live && s !== 'note') {
@@ -3338,7 +3842,22 @@ document.addEventListener('change', (e) => {
     else if (ex) {
       if (k === 'ss') ex.ss = t.checked;
       else if (k === 'sets') ex.sets = Math.max(1, Math.round(num(t.value) || 1));
-      else if (k === 'name') { if (t.value.trim()) ex.name = t.value.trim(); }
+      else if (k === 'name') {
+        const next = t.value.trim();
+        if (!next || next === ex.name) { /* unchanged */ }
+        else {
+          const prev = ex.name;
+          const oldK = historyKey(prev);
+          const newK = exKey(next);
+          ex.name = next;
+          if (newK !== oldK && aliasConflict(newK, oldK)) {
+            save();
+            ask(`"${next}" already has its own log. Merge it with ${prev}?`, 'Merge logs', () => { rememberAlias(next, prev); toast('Logs merged. One history for both names.'); });
+            return;
+          }
+          if (newK !== oldK) { rememberAlias(next, prev); toast('Renamed. Your log stays with this lift.'); }
+        }
+      }
       else ex[k] = t.value;
     }
     prog.edited = true;
@@ -3402,6 +3921,30 @@ document.addEventListener('change', (e) => {
     const file = t.files?.[0];
     t.value = '';
     if (file) readLabelFile(file);
+    return;
+  }
+  if (t.id === 'machine-file') {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) onMachineFile(file);
+    return;
+  }
+  if (t.dataset.gear && currentGym()) {
+    const g = currentGym();
+    const gear = t.dataset.gear;
+    g.gear = t.checked ? [...new Set([...g.gear, gear])] : g.gear.filter((x) => x !== gear);
+    save();
+    return;
+  }
+  if (t.matches?.('[data-lib-tick]')) {
+    if (libMode) {
+      libMode.picked ||= new Set();
+      if (t.checked) libMode.picked.add(t.dataset.libTick);
+      else libMode.picked.delete(t.dataset.libTick);
+    }
+    const n = libMode?.picked?.size || 0;
+    const b = document.getElementById('lib-add-many');
+    if (b) b.textContent = n ? `Add ${n}` : 'Add selected';
     return;
   }
   if (t.id === 'restore-file') {
@@ -3619,6 +4162,78 @@ document.addEventListener('submit', (e) => {
       const cur = f.dataset.id && S.myFoods.find((x) => x.id === f.dataset.id);
       if (cur) Object.assign(cur, data); else S.myFoods.push({ id: uid(), ...data });
       closeSheet(); toast('Food saved'); break;
+    }
+    case 'ex-create-form': {
+      const name = String(fd.get('name') || '').trim();
+      if (!name) { toast('Name the exercise'); return; }
+      const joints = {};
+      for (const a of Library.JOINTS) joints[a] = String(fd.get(`j-${a}`) || 'ok');
+      const data = Library.cleanCustom({
+        id: f.dataset.id || `cx-${uid()}`,
+        name,
+        equipment: fd.get('equipment'),
+        primary: [fd.get('primary')],
+        category: /walk/.test(name.toLowerCase()) ? 'cardio' : 'strength',
+        type: fd.get('type'),
+        joints,
+        steps: [],
+        photoId: fd.get('photoId') || '',
+      });
+      if (!data) return;
+      const cur = (S.customExercises ||= []).find((x) => x.id === data.id);
+      const prevName = cur?.name;
+      if (cur) Object.assign(cur, data);
+      else S.customExercises.push(data);
+      if (prevName && prevName !== data.name && !aliasConflict(exKey(data.name), historyKey(prevName))) rememberAlias(data.name, prevName);
+      if (LIB_RAW) refreshLib();
+      const made = LIB?.byId.get(data.id);
+      if (!cur && made && libMode?.pid) placeNew([exerciseFromItem(made, Math.max(1, Math.round(num(fd.get('sets')) || 3)), String(fd.get('reps') || '8–12'))]);
+      closeSheet();
+      toast(cur ? 'Exercise updated' : `${data.name} saved. You can search for it next time.`);
+      break;
+    }
+    case 'plate-form': {
+      const target = num(fd.get('target'));
+      const bar = num(fd.get('bar'));
+      const list = String(fd.get('plates') || '').split(/[^0-9.]+/).map(Number).filter((n) => n > 0 && n <= 60);
+      if (bar > 0) S.settings.barKg = bar;
+      if (list.length) S.settings.plates = list;
+      const plan = Library.plates(target, S.settings.barKg, S.settings.plates);
+      const out = document.getElementById('plate-out');
+      if (out) out.textContent = plan.text || plan.reason || '';
+      save();
+      return;
+    }
+    case 'gym-fit-form': {
+      const prog = S.programs[f.dataset.pid];
+      const day = prog?.days.find((d) => d.id === f.dataset.did);
+      if (!prog || !day || !gymPlan) return;
+      const picked = new Set(fd.getAll('swap').map(Number));
+      const remember = !!fd.get('remember');
+      let n = 0;
+      for (const i of picked) {
+        const p = gymPlan[i];
+        const ex = day.exercises.find((e) => e.id === p?.exId);
+        if (!p?.replacement || !ex) continue;
+        if (remember) {
+          const prev = ex.name;
+          ex.name = p.replacement.name;
+          ex.libId = p.replacement.id;
+          if (!aliasConflict(exKey(ex.name), historyKey(prev))) rememberAlias(ex.name, prev);
+          prog.edited = true;
+          const dr = getDraft(prog.id, day.id)[ex.id];
+          if (dr) delete dr.swap;
+        } else {
+          const dr = (getDraft(prog.id, day.id)[ex.id] ||= {});
+          dr.swap = { name: p.replacement.name, why: 'For this gym', libId: p.replacement.id };
+          saveDrafts();
+        }
+        n += 1;
+      }
+      gymPlan = null;
+      closeSheet();
+      toast(n ? `${n} exercise${n === 1 ? '' : 's'} swapped for this gym` : 'No swaps ticked');
+      break;
     }
     default: return;
   }

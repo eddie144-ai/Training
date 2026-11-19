@@ -1247,6 +1247,124 @@ await test('streak saver: yesterday can take a weight and a Gironda meal without
   await ctx.close();
 });
 
+await test('add an exercise from the workout: shorthand, several at once, and a saved one', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-10-05' }, chains: [] } });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByLabel('Search').fill('rdl');
+  await page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Romanian Deadlift hamstrings/ }) }).first().getByRole('button', { name: 'Add', exact: true }).click();
+  let s = await state(page);
+  assert(s.programs.my4week.days[0].exercises.at(-1).name === 'Romanian Deadlift', 'one tap from the list adds it');
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByLabel('Search').fill('pec deck');
+  await page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Pec deck chest/ }) }).first().locator('input[type="checkbox"]').check();
+  await page.getByLabel('Search').fill('bird dog');
+  await page.locator('#lib-list .row').filter({ has: page.getByRole('button', { name: /^Bird dog/ }) }).first().locator('input[type="checkbox"]').check();
+  await page.getByRole('button', { name: 'Add 2' }).click();
+  s = await state(page);
+  const names = s.programs.my4week.days[0].exercises.map((e) => e.name);
+  assert(names.includes('Pec deck') && names.includes('Bird dog'), `added ${names.join(', ')}`);
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByLabel('Search').fill('Tuesday belt squat');
+  await page.getByRole('button', { name: 'Create "Tuesday belt squat"' }).click();
+  await page.locator('#ex-create-form').getByRole('button', { name: 'Save' }).click();
+  s = await state(page);
+  assert(s.customExercises.some((e) => e.name === 'Tuesday belt squat'), 'saved to the personal library');
+  assert(s.programs.my4week.days[0].exercises.some((e) => e.name === 'Tuesday belt squat'), 'and added to the day');
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.getByRole('button', { name: 'Mine' }).click();
+  await page.getByLabel('Search').fill('tuesday belt');
+  assert(await page.locator('#lib-list').getByRole('button', { name: /^Tuesday belt squat/ }).isVisible(), 'search finds it later');
+  const backup = await page.evaluate(() => JSON.stringify({ kind: 'gym-fuel-backup', state: S }));
+  assert(backup.includes('Tuesday belt squat') && backup.includes('PureGym Aberdeen Shiprow'), 'backup keeps the new data');
+  const restored = await page.evaluate(() => {
+    const old = { settings: { kcalGoal: 1800 }, workouts: [{ id: 'w', date: '2026-10-01', entries: [{ name: 'Squat', sets: [{ kg: 100, reps: 5 }] }] }], meals: [{ id: 'm', name: 'Eggs' }] };
+    const n = normalise(old);
+    return { kcal: n.settings.kcalGoal, meals: n.meals.length, workouts: n.workouts.length, gyms: n.gyms.length, custom: n.customExercises.length };
+  });
+  assert(restored.kcal === 1800 && restored.meals === 1 && restored.workouts === 1 && restored.gyms === 5 && restored.custom === 0, `old backup ${JSON.stringify(restored)}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('rename keeps the log, warm-ups are not records, and plates show each side', async () => {
+  const { page, ctx, errors } = await open({
+    own: {
+      v: 1,
+      settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-10-05' },
+      chains: [],
+      workouts: [{ id: 'w', date: '2026-10-01', at: '2026-10-01T18:00:00.000Z', dayName: 'Legs', entries: [{ name: 'Barbell Squat', sets: [{ kg: 100, reps: 5 }, { kg: 40, reps: 8, wu: true }] }] }],
+    },
+  });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: /Day 2 · Legs/ }).first().click();
+  await page.getByRole('button', { name: 'Edit exercises' }).click();
+  const squat = page.locator('.excard').filter({ has: page.locator('input[value="Barbell Squat"]') }).first();
+  await squat.getByLabel('Exercise').fill('High bar squat');
+  await squat.getByLabel('Exercise').blur();
+  const merged = await page.evaluate(() => ({ alias: S.exAliases, best: Cut.personalRecords(S.workouts, S.exAliases).find((r) => /squat/i.test(r.name)) }));
+  assert(merged.alias['high bar squat'] === 'barbell squat', `alias ${JSON.stringify(merged.alias)}`);
+  assert(merged.best && merged.best.bestKg === 100, `history kept ${JSON.stringify(merged.best)}`);
+  await page.getByRole('button', { name: 'Done editing' }).click();
+  await page.getByRole('button', { name: 'Plates' }).first().click();
+  await page.getByLabel('Weight on the bar (kg)').fill('60');
+  await page.getByRole('button', { name: 'Work it out' }).click();
+  await page.getByText('Each side: 20').waitFor();
+  await page.getByRole('button', { name: 'Close' }).click();
+  const card = page.locator('.excard', { hasText: 'High bar squat' }).first();
+  await card.getByRole('button', { name: 'Warm-up ramp' }).click();
+  await card.getByLabel(/warm-up 1 kg/).fill('50');
+  await card.getByLabel(/warm-up 1 reps/).fill('8');
+  await card.getByLabel('High bar squat set 1 kg').fill('110');
+  await card.getByLabel('High bar squat set 1 reps').fill('3');
+  await page.getByRole('button', { name: 'Complete session' }).click();
+  const after = await page.evaluate(() => {
+    const w = S.workouts.at(-1);
+    const rec = Cut.personalRecords(S.workouts, S.exAliases).find((r) => /squat/i.test(r.name));
+    return { sets: w.entries[0].sets, best: rec.bestKg };
+  });
+  assert(after.sets.some((s) => s.wu && s.kg === 50) && after.sets.some((s) => !s.wu && s.kg === 110), `sets ${JSON.stringify(after.sets)}`);
+  assert(after.best === 110, `record ignores the warm-up, best ${after.best}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('gyms start as a labelled guess and a kinder swap is offered for this gym', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-11-09' }, chains: [] }, time: '2026-11-11T12:00:00Z' });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: 'Choose gym' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Gym' });
+  await sheet.getByRole('button', { name: /PureGym Aberdeen Shiprow/ }).click();
+  await sheet.getByText('Typical, please confirm').first().waitFor();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: /Back, Biceps/ }).first().click();
+  await page.getByRole('button', { name: 'Fit this day to the gym' }).click();
+  const fit = page.getByRole('dialog', { name: /Fit / });
+  await fit.getByText('Typical, please confirm').waitFor();
+  await fit.getByText(/Chest-supported row/).waitFor();
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('a machine photo suggests a library exercise and keeps the thumbnail id', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true, cycleStart: '2026-10-05' }, chains: [] } });
+  await noImages(page);
+  await page.locator('nav').getByRole('button', { name: 'Train' }).click();
+  await page.getByRole('button', { name: '+ Add exercise' }).click();
+  await page.evaluate(() => { Label.readImage = async () => ({ ok: true, text: 'MATRIX\nPEC DECK\n', per: { ok: false } }); });
+  await page.locator('#machine-file').setInputFiles({ name: 'machine.png', mimeType: 'image/png', buffer: PIXEL });
+  await page.getByRole('button', { name: 'Use Pec deck' }).click();
+  const s = await state(page);
+  const added = s.programs.my4week.days[0].exercises.at(-1);
+  assert(added.name === 'Pec deck' && s.exPhotos[added.libId], `photo exercise ${JSON.stringify({ added, photos: s.exPhotos })}`);
+  assert(!JSON.stringify(s).includes('iVBORw0KGgo'), 'the picture stays out of the backup');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

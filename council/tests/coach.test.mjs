@@ -195,7 +195,10 @@ await test('Self-Authoring: import merges faults and analyses, the coach reads t
   ] }));
   await page.click('[data-act="co-mode"][data-v="author"]');
   await page.setInputFiles('#au-import', file);
+  // The file is read after the change event, so wait until the first import has landed before importing again.
+  await page.waitForFunction(() => C().author.faults[0]?.analysis?.guidelines === 'Put a price on every hour.');
   await page.setInputFiles('#au-import', file);
+  await page.waitForFunction(() => C().author.faults.length === 2 && C().author.faults[0].analysis.guidelines === 'Put a price on every hour.');
   eq(await page.evaluate(() => [C().author.faults.length, C().author.faults[0].analysis.guidelines]), [2, 'Put a price on every hour.'], 'imported once, analysis kept');
   assert(await page.evaluate(() => coachSystem('therapist').includes('Often procrastinate') && coachSystem('therapist').includes('Put a price on every hour')), 'in the coach brief');
   await page.click('[data-act="au-view"][data-v="future"]');

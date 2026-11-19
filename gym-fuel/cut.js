@@ -157,13 +157,29 @@ const Cut = (() => {
     return `${m} min`;
   }
 
-  function priorSets(workouts, name) {
-    const key = exKey(name);
+  // Follow a rename alias (new key → older key) so a renamed lift keeps one history. Cycles stop.
+  function resolveKey(name, aliases) {
+    let k = exKey(name);
+    if (!aliases || typeof aliases !== 'object') return k;
+    const seen = new Set();
+    while (typeof aliases[k] === 'string' && aliases[k] && !seen.has(k)) {
+      seen.add(k);
+      k = aliases[k];
+    }
+    return k;
+  }
+  // Whole words and phrases only. "chin" must not match the middle of "machine".
+  function hasTerm(key, term) {
+    return ` ${key} `.includes(` ${term} `);
+  }
+
+  function priorSets(workouts, name, aliases) {
+    const key = resolveKey(name, aliases);
     const sets = [];
     for (const w of workouts || []) {
       for (const e of w?.entries || []) {
-        if (exKey(e?.name) !== key) continue;
-        for (const s of e.sets || []) if (s && s.kg > 0 && s.reps > 0) sets.push({ kg: Number(s.kg), reps: Number(s.reps) });
+        if (resolveKey(e?.name, aliases) !== key) continue;
+        for (const s of e.sets || []) if (s && s.kg > 0 && s.reps > 0 && !s.wu) sets.push({ kg: Number(s.kg), reps: Number(s.reps) });
       }
     }
     return sets;
@@ -187,14 +203,14 @@ const Cut = (() => {
     return flags;
   }
 
-  function personalRecords(workouts) {
+  function personalRecords(workouts, aliases) {
     const by = {};
     for (const w of workouts || []) {
       for (const e of w?.entries || []) {
         if (!e?.name) continue;
-        const key = exKey(e.name);
+        const key = resolveKey(e.name, aliases);
         for (const s of e.sets || []) {
-          if (!(s?.kg > 0) || !(s?.reps > 0)) continue;
+          if (!(s?.kg > 0) || !(s?.reps > 0) || s.wu) continue;
           const rec = by[key] || (by[key] = { name: e.name, bestKg: 0, bestKgReps: 0, bestKgDate: '', bestE1: 0, bestE1Kg: 0, bestE1Reps: 0, bestE1Date: '' });
           if (s.kg > rec.bestKg + 0.001 || (Math.abs(s.kg - rec.bestKg) < 0.05 && s.reps > rec.bestKgReps)) {
             rec.bestKg = Number(s.kg); rec.bestKgReps = Number(s.reps); rec.bestKgDate = w.date || ''; rec.name = e.name;
@@ -212,54 +228,54 @@ const Cut = (() => {
   const RULES = [
     { area: 'Lower back', keys: ['barbell deadlift', 'deadlift'], skip: ['romanian'],
       options: [
-        { name: 'Chest-supported row', why: 'Your chest takes the load, so the lower back is not holding a conventional deadlift.' },
-        { name: 'Seated machine row', why: 'The pad supports you. Skip conventional deadlifts and good mornings.' },
+        { name: 'Chest-supported row', libId: 'ie-chest-supported-row', why: 'Your chest takes the load, so the lower back is not holding a conventional deadlift.' },
+        { name: 'Seated machine row', libId: 'ie-machine-seated-row', why: 'The pad supports you. Skip conventional deadlifts and good mornings.' },
       ] },
     { area: 'Lower back', keys: ['good morning'],
       options: [
-        { name: 'Hip thrust', why: 'The hips work on a bench. A good morning loads the lower back.' },
+        { name: 'Hip thrust', libId: 'Barbell_Hip_Thrust', why: 'The hips work on a bench. A good morning loads the lower back.' },
       ] },
     { area: 'Lower back', keys: ['bent over row', 'barbell row'],
       options: [
-        { name: 'Chest-supported dumbbell row', why: 'The chest is supported, instead of hinging under the bar.' },
-        { name: 'Seated machine row', why: 'A machine row keeps the lower back out of the lift.' },
+        { name: 'Chest-supported dumbbell row', libId: 'ie-chest-supported-db-row', why: 'The chest is supported, instead of hinging under the bar.' },
+        { name: 'Seated machine row', libId: 'ie-machine-seated-row', why: 'A machine row keeps the lower back out of the lift.' },
       ] },
     { area: 'Left hip and knees', keys: ['romanian deadlift'],
       options: [
-        { name: 'Hip thrust', why: 'The hips do the work on a bench, with less hinge in the lower back and no deep knee bend.' },
-        { name: 'Leg press, short range', why: 'Stop short of a deep bend so the left hip and knee do less.' },
+        { name: 'Hip thrust', libId: 'Barbell_Hip_Thrust', why: 'The hips do the work on a bench, with less hinge in the lower back and no deep knee bend.' },
+        { name: 'Leg press, short range', libId: 'ie-leg-press-short', why: 'Stop short of a deep bend so the left hip and knee do less.' },
       ] },
     { area: 'Left hip and knees', keys: ['barbell squat', 'squat'], skip: ['box'],
       options: [
-        { name: 'Box squat', why: 'You sit to a box, so the squat stops before a deep bend on the left hip and knee.' },
+        { name: 'Box squat', libId: 'Box_Squat', why: 'You sit to a box, so the squat stops before a deep bend on the left hip and knee.' },
       ] },
     { area: 'Left hip and knees', keys: ['leg press'], skip: ['short'],
       options: [
-        { name: 'Leg press, short range', why: 'Use a short range and stop before the knees travel deep. Kinder on the left hip and knee.' },
+        { name: 'Leg press, short range', libId: 'ie-leg-press-short', why: 'Use a short range and stop before the knees travel deep. Kinder on the left hip and knee.' },
       ] },
     { area: 'Left hip and knees', keys: ['lunge', 'bulgarian'],
       options: [
-        { name: 'Box squat', why: 'A box squat replaces a deep lunge, which loads the left hip and knee.' },
-        { name: 'Leg extension, light', why: 'A light leg extension works the quads without a deep bend.' },
+        { name: 'Box squat', libId: 'Box_Squat', why: 'A box squat replaces a deep lunge, which loads the left hip and knee.' },
+        { name: 'Leg extension, light', libId: 'ie-leg-extension-light', why: 'A light leg extension works the quads without a deep bend.' },
       ] },
     { area: 'Left biceps', keys: ['zottman curl', 'spider curl', 'preacher', 'drag curl', 'bicep pulldown', 'wall curl', 'barbell curl', 'chin'],
       options: [
-        { name: 'Hammer curl', why: 'A neutral grip, instead of a heavy supinated curl or a chin-up, is kinder on the left biceps.' },
-        { name: 'Cable hammer curl', why: 'The cable keeps the wrist neutral and the load steady, without a supinated curl.' },
+        { name: 'Hammer curl', libId: 'Hammer_Curls', why: 'A neutral grip, instead of a heavy supinated curl or a chin-up, is kinder on the left biceps.' },
+        { name: 'Cable hammer curl', libId: 'ie-cable-hammer', why: 'The cable keeps the wrist neutral and the load steady, without a supinated curl.' },
       ] },
   ];
 
   function swapsFor(name) {
     const key = exKey(name);
-    if (!key || key.includes('hammer')) return [];
-    if (key.includes('tricep')) return [];
+    if (!key || hasTerm(key, 'hammer')) return [];
+    if (hasTerm(key, 'tricep')) return [];
     const out = [];
     for (const rule of RULES) {
-      if ((rule.skip || []).some((s) => key.includes(s))) continue;
-      const hit = rule.keys.some((k) => key === k || key.includes(k));
+      if ((rule.skip || []).some((s) => hasTerm(key, s))) continue;
+      const hit = rule.keys.some((k) => hasTerm(key, k));
       if (!hit) continue;
-      if (rule.keys.includes('deadlift') && key.includes('romanian')) continue;
-      for (const o of rule.options) out.push({ name: o.name, why: o.why, area: rule.area });
+      if (rule.keys.includes('deadlift') && hasTerm(key, 'romanian')) continue;
+      for (const o of rule.options) out.push({ name: o.name, why: o.why, area: rule.area, libId: o.libId || '' });
     }
     return out;
   }
@@ -285,7 +301,7 @@ const Cut = (() => {
 
   return {
     START_KG, START_DATE, BADGES, SESSIONS, PHYSIO,
-    exKey, startKg, startDate, targetKg, milestones, newBadges, cutDay, weightOn,
+    exKey, resolveKey, startKg, startDate, targetKg, milestones, newBadges, cutDay, weightOn,
     weeksFor, weeklyReport, fmtDuration, priorSets, prFlags, personalRecords, swapsFor, catchUp,
     cleanPhoto, cleanPhotos, addDays, weekMonday,
   };
