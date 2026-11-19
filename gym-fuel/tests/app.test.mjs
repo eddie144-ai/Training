@@ -1365,6 +1365,51 @@ await test('a machine photo suggests a library exercise and keeps the thumbnail 
   await ctx.close();
 });
 
+await test('Gironda and Dolce-style plates log in one tap, and a typed recipe logs one serving', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] } });
+  await page.locator('nav').getByRole('button', { name: 'Fuel' }).click();
+  await page.getByRole('button', { name: /Hormone meal: 6 eggs/ }).click();
+  await page.getByRole('button', { name: /Dolce-style breakfast plate/ }).click();
+  await page.getByRole('button', { name: '+ My recipe' }).click();
+  const form = page.locator('#recipe-form');
+  await form.getByLabel('Name').fill('Chicken plate');
+  await form.locator('#recipe-lines').fill('200 g chicken');
+  await page.getByText(/From the lines:/).waitFor();
+  await form.getByRole('button', { name: 'Save recipe' }).click();
+  await page.locator('#my-recipes').getByRole('button', { name: /^Chicken plate/ }).click();
+  const s = await state(page);
+  const names = s.meals.map((m) => m.name);
+  assert(names.some((n) => n.startsWith('Hormone meal')) && names.some((n) => n.startsWith('Dolce-style breakfast')), `plates ${names.join(' | ')}`);
+  assert(s.myRecipes.length === 1 && s.myRecipes[0].name === 'Chicken plate' && s.myRecipes[0].kcal === 330, `recipe ${JSON.stringify(s.myRecipes[0])}`);
+  assert(s.meals.some((m) => m.ref === 'recipe:rc-' || (m.name === 'Chicken plate' && m.kcal === 330)), 'one serving logged');
+  const old = await page.evaluate(() => {
+    const n = normalise({ settings: { kcalGoal: 1800 }, meals: [{ id: 'a', name: 'Eggs', kcal: 1, p: 1, c: 0, f: 0 }], workouts: [], weights: [] });
+    return { meals: n.meals.length, garmin: n.garmin.length, recipes: n.myRecipes.length, presets: n.mealPresets.length };
+  });
+  assert(old.meals === 1 && old.garmin === 0 && old.recipes === 0 && old.presets === 2, `old backup ${JSON.stringify(old)}`);
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
+await test('Garmin tonight prefills the numbers from the photo and keeps one row for the date', async () => {
+  const { page, ctx, errors } = await open({ own: { v: 1, settings: { setupDone: true, installDismissed: true, chainsSeeded: true }, chains: [] } });
+  await page.evaluate(() => {
+    Label.readImage = async () => ({ ok: true, text: '8,432 steps\nSleep 7h 12m\nHRV 48 ms\nResting HR 52\nBody Battery 76\nStress 28\nCalories 2,450\nIntensity minutes 42' });
+  });
+  await page.locator('#garmin-file').setInputFiles({ name: 'watch.png', mimeType: 'image/png', buffer: PIXEL });
+  const sheet = page.getByRole('dialog', { name: 'Garmin tonight' });
+  assert((await sheet.getByLabel('Steps').inputValue()) === '8432', 'steps read from the photo');
+  assert((await sheet.getByLabel('HRV').inputValue()) === '48', 'hrv read');
+  await sheet.getByRole('button', { name: 'Save this night' }).click();
+  const s = await state(page);
+  assert(s.garmin.length === 1 && s.garmin[0].steps === 8432 && s.garmin[0].sleepMin === 432 && s.garmin[0].rhr === 52 && s.garmin[0].photoId, `saved ${JSON.stringify(s.garmin[0])}`);
+  assert(await page.getByText('8,432 steps').first().isVisible(), 'today shows the steps');
+  assert(await page.getByText(/cannot wake the phone/).isVisible(), 'the reminder limit is on the card');
+  assert(!JSON.stringify(s).includes('iVBORw0KGgo'), 'the watch photo stays out of the backup');
+  assert(!errors.length, errors.join('; '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 const failed = results.filter((x) => !x).length;

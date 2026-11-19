@@ -50,6 +50,19 @@ again.
   starting presets are Gironda Meal 1, 6 eggs + 3 Lidl pork patties (933 kcal, P77, C4, F66) and Eggs + steak,
   6 eggs + 250 g rump (880 kcal, P95, C1, F55). Edit a preset or add your own. They're in backups; an old backup
   without them gets these two back. The staple list in `data.js` is unchanged.
+- **Gironda plates (Fuel → Log, marked cut):** twelve more one-tap plates beside those two: hormone meal (6 eggs +
+  beef), steak and eggs, fish and eggs, salmon, liver and onions, chicken, cottage cheese, a cream-and-egg shake,
+  mince, tuna, sardines, beef and liver. Macros are estimates from an in-house table (an egg is 50 g). Not text from a book.
+- **Dolce-style plates (Fuel → Log, marked post-cut):** eight whole-food plates written here (lean protein, veg, fruit,
+  oats, quinoa, nuts). Labelled Dolce-style. They are not his recipes and they do not copy his book.
+- **My recipes (Fuel → Log):** type a recipe, or photograph a page. Lines such as `200 g chicken` or `6 eggs` estimate
+  the macros from the same table; you can type the numbers instead. Save it once. After that, one tap logs one serving.
+  The photo stays on the phone. Recipes are in the backup.
+- **Garmin tonight (Today):** photograph the watch or Garmin Connect, or type the numbers. The phone reads steps, sleep,
+  HRV, resting heart rate, Body Battery, stress, calories and intensity minutes when those words are on the photo, then
+  you confirm. One row per date, with the photo kept on the phone. A short history and a line for steps, sleep, resting
+  heart rate and HRV. **Evening nudge** shows on Today from the time you pick. A notification can fire only while the
+  page is still open. The app cannot wake the phone after it has been closed. Garmin rows are in the backup; the photo file is not.
 - **Train → Workout:** the 4-week cycles (My 4-Week Program, 10 lbs of Muscle in 4 Weeks) and Mentzer HIT
   (beginner, intermediate and advanced routines). Per-set kg and reps, **+ Add set**, **Fill from last time**,
   last weights in a circle, progression hints, Rest-Pause/hold logging for techniques, how the session felt, and
@@ -273,7 +286,7 @@ Limits worth knowing:
 
 ## Files
 `index.html` (page and styles), `data.js` (programmes, staples, recipes, methods, Mentzer levels and
-techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress, meal and exercise photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `cut.js` (milestones, weekly report, strength records, swaps and catch-up), `library.js` (search, the Iron & Eggs pack, joint tags, plates and gyms), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
+techniques, from Iron & Eggs), `scan.js` (barcode lookup, name search and the scanner polyfill loader), `label.js` (on-phone nutrition-label reading, per 100 g parsing and scaling), `photos.js` (progress, meal and exercise photos), `foodai.js` (photo logging with Gemini or Claude), `share.js` (share cards and the share sheet), `coach.js` (the brief for Coach Mike and the parser for his reply), `drive.js` (optional Google Drive auto-backup), `session.js` (workout clock, rest timer and tempo), `diary.js` (cut diary: day count, YouTube text, and the clip database), `youtube.js` (optional YouTube upload), `cut.js` (milestones, weekly report, strength records, swaps and catch-up), `library.js` (search, the Iron & Eggs pack, joint tags, plates and gyms), `garmin.js` (watch-screen reading), `meals.js` (Gironda and Dolce-style plates, ingredient maths), `exercises.json` + `exercises-LICENSE.md` (exercise library), `app.js`, `bg.jpg`
 (background photo), `sw.js`, `manifest.json`, `icons/`, `tests/app.test.mjs`, `tests/label.test.mjs`, `tests/session.test.mjs`, `tests/diary.test.mjs`, `tests/cut.test.mjs`, `tests/drive.test.mjs`, `tests/coach.test.mjs`.
 
 ## Tests
@@ -285,6 +298,8 @@ node --test gym-fuel/tests/session.test.mjs
 node --test gym-fuel/tests/diary.test.mjs
 node --test gym-fuel/tests/cut.test.mjs
 node --test gym-fuel/tests/library.test.mjs
+node --test gym-fuel/tests/garmin.test.mjs
+node --test gym-fuel/tests/meals.test.mjs
 node --test gym-fuel/tests/drive.test.mjs
 node --test gym-fuel/tests/coach.test.mjs
 ```

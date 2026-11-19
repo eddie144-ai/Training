@@ -45,6 +45,8 @@ jobs:
         run: node --test gym-fuel/tests/cut.test.mjs
       - name: Iron & Eggs exercise library
         run: node --test gym-fuel/tests/library.test.mjs
+      - name: Iron & Eggs Garmin and meals
+        run: node --test gym-fuel/tests/garmin.test.mjs gym-fuel/tests/meals.test.mjs
 
   browser-apps:
     name: Phone apps (Playwright)
